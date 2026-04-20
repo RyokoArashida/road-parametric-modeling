@@ -1,4 +1,3 @@
-
 import pandas as pd
 import Rhino.Geometry as rg
 
@@ -26,17 +25,11 @@ from my_project.config.util_schemas import (
 )
 from my_project.utils.dataframe import flatten_any
 from my_project.utils.geometry import (
-    extrude_curve,
-    get_intersection_polylines,
-    get_plane_from_points,
-    get_slope_plane,
+    get_planer_srf_from_points,
     offset_point_in_frame,
     place_obj,
-    sort_points_clockwise_from_upper_right,
-    split_brep_and_keep_by_centroid_z,
 )
 from my_project.utils.io import load_from_pickle, save_json_and_pickle
-from my_project.utils.lines import conset_closed_polycurve_obj
 from my_project.utils.proprocess import normalize
 
 
@@ -140,6 +133,33 @@ def get_column_bottom_corners(
         DTT = Point3D(column_2Dcorners[7].x, column_2Dcorners[7].y, z),
     )
 
+def get_column_top_corners(
+    column_2Dcorners: list[Point2D],
+    ab_z: float, #梁_上z
+    bl_z: float, #梁_下z
+    x_slope: float,
+    d_cut: bool,
+    u_cut: bool,
+) -> Local_ColumnModel:
+    if d_cut:
+        d_cut_z = ab_z + bl_z
+    else:
+        d_cut_z = ab_z
+    if u_cut:
+        u_cut_z = ab_z + bl_z
+    else:
+        u_cut_z = ab_z
+    return Local_ColumnModel(
+        UTT = Point3D(column_2Dcorners[0].x, column_2Dcorners[0].y, 0 - ab_z - column_2Dcorners[0].x * x_slope / 100),
+        UTN = Point3D(column_2Dcorners[1].x, column_2Dcorners[1].y, 0 - u_cut_z - column_2Dcorners[1].x * x_slope / 100),
+        UNT = Point3D(column_2Dcorners[2].x, column_2Dcorners[2].y, 0 - u_cut_z - column_2Dcorners[2].x * x_slope / 100),
+        UNN = Point3D(column_2Dcorners[3].x, column_2Dcorners[3].y, 0 - ab_z - column_2Dcorners[3].x * x_slope / 100),
+        DNN = Point3D(column_2Dcorners[4].x, column_2Dcorners[4].y, 0 - ab_z - column_2Dcorners[4].x * x_slope / 100),
+        DNT = Point3D(column_2Dcorners[5].x, column_2Dcorners[5].y, 0 - d_cut_z - column_2Dcorners[5].x * x_slope / 100),
+        DTN = Point3D(column_2Dcorners[6].x, column_2Dcorners[6].y, 0 - d_cut_z - column_2Dcorners[6].x * x_slope / 100),
+        DTT = Point3D(column_2Dcorners[7].x, column_2Dcorners[7].y, 0 - ab_z - column_2Dcorners[7].x * x_slope / 100),
+    )
+
 
 def const_columns(
     column_centers: list[Point2D],
@@ -156,10 +176,11 @@ def const_columns(
     column_top_corners_list = [] # 柱のコーナーの点を保存しておく
     column_bottom_corners_list = [] # 柱のコーナーの点を保存しておく
     for column_center, d_cut, u_cut in zip(column_centers, d_cut_list, u_cut_list):
-        center_3D_z = - column_center.x * x_slope / 100 - ab_z # 柱の高さはUedgeを基準としている
         column_2Dcorners = get_column_2Dcorners(column_info, column_center)
+        column_top_corners = get_column_top_corners(column_2Dcorners, ab_z, bl_z, x_slope, d_cut, u_cut)
         column_bottom_corners = get_column_bottom_corners(column_2Dcorners, ref_min_Uedge_offset, foundation_offset)
-        # まずは一番高いところまでの柱を作る
+        column_top_corners_list.append(column_top_corners)
+        column_bottom_corners_list.append(column_bottom_corners)
         def get_column_corners_list(column_corners: Local_ColumnModel) -> list[Point3D]:
             return [
                 column_corners.UTT,
@@ -171,71 +192,28 @@ def const_columns(
                 column_corners.DTN,
                 column_corners.DTT,
             ] 
-        column_bottom_corners = get_column_corners_list(column_bottom_corners)
-        z_max_top = center_3D_z + 1000 # とりあえず十分大きい値を足して柱の上面のzとする。後でsplitして調整する。
-        z_max_bottom = max(corner.z for corner in column_bottom_corners) # 本当は全部同じ
-        print(f"z_max_top: {z_max_top}, z_max_bottom: {z_max_bottom}")
-        rough_column = extrude_curve(
-            obj=conset_closed_polycurve_obj(column_bottom_corners),
-            vector=rg.Vector3d(0, 0, z_max_top - z_max_bottom),
-            cap=True,
-        )
-        #上部を削っていく。
-        cutter_plane = get_slope_plane(
-            point=Point3D(column_center.x, column_center.y, center_3D_z),
-            slope=-x_slope, # xが増えるとzが減るのでマイナス
-            XY="X",
-        )
-        column_after_cut = split_brep_and_keep_by_centroid_z(rough_column, cutter_plane, keep="lower")
-        points_after_cut = get_intersection_polylines(rough_column, cutter_plane)
+        column_bottom_corners_l = get_column_corners_list(column_bottom_corners)
+        column_top_corners_l = get_column_corners_list(column_top_corners)
 
-        def get_local_column_model_from_points(
-            points: list[rg.Point3d],
-        ) -> Local_ColumnModel:
-            if len(points) != 8:
-                raise ValueError(f"柱のコーナーは8点必要ですが、{len(points)}点が与えられました。{points}")
-            # 点をX降順、Y降順でソートする。Xが同じならYが大きいほうが先に出てくる
-            points_sorted = sort_points_clockwise_from_upper_right(points, center=column_center)
-            column_corners = Local_ColumnModel(
-                DTT = Point3D(points_sorted[0].X, points_sorted[0].Y, points_sorted[0].Z),
-                DTN = Point3D(points_sorted[1].X, points_sorted[1].Y, points_sorted[1].Z),
-                DNT = Point3D(points_sorted[2].X, points_sorted[2].Y, points_sorted[2].Z),
-                DNN = Point3D(points_sorted[3].X, points_sorted[3].Y, points_sorted[3].Z),
-                UNN = Point3D(points_sorted[4].X, points_sorted[4].Y, points_sorted[4].Z),
-                UNT = Point3D(points_sorted[5].X, points_sorted[5].Y, points_sorted[5].Z),
-                UTN = Point3D(points_sorted[6].X, points_sorted[6].Y, points_sorted[6].Z),
-                UTT = Point3D(points_sorted[7].X, points_sorted[7].Y, points_sorted[7].Z),
-            )
-            return column_corners
-
-        corners_after_cut = get_local_column_model_from_points(points_after_cut)
-        # U側を削る
-        if u_cut:
-            U_p1 = corners_after_cut.UTT
-            U_p2 = corners_after_cut.UNN #この2つはそのまま使われる
-            U_p3 = Point3D(corners_after_cut.UTN.x, corners_after_cut.UTN.y, corners_after_cut.UTN.z - bl_z) # 内側の点は削る
-            cutter_plane_U = get_plane_from_points(U_p1, U_p2, U_p3)
-            column_after_cutU = split_brep_and_keep_by_centroid_z(column_after_cut, cutter_plane_U, keep="lower")
-            column_after_cut = column_after_cutU
-        # # D側を削る
-        if d_cut:
-            D_p1 = corners_after_cut.DTT
-            D_p2 = corners_after_cut.DNN #この2つはそのまま使われる
-            D_p3 = Point3D(corners_after_cut.DTN.x, corners_after_cut.DTN.y, corners_after_cut.DTN.z - bl_z) # 内側の点は削る
-            cutter_plane_D = get_plane_from_points(D_p1, D_p2, D_p3)
-            column_after_cutD = split_brep_and_keep_by_centroid_z(column_after_cut, cutter_plane_D, keep="lower")
-            column_after_cut = column_after_cutD
-
-        points = [v.Location for v in column_after_cut.Vertices]
-        if len(points) != 16:
-            raise ValueError(f"柱の頂点は16点必要ですが、{len(points)}点が与えられました。")
-        bottom_points = sorted(points, key=lambda p: p.Z)[:8] # Zが低い順に並べて下位8点を取る
-        top_points = sorted(points, key=lambda p: p.Z, reverse=True)[:8] # Zが高い順に並べて上位8点を取る
-        bottom_corners = get_local_column_model_from_points(bottom_points)
-        top_corners = get_local_column_model_from_points(top_points)
-        columns.append(column_after_cut)
-        column_bottom_corners_list.append(bottom_corners)
-        column_top_corners_list.append(top_corners)
+        column_srfs = []
+        # 底面
+        column_bottom = get_planer_srf_from_points(column_bottom_corners_l)
+        column_srfs.append(column_bottom)
+        # 側面
+        for i in range(8):
+            corner1 = column_bottom_corners_l[i]
+            corner2 = column_bottom_corners_l[(i+1)%8]
+            corner3 = column_top_corners_l[(i+1)%8]
+            corner4 = column_top_corners_l[i]
+            side = get_planer_srf_from_points([corner1, corner2, corner3, corner4])
+            column_srfs.append(side)
+        # 上面
+        U_column_top = get_planer_srf_from_points([column_top_corners.UTT, column_top_corners.UTN, column_top_corners.UNT, column_top_corners.UNN])
+        D_column_top = get_planer_srf_from_points([column_top_corners.DNN, column_top_corners.DNT, column_top_corners.DTN, column_top_corners.DTT])
+        C_column_top = get_planer_srf_from_points([column_top_corners.UTT, column_top_corners.UNN, column_top_corners.DNN, column_top_corners.DTT])
+        column_srfs.extend([U_column_top, D_column_top, C_column_top])
+        joined_brep = rg.Brep.JoinBreps(column_srfs, 0.01)[0]
+        columns.append(joined_brep)
     return columns, column_top_corners_list, column_bottom_corners_list
 
 def get_each_column(
@@ -328,17 +306,13 @@ def main(initial_or_final: str):
         DIR = FINAL_OUTPUT_DIR
 
     indiv_infos = load_from_pickle(DIR / f"{Filenames.INPUT}_{Filenames.PIER}_{Filenames.INDIV}.pickle")
-    common_infos = load_from_pickle(DIR / f"{Filenames.INPUT}_{Filenames.PIER}_{Filenames.COMMON}.pickle")
 
     local_dict = {}
     world_columns_dict_for_bake = {}
 
     for pier_name, indiv_info in indiv_infos.items():
-        bridge_type = indiv_info.type
-        common_info = common_infos[bridge_type]
         local_each_dict, world_columns = get_each_column(
             input_pier_info=indiv_info,
-            # input_common_info=common_info,
         )
         local_dict[pier_name] = local_each_dict # ここはpickel用
         world_columns_dict_for_bake[pier_name] = world_columns # ここはbake用
@@ -350,7 +324,11 @@ def main(initial_or_final: str):
         name = f"{Filenames.LOCAL}_{Filenames.PIER}_{Filenames.COLUMN}",
     )
     column_flatten_dict_for_bake = flatten_any(world_columns_dict_for_bake)
-    return column_flatten_dict_for_bake
+    items = list(column_flatten_dict_for_bake.items())
+    keys = [k for k, _ in items]
+    values = [v for _, v in items]
+
+    return keys, values
 
 if __name__ == "__main__":
-    bake_dict = main("initial")
+    bake_keys, bake_objs = main("initial")

@@ -40,11 +40,13 @@ class PierTopHeightProfile:
     top_U_z: float
     top_D_z: float
     top_z: float
+    mid_top_z: float
     bottom_z: float
 
 @dataclass(frozen=True)
 class PierTopXProfile:
     pier_top_x_type: Optional[str] # "直線" or "曲線"
+    max: Optional[bool]
     x: float
 
 @dataclass(frozen=True)
@@ -64,6 +66,7 @@ class FootingInfo:
 @dataclass(frozen=True)
 class PileFoundationInfo:
     corner_points: Tuple[Point2D, Point2D, Point2D, Point2D]
+    number_of_piles: int
     count_x: int
     count_y: int
     diameter: float
@@ -75,6 +78,7 @@ class CaissonFoundationInfo:
     reference_offset: LocalOffset
     diameter: float
     depth: float
+    centers: List[Point2D]
 
 @dataclass(frozen=True)
 class InputPierInfo:

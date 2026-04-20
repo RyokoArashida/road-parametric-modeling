@@ -1,5 +1,5 @@
 import math
-from typing import Any, Union
+from typing import Any, Optional, Union
 
 import Rhino.Geometry as rg
 
@@ -103,6 +103,8 @@ def extrude_curve(
         curve = rg.LineCurve(obj)
     elif isinstance(obj, rg.PolylineCurve):
         curve = rg.PolylineCurve(obj)
+    elif isinstance(obj, rg.Circle):
+        curve = obj.ToNurbsCurve()
     else:
         raise ValueError(f"Unsupported object type: {type(obj)}")
     srf = rg.Surface.CreateExtrusion(curve, vector)
@@ -292,3 +294,104 @@ def sort_points_clockwise_from_upper_right(
         return (angle, r2)
 
     return sorted(points, key=sort_key)
+
+def get_polyline_crv_from_points(points: list[Union[Point3D, Point2D, rg.Point3d]]) -> rg.PolylineCurve:
+    valid_points = [point for point in points if point is not None]
+    corner_points = [const_point_obj(point) for point in valid_points]
+    if len(corner_points) < 2:
+        raise ValueError(f"Need at least 2 valid points, got {len(corner_points)}")
+    polyline = rg.Polyline(corner_points)
+    return rg.PolylineCurve(polyline)
+
+def get_planer_srf_from_points(points: list[Union[Point3D, Point2D, rg.Point3d]]) -> rg.Brep:
+    valid_points = [point for point in points if point is not None]
+    corner_points = [const_point_obj(point) for point in valid_points]
+    if len(corner_points) < 3:
+        raise ValueError(f"Need at least 3 valid points, got {len(corner_points)}")
+    polyline = rg.Polyline(corner_points + [corner_points[0]])
+    curve = rg.PolylineCurve(polyline)
+    if not curve.IsClosed:
+        raise ValueError(f"Curve is not closed. points={corner_points}")
+    breps = rg.Brep.CreatePlanarBreps(curve)
+    if not breps:
+        raise ValueError(
+            f"Failed to create planar brep. points={corner_points}"
+        )
+    return breps[0]
+
+def get_srf_with_loft(curves: list[Union[rg.Curve, rg.Line, rg.PolylineCurve]]) -> rg.Brep:
+    if len(curves) < 2:
+        raise ValueError(f"Need at least 2 curves to loft, got {len(curves)}")
+    loft_type = rg.LoftType.Normal
+    lofted = rg.Brep.CreateFromLoft(curves, rg.Point3d.Unset, rg.Point3d.Unset, loft_type, False)
+    if not lofted or len(lofted) == 0:
+        raise ValueError("Loft failed")
+    return lofted[0]
+
+
+def get_arc_half_from_center_edge_points(
+    center: Union[Point3D, Point2D, rg.Point3d],
+    edge: Union[Point3D, Point2D, rg.Point3d],
+    tangent_dir: str, # "Xplus", "Xminus", "Yplus", "Yminus"のいずれか edgeが中心から見てどの方向にあるか
+) -> Optional[rg.ArcCurve]:
+    center_pt = const_point_obj(center)
+    edge_pt = const_point_obj(edge)
+    if tangent_dir == "Xplus":
+        tangent = rg.Vector3d(1, 0, 0)
+    elif tangent_dir == "Xminus":
+        tangent = rg.Vector3d(-1, 0, 0)
+    elif tangent_dir == "Yplus":
+        tangent = rg.Vector3d(0, 1, 0)
+    elif tangent_dir == "Yminus":
+        tangent = rg.Vector3d(0, -1, 0)
+    else:
+        raise ValueError(f"Invalid tangent_dir: {tangent_dir}")
+    arc = rg.Arc(center_pt, tangent, edge_pt)
+    arc_crv = rg.ArcCurve(arc)
+    return arc_crv
+
+def get_arc_from_three_points(
+    start: Union[Point3D, Point2D, rg.Point3d],
+    mid: Union[Point3D, Point2D, rg.Point3d],
+    end: Union[Point3D, Point2D, rg.Point3d],
+) -> Optional[rg.ArcCurve]:
+    start_pt = const_point_obj(start)
+    mid_pt = const_point_obj(mid)
+    end_pt = const_point_obj(end)
+    arc = rg.Arc(start_pt, mid_pt, end_pt)
+    arc_crv = rg.ArcCurve(arc)
+    return arc_crv
+
+def split_two_surfaces(
+    srf_a: Union[rg.Surface, rg.Brep],
+    srf_b: Union[rg.Surface, rg.Brep],
+    tol: Optional[float] = 0.01,
+) -> tuple[list[rg.Brep], list[rg.Brep]]:
+    """
+    2つのSurface/Brepを、互いをカッターとしてSplitし、
+    分割後のBrep群を返す。
+    """
+    if isinstance(srf_a, rg.Brep):
+        brep_a = srf_a
+    else:
+        brep_a = srf_a.ToBrep()
+
+    if isinstance(srf_b, rg.Brep):
+        brep_b = srf_b
+    else:
+        brep_b = srf_b.ToBrep()
+
+    if brep_a is None:
+        raise ValueError("srf_a を Brep に変換できませんでした。")
+    if brep_b is None:
+        raise ValueError("srf_b を Brep に変換できませんでした。")
+
+    split_a = brep_a.Split(brep_b, tol)
+    split_b = brep_b.Split(brep_a, tol)
+
+    pieces_a = list(split_a) if split_a and split_a.Length > 0 else [brep_a]
+    pieces_b = list(split_b) if split_b and split_b.Length > 0 else [brep_b]
+
+    return pieces_a, pieces_b
+
+

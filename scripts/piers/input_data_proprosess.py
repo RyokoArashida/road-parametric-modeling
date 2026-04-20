@@ -98,17 +98,20 @@ def get_indiv_pier_info(
 
     # 4. PierTopInfoの情報を取得
     pier_top_height_profile = PierTopHeightProfile(
-        top_U_z = param_row["梁_U上z"] if param_row["梁_U上z"]>0 else param_row["梁_上z"],
-        top_D_z = param_row["梁_D上z"] if param_row["梁_D上z"]>0 else param_row["梁_上z"],
-        top_z = param_row["梁_上z"],
+        top_U_z = param_row["梁_U上z"] if param_row["梁_U上z"]>0 else param_row["梁_柱上z"],
+        top_D_z = param_row["梁_D上z"] if param_row["梁_D上z"]>0 else param_row["梁_柱上z"],
+        top_z = param_row["梁_柱上z"],
+        mid_top_z = param_row["梁_中間上z"],
         bottom_z = param_row["梁_下z"],
     )
     pier_top_u_side_x_profile = PierTopXProfile(
         pier_top_x_type = param_row["梁_U端xタイプ"],
+        max = param_row["梁_U端x最大値有無"],
         x = param_row["梁_U端x"],
     )
     pier_top_d_side_x_profile = PierTopXProfile(
         pier_top_x_type = param_row["梁_D端xタイプ"],
+        max = param_row["梁_D端x最大値有無"],
         x = param_row["梁_D端x"],
     )
     between_columns_x_profiles = []
@@ -120,6 +123,7 @@ def get_indiv_pier_info(
             PierTopXProfile(
                 pier_top_x_type = param_row.get(f"梁_スパンxタイプ_{i}"),
                 x = x,
+                max = True
             )
         )
     pier_top_info = PierTopInfo(
@@ -155,21 +159,35 @@ def get_indiv_pier_info(
         x_count = int(param_row["杭_x本数"])
         pile_foundation = PileFoundationInfo(
             corner_points = pile_corner_points,
+            number_of_piles=param_row["杭_本数"],
             count_x = param_row["杭_x本数"],
             count_y = param_row["杭_y本数"],
             diameter = param_row["杭_直径"],
-            depths_by_x = [param_row.get(f"杭_z_x{i}列目") for i in range(1, x_count+1)],
+            depths_by_x = [param_row.get(f"杭_z_x{i}列目") * 1000 for i in range(1, x_count+1)],
         )
     else:
         pile_foundation = None
 
     # 7. CaissonFoundationの情報を取得
     if foundation_type == "深礎":
+        # coord_dfの柱n中心を全部取る
+        center_ref_point_names = [
+            f"柱{i}中心" for i in range(1, 10)
+            if f"柱{i}中心" in coord_df.columns
+        ]
+        centers = [
+            p
+            for name in center_ref_point_names
+            for p in [get_coord_data(coord_df, pier_name, name)]
+            if p is not None and not (abs(p.x) < 1e-9 and abs(p.y) < 1e-9)
+        ]
+
         caisson_foundation = CaissonFoundationInfo(
             reference_point = ref_point,
             reference_offset = foundation_offset,
             diameter = param_row["深礎_直径"],
-            depth = param_row["深礎_z"],
+            depth = param_row["深礎_z"] * 1000,
+            centers = centers,
         )
     
     else:
