@@ -13,7 +13,7 @@ from my_project.config.util_schemas import (
 
 
 @dataclass(frozen=True)
-class PointsForVector:
+class PointsForVector: # U->Dをx軸、N→Tをy軸とする。原点は上り線側の端っこの梁最上部の中間点。
     point_u: Point2D
     point_d: Point2D
 

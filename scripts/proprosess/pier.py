@@ -1,10 +1,15 @@
 
-from typing import Tuple
 
 import pandas as pd
 
 from my_project.config.file_names import Filenames
-from my_project.config.input_pier_schemas import (
+from my_project.config.paths import (
+    FINAL_INPUT_DIR,
+    FINAL_OUTPUT_DIR,
+    INITIAL_INPUT_DIR,
+    INITIAL_OUTPUT_DIR,
+)
+from my_project.config.schemas.input_pier_schemas import (
     CaissonFoundationInfo,
     ColumnInfo,
     CommonPierInfo,
@@ -20,36 +25,15 @@ from my_project.config.input_pier_schemas import (
     WaterTreatmentNotchInfo,
     WaterTreatmentWallInfo,
 )
-from my_project.config.paths import (
-    FINAL_INPUT_DIR,
-    FINAL_OUTPUT_DIR,
-    INITIAL_INPUT_DIR,
-    INITIAL_OUTPUT_DIR,
-)
 from my_project.config.util_schemas import (
     CrownSlope,
     LocalOffset,
     MonoSlope,
-    Point2D,
     Point3D,
 )
 from my_project.utils.io import read_file_to_df, save_json_and_pickle
-from my_project.utils.proprocess import m_coord_to_mm
+from my_project.utils.proprocess import get_coord_data, get_four_corners
 
-
-def get_coord_data(
-    coord_df: pd.DataFrame,
-    pier_name: str,
-    point_name: str,
-) -> Point2D:
-    x_row = coord_df[(coord_df["橋脚名"] == pier_name) & (coord_df["XY"] == "Y")]
-    y_row = coord_df[(coord_df["橋脚名"] == pier_name) & (coord_df["XY"] == "X")]
-    point_x = m_coord_to_mm(x_row[point_name].values[0])
-    point_y = m_coord_to_mm(y_row[point_name].values[0])
-    return Point2D(x=point_x, y=point_y)
-
-def get_four_corners(coord_df: pd.DataFrame, pier_name: str, corner_names:Tuple[str, str, str, str]) -> Tuple[Point2D, Point2D, Point2D, Point2D]:
-    return tuple(get_coord_data(coord_df, pier_name, corner_name) for corner_name in corner_names)
 
 def get_indiv_pier_info(
     param_row: pd.Series,

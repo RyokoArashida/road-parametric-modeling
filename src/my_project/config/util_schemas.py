@@ -48,8 +48,6 @@ class LocalOffset:
     y: float
     z: float
 
-
-
 @dataclass(frozen=True)
 class Frame2D:
     """
@@ -57,3 +55,32 @@ class Frame2D:
     """
     x_axis: Vector2D # U -> D
     y_axis: Vector2D # N -> T
+
+# 点の数に応じて
+@dataclass(frozen=True)
+class Square_Corners:
+    DT: Point3D
+    DN: Point3D
+    UN: Point3D
+    UT: Point3D
+    
+
+@dataclass(frozen=True)
+class Square_and_center_Corners:
+    DC: Point3D
+    UT: Point3D
+    DT: Point3D
+    UN: Point3D
+    DN: Point3D
+    UC: Point3D = Point3D(0, 0, 0) # 上り線側中心点
+
+@dataclass(frozen=True)
+class Octagon_Corners:
+    UTT: Point3D
+    UTN: Point3D
+    UNT: Point3D
+    UNN: Point3D
+    DNN: Point3D
+    DNT: Point3D
+    DTN: Point3D
+    DTT: Point3D

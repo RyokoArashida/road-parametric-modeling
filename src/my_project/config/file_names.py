@@ -1,5 +1,6 @@
 class Filenames:
     PIER = "pier"
+    ABUT = "abut"
     INDIV = "indiv"
     COMMON = "common"
     INPUT = "input"
@@ -7,4 +8,6 @@ class Filenames:
     LOCAL = "local"
     WORLD = "world"
     COLUMN = "column"
+    BARRIER = "barrier"
+    BASE_POINT = "base_point"
 

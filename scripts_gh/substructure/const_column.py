@@ -2,52 +2,34 @@ import pandas as pd
 import Rhino.Geometry as rg
 
 from my_project.config.file_names import Filenames
-from my_project.config.input_pier_schemas import (
+from my_project.config.paths import (
+    FINAL_OUTPUT_DIR,
+    INITIAL_OUTPUT_DIR,
+)
+from my_project.config.schemas.input_pier_schemas import (
     ColumnInfo,
     InputPierInfo,
     PierTopInfo,
     PierTopSurfInfo,
 )
-from my_project.config.model_pier_schemas import (
-    Local_ColumnModel,
-    Local_PierTopSurfModel,
-)
-from my_project.config.paths import (
-    FINAL_OUTPUT_DIR,
-    INITIAL_OUTPUT_DIR,
-)
 from my_project.config.util_schemas import (
-    Frame2D,
     LocalOffset,
+    Octagon_Corners,
     Point2D,
     Point3D,
-    Vector2D,
+    Square_and_center_Corners,
 )
 from my_project.utils.dataframe import flatten_any
-from my_project.utils.geometry import (
-    get_planer_srf_from_points,
+from my_project.utils.geometry.vectors import get_frame_2D
+from my_project.utils.geometry_gh.const import (
+    const_planer_srf_from_points,
+)
+from my_project.utils.geometry_gh.transform import (
     offset_point_in_frame,
     place_obj,
 )
 from my_project.utils.io import load_from_pickle, save_json_and_pickle
-from my_project.utils.proprocess import normalize
 
-
-def get_frame_2D(point_u: Point2D, point_d: Point2D) -> Frame2D:
-    # U -> D のベクトルをx軸とする
-    raw_x = Vector2D(
-        x=point_d.x - point_u.x,
-        y=point_d.y - point_u.y
-    )
-    x_axis = normalize(raw_x)
-    y_axis = Vector2D(
-        x=-x_axis.y,
-        y=x_axis.x,
-    ) # x軸に対して反時計回りに90度回転させるとy軸になる
-    return Frame2D(
-        x_axis=x_axis,
-        y_axis=y_axis,
-    )
 
 def get_ref_min_Uedge_offset(
     reference_offset: LocalOffset, # minus
@@ -59,7 +41,7 @@ def get_ref_min_Uedge_offset(
 def get_pier_top_surf_corners(
     pier_top_surf_info: PierTopSurfInfo,
     UD_x: float,
-) -> Local_PierTopSurfModel:
+) -> Square_and_center_Corners:
     width_y = pier_top_surf_info.width_y / 2
     UC2D = Point2D(0,0)
     DC2D = Point2D(UD_x, 0)
@@ -73,7 +55,7 @@ def get_pier_top_surf_corners(
     Dedge_z = Uedge_z - UD_x * x_slope / 100 # %で与えられているので100で割る。Uのほうが高い場合正のスロープ。
     UC_z = Uedge_z - width_y * y_slope / 100 # 山形
     DC_z = Dedge_z - width_y * y_slope / 100
-    return Local_PierTopSurfModel(
+    return Square_and_center_Corners(
         UC = Point3D(UC2D.x, UC2D.y, UC_z),
         DC = Point3D(DC2D.x, DC2D.y, DC_z),
         UT = Point3D(UT2D.x, UT2D.y, Uedge_z),
@@ -120,9 +102,9 @@ def get_column_bottom_corners(
     column_2Dcorners: list[Point2D],
     ref_mi_Uedge_offset: float, # Uのほうが高い時、負の値。
     foundation_offset: LocalOffset,
-) -> Local_ColumnModel:
+) -> Octagon_Corners:
     z = ref_mi_Uedge_offset + foundation_offset.z # 基礎まで落とす。Uedge-ref がref_z_offset, 基礎-refがfoundation_offset.z（負値）
-    return Local_ColumnModel(
+    return Octagon_Corners(
         UTT = Point3D(column_2Dcorners[0].x, column_2Dcorners[0].y, z),
         UTN = Point3D(column_2Dcorners[1].x, column_2Dcorners[1].y, z),
         UNT = Point3D(column_2Dcorners[2].x, column_2Dcorners[2].y, z),
@@ -140,7 +122,7 @@ def get_column_top_corners(
     x_slope: float,
     d_cut: bool,
     u_cut: bool,
-) -> Local_ColumnModel:
+) -> Octagon_Corners:
     if d_cut:
         d_cut_z = ab_z + bl_z
     else:
@@ -149,7 +131,7 @@ def get_column_top_corners(
         u_cut_z = ab_z + bl_z
     else:
         u_cut_z = ab_z
-    return Local_ColumnModel(
+    return Octagon_Corners(
         UTT = Point3D(column_2Dcorners[0].x, column_2Dcorners[0].y, 0 - ab_z - column_2Dcorners[0].x * x_slope / 100),
         UTN = Point3D(column_2Dcorners[1].x, column_2Dcorners[1].y, 0 - u_cut_z - column_2Dcorners[1].x * x_slope / 100),
         UNT = Point3D(column_2Dcorners[2].x, column_2Dcorners[2].y, 0 - u_cut_z - column_2Dcorners[2].x * x_slope / 100),
@@ -181,7 +163,7 @@ def const_columns(
         column_bottom_corners = get_column_bottom_corners(column_2Dcorners, ref_min_Uedge_offset, foundation_offset)
         column_top_corners_list.append(column_top_corners)
         column_bottom_corners_list.append(column_bottom_corners)
-        def get_column_corners_list(column_corners: Local_ColumnModel) -> list[Point3D]:
+        def get_column_corners_list(column_corners: Octagon_Corners) -> list[Point3D]:
             return [
                 column_corners.UTT,
                 column_corners.UTN,
@@ -197,7 +179,7 @@ def const_columns(
 
         column_srfs = []
         # 底面
-        column_bottom = get_planer_srf_from_points(column_bottom_corners_l)
+        column_bottom = const_planer_srf_from_points(column_bottom_corners_l)
         column_srfs.append(column_bottom)
         # 側面
         for i in range(8):
@@ -205,12 +187,12 @@ def const_columns(
             corner2 = column_bottom_corners_l[(i+1)%8]
             corner3 = column_top_corners_l[(i+1)%8]
             corner4 = column_top_corners_l[i]
-            side = get_planer_srf_from_points([corner1, corner2, corner3, corner4])
+            side = const_planer_srf_from_points([corner1, corner2, corner3, corner4])
             column_srfs.append(side)
         # 上面
-        U_column_top = get_planer_srf_from_points([column_top_corners.UTT, column_top_corners.UTN, column_top_corners.UNT, column_top_corners.UNN])
-        D_column_top = get_planer_srf_from_points([column_top_corners.DNN, column_top_corners.DNT, column_top_corners.DTN, column_top_corners.DTT])
-        C_column_top = get_planer_srf_from_points([column_top_corners.UTT, column_top_corners.UNN, column_top_corners.DNN, column_top_corners.DTT])
+        U_column_top = const_planer_srf_from_points([column_top_corners.UTT, column_top_corners.UTN, column_top_corners.UNT, column_top_corners.UNN])
+        D_column_top = const_planer_srf_from_points([column_top_corners.DNN, column_top_corners.DNT, column_top_corners.DTN, column_top_corners.DTT])
+        C_column_top = const_planer_srf_from_points([column_top_corners.UTT, column_top_corners.UNN, column_top_corners.DNN, column_top_corners.DTT])
         column_srfs.extend([U_column_top, D_column_top, C_column_top])
         joined_brep = rg.Brep.JoinBreps(column_srfs, 0.01)[0]
         columns.append(joined_brep)
@@ -225,6 +207,7 @@ def get_each_column(
     frame_2D = get_frame_2D(
         point_u=Point2D(x=point_u.x, y=point_u.y),
         point_d=Point2D(x=point_d.x, y=point_d.y),
+        y_direction="UP" # →がx、↑がyとする。
     )
 
     # ゼロ点を橋座面の基準点に合わせる

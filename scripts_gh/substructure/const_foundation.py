@@ -7,13 +7,15 @@ from my_project.config.paths import (
     INITIAL_OUTPUT_DIR,
 )
 from my_project.config.util_schemas import LocalOffset, Point2D, Point3D, Vector2D
-from my_project.utils.geometry import (
-    extrude_curve,
+from my_project.utils.geometry.vectors import normalize
+from my_project.utils.geometry_gh.attributes import (
     sort_points_clockwise_from_upper_right,
 )
+from my_project.utils.geometry_gh.const import (
+    const_extrude_brep_from_curve,
+    const_point_obj,
+)
 from my_project.utils.io import load_from_pickle
-from my_project.utils.points import const_point_obj
-from my_project.utils.proprocess import normalize
 
 
 def get_each_footing(
@@ -31,8 +33,8 @@ def get_each_footing(
     corner_points_3D = [const_point_obj(p) for p in corner_points_3D]
     footing_polyline = rg.Polyline(corner_points_3D + [corner_points_3D[0]])
     footing_curve = rg.PolylineCurve(footing_polyline)
-    footing_brep = extrude_curve(
-        obj = footing_curve,
+    footing_brep = const_extrude_brep_from_curve(
+        crv = footing_curve,
         vector = rg.Vector3d(0, 0, -height),
         cap=True,
     )
@@ -77,8 +79,8 @@ def get_each_piles(
             )
             pile_height = depth_per_x[i]
             circle = rg.Circle(const_point_obj(pile_center), diameter/2)
-            pile_brep = extrude_curve(
-                obj = circle,
+            pile_brep = const_extrude_brep_from_curve(
+                crv = circle,
                 vector = rg.Vector3d(0, 0, -pile_height),
                 cap=True,
             )
@@ -96,28 +98,28 @@ def get_caisson(
     for center in centers:
         center_3D = Point3D(center.x, center.y, ref_point.z + ref_offset.z)
         caisson_circle = rg.Circle(const_point_obj(center_3D), diameter/2)
-        caisson_brep = extrude_curve(
-            obj = caisson_circle,
+        caisson_brep = const_extrude_brep_from_curve(
+            crv = caisson_circle,
             vector = rg.Vector3d(0, 0, -depth),
             cap=True,
         )
         caissons.append(caisson_brep)
     return caissons
     
-def main(initial_or_final: str, tol: float = 0.01):
+def main(initial_or_final: str):
     if initial_or_final == "initial":
         DIR = INITIAL_OUTPUT_DIR
     elif initial_or_final == "final":
         DIR = FINAL_OUTPUT_DIR
 
-    indiv_infos = load_from_pickle(DIR / f"{Filenames.INPUT}_{Filenames.PIER}_{Filenames.INDIV}.pickle")
-
+    pier_indiv_infos = load_from_pickle(DIR / f"{Filenames.INPUT}_{Filenames.PIER}_{Filenames.INDIV}.pickle")
+    abut_indiv_infos = load_from_pickle(DIR / f"{Filenames.INPUT}_{Filenames.ABUT}_{Filenames.INDIV}.pickle")
+    indiv_infos = {**pier_indiv_infos, **abut_indiv_infos}
     world_foundation_dict_for_bake = {}
 
-    for pier_name, indiv_info in indiv_infos.items():
-
+    for substructure_name, indiv_info in indiv_infos.items():
         if pd.isna(indiv_info.footing) and pd.isna(indiv_info.caisson):
-            print(f"{pier_name}の基礎はありません")
+            print(f"{substructure_name}の基礎はありません")
             continue
         elif not pd.isna(indiv_info.footing):
             footing, height = get_each_footing(
@@ -126,7 +128,7 @@ def main(initial_or_final: str, tol: float = 0.01):
                 corner_points = indiv_info.footing.corner_points,
                 height = indiv_info.footing.height,
             )
-            world_foundation_dict_for_bake[f"{pier_name}_フーチング"] = footing
+            world_foundation_dict_for_bake[f"{substructure_name}_フーチング"] = footing
             piles = get_each_piles(
                 ref_point = indiv_info.footing.reference_point,
                 corner_points = indiv_info.piles.corner_points,
@@ -138,7 +140,7 @@ def main(initial_or_final: str, tol: float = 0.01):
                 y_num = int(indiv_info.piles.count_y),
             )
             for i, pile in enumerate(piles):
-                world_foundation_dict_for_bake[f"{pier_name}_場所打ち杭_{i+1}"] = pile
+                world_foundation_dict_for_bake[f"{substructure_name}_場所打ち杭_{i+1}"] = pile
         elif not pd.isna(indiv_info.caisson):
             caissons = get_caisson(
                 centers = indiv_info.caisson.centers,
@@ -148,7 +150,7 @@ def main(initial_or_final: str, tol: float = 0.01):
                 depth = indiv_info.caisson.depth,
             )
             for i, caisson in enumerate(caissons):
-                world_foundation_dict_for_bake[f"{pier_name}_深礎_{i+1}"] = caisson
+                world_foundation_dict_for_bake[f"{substructure_name}_深礎_{i+1}"] = caisson
 
     items = world_foundation_dict_for_bake.items()
     keys = [k for k, _ in items]
