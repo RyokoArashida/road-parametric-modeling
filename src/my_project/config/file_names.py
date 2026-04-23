@@ -10,4 +10,8 @@ class Filenames:
     COLUMN = "column"
     BARRIER = "barrier"
     BASE_POINT = "base_point"
+    SUPERSTRUCTURE = "superstructure"
+    SUBSTRUCTURE = "substructure"
+    COORDS = "coords"
+    SLAB = "slab"
 

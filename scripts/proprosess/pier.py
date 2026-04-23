@@ -235,7 +235,7 @@ def main(initial_or_final: str) -> None:
         fillna0=True,
     )
     coord_df = read_file_to_df(
-        file_path = input_dir / "座標.xlsx",
+        file_path = input_dir / "下部工座標.xlsx",
         sheet_name="下部工座標",
         fillna0=True,
     )

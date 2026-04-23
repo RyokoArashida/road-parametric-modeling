@@ -1,6 +1,7 @@
 import math
+from typing import Union
 
-from my_project.config.util_schemas import Frame2D, Point2D, Vector2D
+from my_project.config.util_schemas import Frame2D, Point2D, Point3D, Vector2D
 
 
 def normalize(v: Vector2D) -> Vector2D:
@@ -10,7 +11,12 @@ def normalize(v: Vector2D) -> Vector2D:
     return Vector2D(v.x / norm, v.y / norm)
 
 
-def get_frame_2D(point_u: Point2D, point_d: Point2D, y_direction:str) -> Frame2D:
+def get_frame_2D(point_u: Union[Point2D, Point3D], point_d: Union[Point2D, Point3D], y_direction:str) -> Frame2D:
+    if isinstance(point_u, Point3D):
+        point_u = Point2D(x=point_u.x, y=point_u.y)
+    if isinstance(point_d, Point3D):
+        point_d = Point2D(x=point_d.x, y=point_d.y)
+    
     # U -> D のベクトルをx軸とする
     raw_x = Vector2D(
         x=point_d.x - point_u.x,

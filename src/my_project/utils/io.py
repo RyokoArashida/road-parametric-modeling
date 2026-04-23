@@ -5,6 +5,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Optional, Union
 
+import numpy as np
 import pandas as pd
 
 from my_project.utils.dataframe import merge_cols
@@ -126,8 +127,8 @@ def to_jsonable(obj):
     if isinstance(obj, (list, tuple)):
         return [to_jsonable(v) for v in obj]
 
-    if isinstance(obj, (str, int, float, bool)) or obj is None:
-        return obj
+    if isinstance(obj, (str, int, float, bool, np.integer, np.floating)) or obj is None:
+        return str(obj)
 
     raise TypeError(f"Unsupported type for JSON: {type(obj)}")
 

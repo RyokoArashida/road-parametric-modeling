@@ -23,8 +23,6 @@ def offset_point_in_frame(
         z = point.z + local_offset.z,
     )
 
-
-
 def get_point_by_xy_offset(
     point1: Point3D,
     point2: Point3D,

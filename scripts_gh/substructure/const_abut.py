@@ -743,7 +743,6 @@ def main(initial_or_final: str):
     for abut_name, indiv_info in indiv_infos.items():
         bridge_type = indiv_info.bridge_type
         common_info = common_info_dict[bridge_type]
-        # debug
         abut_dict, barrier_dict, barrier_base_point_dict = get_each_abut(
             input_indiv_info = indiv_info,
             input_common_info = common_info,

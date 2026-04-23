@@ -61,3 +61,4 @@ def place_obj(
         return new_pt
     else:
         raise ValueError(f"Unsupported object type: {type(obj)}")
+

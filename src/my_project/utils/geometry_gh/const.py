@@ -5,6 +5,7 @@ from Rhino import Geometry as rg
 from my_project.config.util_schemas import (
     Point2D,
     Point3D,
+    Vector2D,
 )
 
 
@@ -140,3 +141,33 @@ def const_arc_from_three_points(
     arc = rg.Arc(start_pt, mid_pt, end_pt)
     arc_crv = rg.ArcCurve(arc)
     return arc_crv
+
+# そのポイントを通り、与えた軸に沿った、かつ垂直な平面のサーフェスを作る
+def const_srf_from_point_and_axis(
+    point: Union[Point3D, Point2D, rg.Point3d],
+    axis_vector: Vector2D,
+    height: float = 100000, # 100m
+    length: float = 100000, # 100m
+) -> rg.Brep:
+    top_plus = rg.Point3d(
+        point.x + axis_vector.x * length / 2,
+        point.y + axis_vector.y * length / 2,
+        point.z + height / 2
+    )
+    top_minus = rg.Point3d(
+        point.x - axis_vector.x * length / 2,
+        point.y - axis_vector.y * length / 2,
+        point.z + height / 2
+    )
+    bottom_plus = rg.Point3d(
+        point.x + axis_vector.x * length / 2,
+        point.y + axis_vector.y * length / 2,
+        point.z - height / 2
+    )
+    bottom_minus = rg.Point3d(
+        point.x - axis_vector.x * length / 2,
+        point.y - axis_vector.y * length / 2,
+        point.z - height / 2
+    )
+    corners = [top_plus, top_minus, bottom_minus, bottom_plus]
+    return const_surf_obj_from_points(corners)

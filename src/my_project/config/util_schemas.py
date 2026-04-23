@@ -58,6 +58,11 @@ class Frame2D:
 
 # 点の数に応じて
 @dataclass(frozen=True)
+class UD_Corners:
+    U: Point3D
+    D: Point3D
+
+@dataclass(frozen=True)
 class Square_Corners:
     DT: Point3D
     DN: Point3D
