@@ -14,4 +14,9 @@ class Filenames:
     SUBSTRUCTURE = "substructure"
     COORDS = "coords"
     SLAB = "slab"
+    MG = "main_girder"
+    UP = "up"
+    DOWN = "down"
+    TOP_POINTS = "top_points"
+    CENTER = "center"
 

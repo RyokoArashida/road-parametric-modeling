@@ -2,6 +2,9 @@ from typing import Optional, Union
 
 import Rhino.Geometry as rg
 
+from my_project.config.util_schemas import Point2D, Point3D, Vector2D
+from my_project.utils.geometry_gh.const import const_srf_from_point_and_axis
+
 
 def split_two_surfaces(
     srf_a: Union[rg.Surface, rg.Brep],
@@ -35,3 +38,21 @@ def split_two_surfaces(
 
     return pieces_a, pieces_b
 
+
+def get_intersect_point_on_curve_with_xy(
+    curve: Union[rg.Curve, rg.Line, rg.PolylineCurve],
+    point: Point2D,
+    axis_vector: Vector2D, # 断面で考えているときはそれに直交する方向。
+)->Point3D:
+    planer_srf = const_srf_from_point_and_axis(point, axis_vector)
+    intersection_events = rg.Intersect.Intersection.CurveBrep(curve, planer_srf, 0.01)
+    if not intersection_events:
+        raise ValueError(f"曲線と平面の交差が見つかりませんでした。point={point}, axis_vector={axis_vector}")
+    point = intersection_events[2]
+    if len(point) == 0:
+        raise ValueError(f"曲線と平面の交点が見つかりませんでした。point={point}, axis_vector={axis_vector}")
+    if len(point) > 1:
+        raise ValueError(f"曲線と平面の交点が複数見つかりました。point={point}, axis_vector={axis_vector}")
+    intersect_pt = point[0]
+    return Point3D(x=intersect_pt.X, y=intersect_pt.Y, z=intersect_pt.Z)
+    

@@ -9,7 +9,7 @@ from my_project.config.paths import (
     INITIAL_INPUT_DIR,
     INITIAL_OUTPUT_DIR,
 )
-from my_project.config.schemas.input_abut_schemas import (
+from my_project.config.schemas.abut_schemas import (
     BackwallInfo,
     BarrierCommonInfo,
     BarrierInfo,

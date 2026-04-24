@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import List, Optional, Tuple
 
+from my_project.config.schemas.barrier_schemas import BarrierCommonInfo
 from my_project.config.util_schemas import (
     LocalOffset,
     MonoSlope,
@@ -124,21 +125,6 @@ class InputAbutInfo:
     piles: Optional[PileFoundationInfo]
     caisson: Optional[CaissonFoundationInfo]
     notch_position: str # Tokyo or Nagoya
-
-@dataclass(frozen=True)
-class BarrierCommonInfo:
-    slope: MonoSlope
-    x: float
-    face_x: float
-    face_height: float
-    haunch_x: float
-    haunch_height: float
-    base_height: float
-    edge_out_height: float
-    edge_in_height: float
-    edge_watertreatment_height: float
-    edge_watertreatment_x: float
-    pavement_height: float
 
 @dataclass(frozen=True)
 class WaterTreatmentNotchInfo:

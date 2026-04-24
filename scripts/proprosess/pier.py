@@ -9,7 +9,7 @@ from my_project.config.paths import (
     INITIAL_INPUT_DIR,
     INITIAL_OUTPUT_DIR,
 )
-from my_project.config.schemas.input_pier_schemas import (
+from my_project.config.schemas.pier_schemas import (
     CaissonFoundationInfo,
     ColumnInfo,
     CommonPierInfo,

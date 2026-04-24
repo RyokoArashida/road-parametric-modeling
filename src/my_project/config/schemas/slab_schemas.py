@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import List, Optional, Tuple, Union
 
-from my_project.config.schemas.input_superstructure_schemas import (
+from my_project.config.schemas.superstructure_schemas import (
     CrossGirderOffsetInfo,
 )
 from my_project.config.util_schemas import (
@@ -20,7 +20,6 @@ class CommonHeightInfo:
     pavement: float
     edge: float
     girder_above: float
-    center: float
 
 @dataclass(frozen=True)
 class CommonWidthInfo:
@@ -37,6 +36,13 @@ class EmergencyLaneInfo:
     width: float
 
 @dataclass(frozen=True)
+class MainGirderTopPointInfo:
+    name: str
+    U_edge:Optional[Point3D]
+    center:Point3D
+    D_edge:Optional[Point3D]
+
+@dataclass(frozen=True)
 class BottomSurfaceInfo:
     start_offset: CrossGirderOffsetInfo
     end_offset: CrossGirderOffsetInfo
@@ -49,18 +55,38 @@ class SlabPointInfo:
     CL: Optional[Union[Point3D, Point2D]]
     L2: Optional[Union[Point3D, Point2D]]
     R2: Optional[Union[Point3D, Point2D]]
+    main_girder_points: Optional[list[MainGirderTopPointInfo]]
     UDframe2D: Optional[Frame2D] # U->Dをx軸、N->Tをy軸とする。原点は上り線側の端っこの梁最上部の中間点。
     UDslope: Optional[MonoSlope] # U->Dの勾配. Uが高い時は正、Dが高い時は負
-
 
 @dataclass(frozen=True)
 class SlabInfo:
     name: str
+    num: str
     point_infos: list[SlabPointInfo]
     height: CommonHeightInfo
     width: CommonWidthInfo
     emergency_lane: list[EmergencyLaneInfo]
     bottom_surface: list[BottomSurfaceInfo]
+    barrier_type: str
+
+@dataclass(frozen=True)
+class DepressedPointInfo:
+    pre_girder_name: str
+    post_girder_name: str
+    start_point: Point3D
+    end_point: Point3D
+
+@dataclass(frozen=True)
+class SlabCorners:
+    name: str
+    is_center_depressed: bool
+    Utop: Point3D
+    Dtop: Point3D
+    Ubottom: Point3D
+    Dbottom: Point3D
+    main_girder_top_points: list[MainGirderTopPointInfo]
+    depressed_points: list[DepressedPointInfo]
 
 
 

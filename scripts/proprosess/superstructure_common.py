@@ -9,7 +9,7 @@ from my_project.config.paths import (
     FINAL_OUTPUT_DIR,
     INITIAL_OUTPUT_DIR,
 )
-from my_project.config.schemas.input_superstructure_schemas import (
+from my_project.config.schemas.superstructure_schemas import (
     CoordInfo,
 )
 from my_project.config.util_schemas import (
