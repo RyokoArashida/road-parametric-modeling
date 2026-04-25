@@ -56,7 +56,6 @@ def get_indiv_barrier_info(
                 Rpoint = R_top_point,
             )
         )
-        
     barrier_info = BarrierInfo(
         bridge_name = bridge_name,
         num = num,
@@ -74,7 +73,6 @@ def get_indiv_center_barrier_info(
 ) -> CenterBarrierInfo:
     nose_common_info = CenterBarrierNoseInfo(
         length = center_barrier_df_row["ノーズ延長"],
-        radius = center_barrier_df_row["ノーズ先半円部半径"],
         height = center_barrier_df_row["マウントアップ高さ"],
         edge_cut_width = center_barrier_df_row["切欠幅"],
         start_cross_girder_key = center_barrier_df_row["ノーズ開始横桁"],

@@ -41,3 +41,26 @@ def get_point_by_xy_offset(
         y=point1.y + dy * t,
         z=point1.z + dz * t,
     )
+
+
+
+def get_offset_point_LR_within_line(L_point, R_point, offset_xy):
+    return (
+        get_point_by_xy_offset(
+            point1=L_point,
+            point2=R_point,
+            offset=offset_xy,
+        ),
+        get_point_by_xy_offset(
+            point1=R_point,
+            point2=L_point,
+            offset=offset_xy,
+        )
+    )
+
+def get_point_LR_x_z(L_point, R_point, offset_xy, offset_z): # これはｚが絶対座標
+    L_in_line, R_in_line = get_offset_point_LR_within_line(L_point, R_point, offset_xy)
+    return (
+        Point3D(x=L_in_line.x, y=L_in_line.y, z=L_point.z + offset_z),
+        Point3D(x=R_in_line.x, y=R_in_line.y, z=R_point.z + offset_z),
+    )

@@ -3,7 +3,10 @@ from typing import Optional, Union
 import Rhino.Geometry as rg
 
 from my_project.config.util_schemas import Point2D, Point3D, Vector2D
-from my_project.utils.geometry_gh.const import const_srf_from_point_and_axis
+from my_project.utils.geometry_gh.const import (
+    const_srf_from_point_and_axis,
+    const_vertical_line_from_point,
+)
 
 
 def split_two_surfaces(
@@ -55,4 +58,23 @@ def get_intersect_point_on_curve_with_xy(
         raise ValueError(f"曲線と平面の交点が複数見つかりました。point={point}, axis_vector={axis_vector}")
     intersect_pt = point[0]
     return Point3D(x=intersect_pt.X, y=intersect_pt.Y, z=intersect_pt.Z)
+
+def get_intersect_point_on_srf_with_point(
+    srf: Union[rg.Surface, rg.Brep],
+    point: Union[Point3D, Point2D, rg.Point3d],
+) -> Optional[Point3D]:
+    linecrv = const_vertical_line_from_point(point)
+    brep_srf = srf if isinstance(srf, rg.Brep) else srf.ToBrep()
+    intersection_events = rg.Intersect.Intersection.CurveBrep(linecrv, brep_srf, 0.01)
+    if not intersection_events:
+        raise ValueError(f"曲線とサーフェスの交差が見つかりませんでした。point={point}")
+    point = intersection_events[2]
+    if len(point) == 0:
+        raise ValueError(f"曲線とサーフェスの交点が見つかりませんでした。point={point}")
+    if len(point) > 1:
+        raise ValueError(f"曲線とサーフェスの交点が複数見つかりました。point={point}")
+    intersect_pt = point[0]
+    return Point3D(x=intersect_pt.X, y=intersect_pt.Y, z=intersect_pt.Z)
+    
+
     

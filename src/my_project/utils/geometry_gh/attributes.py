@@ -36,3 +36,23 @@ def sort_points_clockwise_from_upper_right(
         return (angle, r2)
 
     return sorted(points, key=sort_key)
+
+def get_distance_along_crv(
+    curve: Union[rg.Curve, rg.Line, rg.PolylineCurve, rg.Circle],
+    points: list[Union[rg.Point3d, Point3D, Point2D]],
+) -> list[float]:
+    point_distances = []
+    for p in points:
+        p_obj = const_point_obj(p)
+        t = curve.ClosestPoint(p_obj)[1]
+        if t == 0:
+            distance = 0
+        elif t == len(points) - 1:
+            distance = curve.GetLength()
+        else:
+            split_curves = curve.Split(t)
+            start_curve = split_curves[0]
+            distance = start_curve.GetLength()
+        point_distances.append(distance)
+    return point_distances
+

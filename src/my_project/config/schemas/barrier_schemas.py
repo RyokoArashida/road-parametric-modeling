@@ -26,7 +26,6 @@ class BarrierCommonInfo:
 @dataclass(frozen=True)
 class CenterBarrierNoseInfo:
     length: float
-    radius: float
     height: float
     edge_cut_width: float
     start_cross_girder_key: str
@@ -52,3 +51,4 @@ class CenterBarrierInfo:
     barrier_common_info: BarrierCommonInfo
     nose_common_info: CenterBarrierNoseInfo #ノーズまでは再現しないかも…
     LR2_points: list[LR_point]
+

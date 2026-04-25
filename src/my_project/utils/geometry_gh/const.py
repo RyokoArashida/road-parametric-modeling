@@ -142,32 +142,39 @@ def const_arc_from_three_points(
     arc_crv = rg.ArcCurve(arc)
     return arc_crv
 
+
+# そのポイントを通り、与えた軸に沿った、かつ垂直な直線を作る
+def const_vertical_line_from_point(
+    point: Union[Point3D, rg.Point3d],
+    length: float = 100000, # 100m
+) -> rg.LineCurve:
+    point = const_point_obj(point)
+    top = rg.Point3d(point.X, point.Y, point.Z + length / 2)
+    bottom = rg.Point3d(point.X, point.Y, point.Z - length / 2)
+    line = rg.Line(bottom, top)
+    return rg.LineCurve(line)
+
 # そのポイントを通り、与えた軸に沿った、かつ垂直な平面のサーフェスを作る
 def const_srf_from_point_and_axis(
-    point: Union[Point3D, Point2D, rg.Point3d],
+    point: Union[Point3D, rg.Point3d],
     axis_vector: Vector2D,
     height: float = 100000, # 100m
     length: float = 100000, # 100m
 ) -> rg.Brep:
-    top_plus = rg.Point3d(
-        point.x + axis_vector.x * length / 2,
-        point.y + axis_vector.y * length / 2,
-        point.z + height / 2
+    point = const_point_obj(point)
+    plus_pt = rg.Point3d(
+        point.X + axis_vector.x * length / 2,
+        point.Y + axis_vector.y * length / 2,
+        point.Z
     )
-    top_minus = rg.Point3d(
-        point.x - axis_vector.x * length / 2,
-        point.y - axis_vector.y * length / 2,
-        point.z + height / 2
+    minus_pt = rg.Point3d(
+        point.X - axis_vector.x * length / 2,
+        point.Y - axis_vector.y * length / 2,
+        point.Z
     )
-    bottom_plus = rg.Point3d(
-        point.x + axis_vector.x * length / 2,
-        point.y + axis_vector.y * length / 2,
-        point.z - height / 2
-    )
-    bottom_minus = rg.Point3d(
-        point.x - axis_vector.x * length / 2,
-        point.y - axis_vector.y * length / 2,
-        point.z - height / 2
-    )
-    corners = [top_plus, top_minus, bottom_minus, bottom_plus]
-    return const_surf_obj_from_points(corners)
+    plus_line = const_vertical_line_from_point(plus_pt, height)
+    minus_line = const_vertical_line_from_point(minus_pt, height)
+    srf = const_srf_from_crvs([rg.LineCurve(plus_line), rg.LineCurve(minus_line)])
+    return srf
+
+

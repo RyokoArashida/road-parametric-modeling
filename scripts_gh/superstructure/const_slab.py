@@ -24,9 +24,9 @@ from my_project.config.util_schemas import (
 from my_project.utils.dataframe import flatten_any
 from my_project.utils.geometry.points import get_point_by_xy_offset
 from my_project.utils.geometry.vectors import get_frame_2D
+from my_project.utils.geometry_gh.attributes import get_distance_along_crv
 from my_project.utils.geometry_gh.const import (
     const_planer_srf_from_points,
-    const_point_obj,
     const_polycurve_obj,
     const_srf_from_crvs,
 )
@@ -39,19 +39,10 @@ def get_slab_points_length(
 ) -> list[SlabPointInfo]:
     CL_points = [p.CL for p in point_infos]
     CL_polyline = const_polycurve_obj(CL_points)
-    point_distances = []
-    for p in point_infos:
-        p_obj = const_point_obj(p.CL)
-        t = CL_polyline.ClosestPoint(p_obj)[1]
-        if t == 0:
-            distance = 0
-        elif t == len(CL_points) - 1:
-            distance = CL_polyline.GetLength()
-        else:
-            split_curves = CL_polyline.Split(t)
-            start_curve = split_curves[0]
-            distance = start_curve.GetLength()
-        point_distances.append(distance)
+    point_distances = get_distance_along_crv(
+        curve = CL_polyline,
+        points = [p.CL for p in point_infos],
+    )
     return point_distances, CL_polyline
 
 def get_point_from_offset(
@@ -646,7 +637,7 @@ def const_indiv_slab(
                     slab_srfs.extend([Usrf, Csrf, Dsrf])
         slab_brep = rg.Brep.JoinBreps(slab_srfs, 0.01)
         if len(slab_brep) != 1:
-            raise ValueError(f"スラブのサーフェスが正しく結合できませんでした。名前は{corner1.name} vs {corner2.name}で、結合したサーフェスの数は{len(slab_brep)}です。")
+            raise ValueError(f"床版のサーフェスが正しく結合できませんでした。名前は{corner1.name} vs {corner2.name}で、結合したサーフェスの数は{len(slab_brep)}です。")
         else:
             rough_slabs.append((corner1.name, corner2.name, slab_brep))
 
@@ -661,10 +652,9 @@ def const_indiv_slab(
 
         slab_brep = rg.Brep.JoinBreps(slabs, 0.01)
         if slab_brep is None:
-            raise ValueError(f"スラブのサーフェスが正しく結合できませんでした。名前は{name1} vs {name2}で、結合したサーフェスの数はNoneです。")
+            raise ValueError(f"床版のサーフェスが正しく結合できませんでした。名前は{name1} vs {name2}で、結合したサーフェスの数はNoneです。")
         if len(slab_brep) != 1:
-            raise ValueError(f"スラブのサーフェスが正しく結合できませんでした。名前は{name1} vs {name2}で、結合したサーフェスの数は{len(slab_brep)}です。")
-        
+            raise ValueError(f"床版のサーフェスが正しく結合できませんでした。名前は{name1} vs {name2}で、結合したサーフェスの数は{len(slab_brep)}です。")
         slab_dict[f"{name1}_to_{name2}"] = slab_brep[0].CapPlanarHoles(0.01)
 
     return slab_dict
@@ -693,6 +683,7 @@ def get_each_slab(
         R_top_point_dist = R_top_point_dict,
     )
     origin_names = [p.name for p in slab_info.point_infos]
+
     slab_dict = const_indiv_slab(
         corner_points = corner_points,
         origin_names = origin_names
@@ -703,6 +694,7 @@ def get_each_slab(
     for name in origin_names:
         point_info = next(cps for cps in corner_points if cps.name == name)
         MG_point_dict[name] = point_info.main_girder_top_points
+    
     return slab_dict, MG_point_dict, L_top_point_dict, R_top_point_dict
 
 

@@ -116,7 +116,7 @@ def get_indiv_slab_info(
 
     width_info = CommonWidthInfo(
         girder_flange = df_row["桁上フランジ幅"],
-        edge_offset = barrier_row["水切り幅"],
+        edge_offset = barrier_row["壁高欄幅"] - barrier_row["水切り幅"],
     )
 
     emergency_lane_info = []
