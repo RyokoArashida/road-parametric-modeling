@@ -19,4 +19,5 @@ class Filenames:
     DOWN = "down"
     TOP_POINTS = "top_points"
     CENTER = "center"
+    ADDITONAL_POINTS = "additional"
 

@@ -77,4 +77,17 @@ def get_intersect_point_on_srf_with_point(
     return Point3D(x=intersect_pt.X, y=intersect_pt.Y, z=intersect_pt.Z)
     
 
-    
+def get_intersect_points_on_brep_with_point(
+    brep: rg.Brep,
+    intersection_points: Union[Point3D, Point2D, rg.Point3d],
+) -> Optional[Point3D]:
+    linecrv = const_vertical_line_from_point(intersection_points)
+    intersection_events = rg.Intersect.Intersection.CurveBrep(linecrv, brep, 0.01)
+    if not intersection_events:
+        raise ValueError(f"曲線とブレップの交差が見つかりませんでした。point={intersection_points}")
+    intersection_points = intersection_events[2]
+    if len(intersection_points) == 0:
+        raise ValueError(f"曲線とブレップの交点が見つかりませんでした。point={intersection_points}")
+    if len(intersection_points) > 2:
+        raise ValueError(f"曲線とブレップの交点が複数見つかりました。point={intersection_points}")
+    return intersection_points

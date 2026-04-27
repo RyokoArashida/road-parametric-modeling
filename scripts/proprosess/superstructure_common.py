@@ -40,6 +40,7 @@ def get_indiv_superstructure_coord_info(
     point_keys: list[str],
 ) -> CoordInfo:
     girder_name = df_row["全体_横桁"]
+    # print(f"Processing {girder_name}...")
     point_dict = dict()
     for point_key in point_keys:
         point_dict[point_key] = get_Point3D_from_row(df_row, point_key)

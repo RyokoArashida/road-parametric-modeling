@@ -7,22 +7,25 @@ from my_project.config.paths import (
     FINAL_OUTPUT_DIR,
     INITIAL_OUTPUT_DIR,
 )
+from my_project.config.schemas.main_girder_schemas import (
+    MainGirderInfo,
+    TopFlangePointInfo,
+)
 from my_project.config.schemas.slab_schemas import (
+    AdditionalPointInfo,
     BottomSurfaceInfo,
     DepressedPointInfo,
     EmergencyLaneInfo,
     MainGirderTopPointInfo,
+    SlabCGPointInfo,
     SlabCorners,
     SlabInfo,
-    SlabPointInfo,
 )
-from my_project.config.util_schemas import (
-    MonoSlope,
-    Point2D,
-    Point3D,
-)
+from my_project.config.util_schemas import MonoSlope, Point2D, Point3D
 from my_project.utils.dataframe import flatten_any
-from my_project.utils.geometry.points import get_point_by_xy_offset
+from my_project.utils.geometry.points import (
+    get_point_by_xy_offset,
+)
 from my_project.utils.geometry.vectors import get_frame_2D
 from my_project.utils.geometry_gh.attributes import get_distance_along_crv
 from my_project.utils.geometry_gh.const import (
@@ -30,13 +33,16 @@ from my_project.utils.geometry_gh.const import (
     const_polycurve_obj,
     const_srf_from_crvs,
 )
-from my_project.utils.geometry_gh.intersect import get_intersect_point_on_curve_with_xy
+from my_project.utils.geometry_gh.intersect import (
+    get_intersect_point_on_curve_with_xy,
+    get_intersect_points_on_brep_with_point,
+)
 from my_project.utils.io import load_from_pickle, save_json_and_pickle
 
 
 def get_slab_points_length(
-    point_infos: list[SlabPointInfo],
-) -> list[SlabPointInfo]:
+    point_infos: list[SlabCGPointInfo],
+) -> list[SlabCGPointInfo]:
     CL_points = [p.CL for p in point_infos]
     CL_polyline = const_polycurve_obj(CL_points)
     point_distances = get_distance_along_crv(
@@ -49,10 +55,10 @@ def get_point_from_offset(
     base_line: Union[rg.Curve, rg.Line, rg.PolylineCurve],
     base_point_name: str,
     offset_distance: float,
-    point_infos: list[SlabPointInfo],
+    point_infos: list[SlabCGPointInfo],
     point_distances: list[float],
 ) -> rg.Point3d:
-    base_point_idx = next(i for i, p in enumerate(point_infos) if p.name == base_point_name)
+    base_point_idx = next(i for i, p in enumerate(point_infos) if p.CG_name == base_point_name)
     base_point_distance = point_distances[base_point_idx]
     if offset_distance == 0:
         return point_infos[base_point_idx].CL, base_point_distance
@@ -81,12 +87,12 @@ def get_point_between_points(
         return Point2D(x=x, y=y)
 
 def get_add_point_info(
-    original_point_infos: list[SlabPointInfo],
+    original_point_infos: list[SlabCGPointInfo],
     original_distances: list[float],
-    sorted_add_point_infos: list[SlabPointInfo],
+    sorted_add_point_infos: list[SlabCGPointInfo],
     sorted_add_distances: list[float],
     add_point_idx: str,
-) -> tuple[Optional[SlabPointInfo], Optional[str], Optional[str], Optional[float], Optional[float]]:
+) -> tuple[Optional[SlabCGPointInfo], Optional[str], Optional[str], Optional[float], Optional[float]]:
     if add_point_idx == 0 or add_point_idx == len(sorted_add_point_infos) - 1:
         return None, None, None, None, None
     add_point_distance = sorted_add_distances[add_point_idx]
@@ -94,7 +100,7 @@ def get_add_point_info(
     post_original_point_idx = pre_original_point_idx + 1
     pre_point_distance, pre_point_info = original_distances[pre_original_point_idx], original_point_infos[pre_original_point_idx]
     post_point_distance, post_point_info = original_distances[post_original_point_idx], original_point_infos[post_original_point_idx]
-    pre_point_name, post_point_name = pre_point_info.name, post_point_info.name
+    pre_point_name, post_point_name = pre_point_info.CG_name, post_point_info.CG_name
     if pre_point_distance == add_point_distance:
         return None, None, None, None, None
     elif post_point_distance == add_point_distance:
@@ -118,15 +124,15 @@ def get_add_point_info(
             distance2 = post_point_distance,
             target_distance = add_point_distance,
         )
-        Pre_girder_points = pre_point_info.main_girder_points
-        Post_girder_points = post_point_info.main_girder_points
-        if len(Pre_girder_points) != len(Post_girder_points):
-            raise ValueError(f"Pre_girder_points and Post_girder_points have different lengths: {len(Pre_girder_points)}, {len(Post_girder_points)}")
+        Pre_MG_points = pre_point_info.MG_points
+        Post_MG_points = post_point_info.MG_points
+        if len(Pre_MG_points) != len(Post_MG_points):
+            raise ValueError(f"Pre_girder_points and Post_girder_points have different lengths: {len(Pre_MG_points)}, {len(Post_MG_points)}")
         MG_points = []
-        for pre_p, post_p in zip(Pre_girder_points, Post_girder_points):
-            if pre_p.name != post_p.name:
-                raise ValueError(f"pre_p and post_p have different names: {pre_p.name}, {post_p.name}")
-            name = pre_p.name
+        for pre_p, post_p in zip(Pre_MG_points, Post_MG_points):
+            if pre_p.MG_name != post_p.MG_name:
+                raise ValueError(f"pre_p and post_p have different names: {pre_p.MG_name}, {post_p.MG_name}")
+            name = pre_p.MG_name
             MG_point = get_point_between_points(
                 point1 = pre_p.center,
                 point2 = post_p.center,
@@ -135,7 +141,7 @@ def get_add_point_info(
                 target_distance = add_point_distance,
             )
             MG_points.append(MainGirderTopPointInfo(
-                name = name,
+                MG_name = name,
                 center = MG_point,
                 U_edge = None,
                 D_edge = None,
@@ -149,24 +155,24 @@ def get_add_point_info(
         slope = MonoSlope(
             value = (L2.z - R2.z) / ((L2.x - R2.x)**2 + (L2.y - R2.y)**2)**0.5
         )
-        return SlabPointInfo(
-            name = "temp",
+        return SlabCGPointInfo(
+            CG_name = "temp",
             CL = None,
             L2 = L2,
             R2 = R2,
-            main_girder_points = MG_points,
+            MG_points = MG_points,
             UDframe2D = frame2D,
             UDslope = slope,
         ), pre_point_name, post_point_name, pre_point_distance, post_point_distance
 
 def get_top_points(
-    point_infos: list[SlabPointInfo],
+    point_infos: list[SlabCGPointInfo],
     point_distances: list[float],
     CL_polyline: rg.PolylineCurve,
     emergency_lane_infos: list[EmergencyLaneInfo],
     edge_offset: float,
     pavement_thickness: float,
-) -> tuple[dict[str, Point3D], dict[str, Point3D], list[SlabPointInfo], list[float]]:
+) -> tuple[dict[str, Point3D], dict[str, Point3D], list[SlabCGPointInfo], list[float]]:
     add_point_infos = point_infos.copy()
     add_distances = point_distances.copy()
     top_surf_distance_list = [] #(start_dis, end_dis, start_L_width, end_L_width, start_R_width, end_R_width)のリスト。非常駐車帯の始点・終点の距離と幅を記録する。)
@@ -212,12 +218,12 @@ def get_top_points(
         EM_add_distances = [EMstart_distance, EMstraight_start_distance, EMstraight_end_distance, EMend_distance]
         for name, point, distance in zip(EM_add_names, EM_add_points, EM_add_distances):
             add_point_infos.append(
-                SlabPointInfo(
-                    name = name,
+                SlabCGPointInfo(
+                    CG_name = name,
                     CL = point,
                     L2 = None,
                     R2 = None,
-                    main_girder_points = None,
+                    MG_points = None,
                     UDframe2D = None,
                     UDslope = None,
                 )
@@ -246,7 +252,7 @@ def get_top_points(
     new_distances = []
     for i, point_info in enumerate(sorted_add_point_infos):
         distance = sorted_add_distances[i]
-        if point_info.name.startswith("非常駐車帯"):
+        if point_info.CG_name.startswith("非常駐車帯"):
             temp_point_info, _, _, _, _ = get_add_point_info(
                 original_point_infos = point_infos,
                 original_distances = point_distances,
@@ -256,12 +262,12 @@ def get_top_points(
             )
             if temp_point_info is None:
                 continue
-            point_info = SlabPointInfo(
-                name = point_info.name,
+            point_info = SlabCGPointInfo(
+                CG_name = point_info.CG_name,
                 CL = point_info.CL,
                 L2 = temp_point_info.L2,
                 R2 = temp_point_info.R2,
-                main_girder_points = temp_point_info.main_girder_points,
+                MG_points = temp_point_info.MG_points,
                 UDframe2D = temp_point_info.UDframe2D,
                 UDslope = temp_point_info.UDslope,
             )
@@ -306,15 +312,15 @@ def get_top_points(
         )
         top_L_point = Point3D(x=top_L_point.x, y=top_L_point.y, z=top_L_point.z - pavement_thickness) # 上端部点は舗装厚分だけ下げる
         top_R_point = Point3D(x=top_R_point.x, y=top_R_point.y, z=top_R_point.z - pavement_thickness) # 上端部点は舗装厚分だけ下げる
-        L_top_point_dict[point_info.name] = top_L_point
-        R_top_point_dict[point_info.name] = top_R_point
+        L_top_point_dict[point_info.CG_name] = top_L_point
+        R_top_point_dict[point_info.CG_name] = top_R_point
     
     return L_top_point_dict, R_top_point_dict, new_point_infos, new_distances
 
 
 
 def get_bottom_points(
-    point_infos: list[SlabPointInfo],
+    point_infos: list[SlabCGPointInfo],
     point_distances: list[float],
     bottom_surface_infos: list[BottomSurfaceInfo],
     CL_polyline: rg.PolylineCurve,
@@ -354,12 +360,12 @@ def get_bottom_points(
         B_add_distances = [Bstart_distance, Bend_distance]
         for name, point, distance in zip(B_add_names, B_add_points, B_add_distances):
             add_point_infos.append(
-                SlabPointInfo(
-                    name = name,
+                SlabCGPointInfo(
+                    CG_name = name,
                     CL = point,
                     L2 = None,
                     R2 = None,
-                    main_girder_points = None,
+                    MG_points = None,
                     UDframe2D = None,
                     UDslope = None,
                 )
@@ -389,7 +395,7 @@ def get_bottom_points(
     new_R_top_point_dict = {}
     for i, point_info in enumerate(sorted_add_point_infos):
         distance = sorted_add_distances[i]
-        if point_info.name.startswith("下面変化点"):
+        if point_info.CG_name.startswith("下面変化点"):
             temp_point_info, pre_point_name, post_point_name, pre_point_distance, post_point_distance = get_add_point_info(
                 original_point_infos = point_infos,
                 original_distances = point_distances,
@@ -399,12 +405,12 @@ def get_bottom_points(
             )
             if temp_point_info is None:
                 continue
-            point_info = SlabPointInfo(
-                name = point_info.name,
+            point_info = SlabCGPointInfo(
+                CG_name = point_info.CG_name,
                 CL = point_info.CL,
                 L2 = temp_point_info.L2,
                 R2 = temp_point_info.R2,
-                main_girder_points = temp_point_info.main_girder_points,
+                MG_points = temp_point_info.MG_points,
                 UDframe2D = temp_point_info.UDframe2D,
                 UDslope = temp_point_info.UDslope,
             )
@@ -429,13 +435,13 @@ def get_bottom_points(
                 distance2 = post_point_distance,
                 target_distance = distance,
             )
-            new_L_top_point_dict[point_info.name] = top_L_point
-            new_R_top_point_dict[point_info.name] = top_R_point
+            new_L_top_point_dict[point_info.CG_name] = top_L_point
+            new_R_top_point_dict[point_info.CG_name] = top_R_point
         else:
             new_point_infos.append(point_info)
             new_distances.append(distance)
-            new_L_top_point_dict[point_info.name] = L_top_point_dist[point_info.name]
-            new_R_top_point_dict[point_info.name] = R_top_point_dist[point_info.name]
+            new_L_top_point_dict[point_info.CG_name] = L_top_point_dist[point_info.CG_name]
+            new_R_top_point_dict[point_info.CG_name] = R_top_point_dist[point_info.CG_name]
     
     # 次に各点のコーナーを全部求める
     corner_points = []
@@ -458,9 +464,9 @@ def get_bottom_points(
                     center_height = start_center_height + (end_center_height - start_center_height) * (distance - start_distance) / (end_distance - start_distance)
                 break
         y_axis_vector = point_info.UDframe2D.y_axis
-        MG_points = point_info.main_girder_points # L側から順番になっている。
-        L_top_point = new_L_top_point_dict[point_info.name]
-        R_top_point = new_R_top_point_dict[point_info.name]
+        MG_points = point_info.MG_points # L側から順番になっている。
+        L_top_point = new_L_top_point_dict[point_info.CG_name]
+        R_top_point = new_R_top_point_dict[point_info.CG_name]
 
         L_bottom_edge_point = Point3D(L_top_point.x, L_top_point.y, L_top_point.z - base_edge_height)
         R_bottom_edge_point = Point3D(R_top_point.x, R_top_point.y, R_top_point.z - base_edge_height)
@@ -488,7 +494,7 @@ def get_bottom_points(
 
                     
             MG_top_points.append(MainGirderTopPointInfo(
-                name = MG_point.name,
+                MG_name = MG_point.MG_name,
                 center = GC_top_point,
                 U_edge = GU_top_point,
                 D_edge = GD_top_point,
@@ -520,19 +526,19 @@ def get_bottom_points(
                 dep_start_point = Point3D(dep_start_ab_pave_point.x, dep_start_ab_pave_point.y, dep_start_ab_pave_point.z + height_gap)
                 dep_end_point = Point3D(dep_end_ab_pave_point.x, dep_end_ab_pave_point.y, dep_end_ab_pave_point.z + height_gap)
                 depressed_points.append(DepressedPointInfo(
-                    pre_girder_name = MG_top_points[i].name,
-                    post_girder_name = MG_top_points[i+1].name,
+                    pre_girder_name = MG_top_points[i].MG_name,
+                    post_girder_name = MG_top_points[i+1].MG_name,
                     start_point=dep_start_point,
                     end_point=dep_end_point,
                 ))
         corner_points.append(SlabCorners(
-            name = point_info.name,
+            CG_name = point_info.CG_name,
             is_center_depressed = is_center_depressed,
             Utop=L_top_point,
             Dtop=R_top_point,
             Ubottom=L_bottom_edge_point,
             Dbottom=R_bottom_edge_point,
-            main_girder_top_points=MG_top_points,
+            MG_top_points=MG_top_points,
             depressed_points=depressed_points,
         ))
     return corner_points
@@ -558,20 +564,20 @@ def const_indiv_slab(
     for i in range(len(corner_points)-1):
         corner1 = corner_points[i]
         corner2 = corner_points[i+1]
-        corner1_MG_names = [p.name for p in corner1.main_girder_top_points]
-        corner2_MG_names = [p.name for p in corner2.main_girder_top_points]
+        corner1_MG_names = [p.MG_name for p in corner1.MG_top_points]
+        corner2_MG_names = [p.MG_name for p in corner2.MG_top_points]
         corner1_is_depressed = corner1.is_center_depressed
         corner2_is_depressed = corner2.is_center_depressed
         if corner1_MG_names != corner2_MG_names and (corner1_is_depressed or corner2_is_depressed): 
-            raise ValueError(f"桁の数が違うのに、どちらかがへこんでいます。: {corner1.name} has {len(corner1_MG_names)} MGs and is_center_depressed={corner1.is_center_depressed}, {corner2.name} has {len(corner2_MG_names)} MGs and is_center_depressed={corner2.is_center_depressed}")
+            raise ValueError(f"桁の数が違うのに、どちらかがへこんでいます。: {corner1.CG_name} has {len(corner1_MG_names)} MGs and is_center_depressed={corner1.is_center_depressed}, {corner2.CG_name} has {len(corner2_MG_names)} MGs and is_center_depressed={corner2.is_center_depressed}")
         if corner1_MG_names[0] != corner2_MG_names[0] or corner1_MG_names[-1] != corner2_MG_names[-1]:
-            raise ValueError(f": 両端の桁の名前が違います。: {corner1_MG_names[0]} vs {corner2_MG_names[0]}, {corner1_MG_names[-1]} vs {corner2_MG_names[-1]}")
+            raise ValueError(f": 両端の桁の名前が違います。: {corner1_MG_names} vs {corner2_MG_names}, {corner1.CG_name} and {corner2.CG_name}")
         
         # 両端桁の端部→下端→上端だけはどのタイプでも同じ
-        first_MG_point1 = corner1.main_girder_top_points[0]
-        last_MG_point1 = corner1.main_girder_top_points[-1]
-        first_MG_point2 = corner2.main_girder_top_points[0]
-        last_MG_point2 = corner2.main_girder_top_points[-1]
+        first_MG_point1 = corner1.MG_top_points[0]
+        last_MG_point1 = corner1.MG_top_points[-1]
+        first_MG_point2 = corner2.MG_top_points[0]
+        last_MG_point2 = corner2.MG_top_points[-1]
         top_edge_crv1 = const_polycurve_obj([first_MG_point1.U_edge, corner1.Ubottom, corner1.Utop, corner1.Dtop, corner1.Dbottom, last_MG_point1.D_edge])
         top_edge_crv2 = const_polycurve_obj([first_MG_point2.U_edge, corner2.Ubottom, corner2.Utop, corner2.Dtop, corner2.Dbottom, last_MG_point2.D_edge])
         common_srf = const_srf_from_crvs([top_edge_crv1, top_edge_crv2])
@@ -589,11 +595,11 @@ def const_indiv_slab(
         elif corner1_is_depressed and corner2_is_depressed:
             def get_all_points(corner):
                 points = []
-                for i in range(len(corner.main_girder_top_points)):
-                    points.append(corner.main_girder_top_points[i].U_edge)
-                    points.append(corner.main_girder_top_points[i].center)
-                    points.append(corner.main_girder_top_points[i].D_edge)
-                    if i < len(corner.main_girder_top_points) - 1:
+                for i in range(len(corner.MG_top_points)):
+                    points.append(corner.MG_top_points[i].U_edge)
+                    points.append(corner.MG_top_points[i].center)
+                    points.append(corner.MG_top_points[i].D_edge)
+                    if i < len(corner.MG_top_points) - 1:
                         points.append(corner.depressed_points[i].start_point)
                         points.append(corner.depressed_points[i].end_point)
                 return points
@@ -607,27 +613,27 @@ def const_indiv_slab(
         else:
             Dep_corner = corner1 if corner1_is_depressed else corner2
             NonDep_corner = corner2 if corner1_is_depressed else corner1
-            for i in range(len(Dep_corner.main_girder_top_points)):
-                dep_MG_point = Dep_corner.main_girder_top_points[i]
-                nondep_MG_point = NonDep_corner.main_girder_top_points[i]
+            for i in range(len(Dep_corner.MG_top_points)):
+                dep_MG_point = Dep_corner.MG_top_points[i]
+                nondep_MG_point = NonDep_corner.MG_top_points[i]
                 # まず桁の上面
                 dep_crv = const_polycurve_obj([dep_MG_point.U_edge, dep_MG_point.center, dep_MG_point.D_edge])
                 nondep_crv = const_polycurve_obj([nondep_MG_point.U_edge, nondep_MG_point.center, nondep_MG_point.D_edge])
                 girder_srf = const_srf_from_crvs([dep_crv, nondep_crv])
                 slab_srfs.append(girder_srf)
                 # 次にへこんでいるところ
-                if i < len(Dep_corner.main_girder_top_points) - 1:
-                    UG_name = dep_MG_point.name
-                    DG_name = Dep_corner.main_girder_top_points[i+1].name
+                if i < len(Dep_corner.MG_top_points) - 1:
+                    UG_name = dep_MG_point.MG_name
+                    DG_name = Dep_corner.MG_top_points[i+1].MG_name
                     dep_point = next(p for p in Dep_corner.depressed_points if p.pre_girder_name == UG_name and p.post_girder_name == DG_name)
                     if dep_point is None:
                         raise ValueError(f"へこみ点が見つかりませんでした。pre_girder_name={UG_name}, post_girder_name={DG_name}")
                     dep_UG = dep_MG_point.D_edge
                     dep_UD = dep_point.start_point
                     dep_DD = dep_point.end_point
-                    dep_DG = Dep_corner.main_girder_top_points[i+1].U_edge
+                    dep_DG = Dep_corner.MG_top_points[i+1].U_edge
                     nondep_UG = nondep_MG_point.D_edge
-                    nondep_DG = NonDep_corner.main_girder_top_points[i+1].U_edge
+                    nondep_DG = NonDep_corner.MG_top_points[i+1].U_edge
                     Usrf = const_planer_srf_from_points([dep_UG, dep_UD, nondep_UG])
                     Csrf = const_srf_from_crvs([
                         const_polycurve_obj([dep_UD, dep_DD]),
@@ -637,9 +643,9 @@ def const_indiv_slab(
                     slab_srfs.extend([Usrf, Csrf, Dsrf])
         slab_brep = rg.Brep.JoinBreps(slab_srfs, 0.01)
         if len(slab_brep) != 1:
-            raise ValueError(f"床版のサーフェスが正しく結合できませんでした。名前は{corner1.name} vs {corner2.name}で、結合したサーフェスの数は{len(slab_brep)}です。")
+            raise ValueError(f"床版のサーフェスが正しく結合できませんでした。名前は{corner1.CG_name} vs {corner2.CG_name}で、結合したサーフェスの数は{len(slab_brep)}です。")
         else:
-            rough_slabs.append((corner1.name, corner2.name, slab_brep))
+            rough_slabs.append((corner1.CG_name, corner2.CG_name, slab_brep))
 
     for i in range(len(origin_names)-1):
         name1 = origin_names[i]
@@ -658,6 +664,7 @@ def const_indiv_slab(
         slab_dict[f"{name1}_to_{name2}"] = slab_brep[0].CapPlanarHoles(0.01)
 
     return slab_dict
+
 
 def get_each_slab(
     slab_info: SlabInfo,
@@ -682,8 +689,7 @@ def get_each_slab(
         L_top_point_dist = L_top_point_dict,
         R_top_point_dist = R_top_point_dict,
     )
-    origin_names = [p.name for p in slab_info.point_infos]
-
+    origin_names = [p.CG_name for p in slab_info.point_infos]
     slab_dict = const_indiv_slab(
         corner_points = corner_points,
         origin_names = origin_names
@@ -692,10 +698,143 @@ def get_each_slab(
     # 主桁の上面の点のデータは必要なので返す
     MG_point_dict = {}
     for name in origin_names:
-        point_info = next(cps for cps in corner_points if cps.name == name)
-        MG_point_dict[name] = point_info.main_girder_top_points
+        corner_point_info = next(cps for cps in corner_points if cps.CG_name == name)
+        MG_point_dict[name] = corner_point_info.MG_top_points
     
     return slab_dict, MG_point_dict, L_top_point_dict, R_top_point_dict
+
+
+def get_all_MG_points(
+    all_slab_dict: dict[str, dict[str, rg.Brep]],
+    all_MG_top_point_dict: dict[str, dict[str, list[MainGirderTopPointInfo]]],
+    all_MG_infos: list[MainGirderInfo],
+    additional_point_infos: list[AdditionalPointInfo],
+):
+    MG_top_flange_point_dict = {}
+    for unique_slab_name, MG_top_point_dict in all_MG_top_point_dict.items():
+        bridge_name = unique_slab_name.split("_")[0]
+        if bridge_name not in MG_top_flange_point_dict:
+            MG_top_flange_point_dict[bridge_name] = {}
+        for CG_name, MG_top_points in MG_top_point_dict.items():
+            for MG_top_point in MG_top_points:
+                MG_name = MG_top_point.MG_name
+                if MG_name not in MG_top_flange_point_dict[bridge_name]:
+                    MG_top_flange_point_dict[bridge_name][MG_name] = []
+                main_girder_info = next(mg for mg in all_MG_infos if mg.bridge_name == bridge_name and mg.MG_name == MG_name)
+                if CG_name in main_girder_info.original_CG_names:
+                    if CG_name in MG_top_flange_point_dict[bridge_name][MG_name]:
+                        raise ValueError(f"同じ主桁の上端部点が既に存在しています。bridge_name={bridge_name}, MG_name={MG_name}, CG_name={CG_name}")
+                    MG_top_flange_point_dict[bridge_name][MG_name].append(TopFlangePointInfo(
+                        CG=CG_name,
+                        U=MG_top_point.U_edge,
+                        D=MG_top_point.D_edge,
+                        C=MG_top_point.center,
+                    ))
+    for additional_point_info in additional_point_infos:
+        bridge_name = additional_point_info.bridge_name
+        MG_name = additional_point_info.MG_name
+        CG_name = additional_point_info.CG_name
+        base_CG_name = additional_point_info.base_CG_name
+        base_idx = next(idx for idx, top_flange_point in enumerate(MG_top_flange_point_dict[bridge_name][MG_name]) if top_flange_point.CG == base_CG_name) #なかったらエラーになる
+        base_CG_offset = additional_point_info.base_CG_offset
+        if base_CG_offset > 0:
+            this_position = "next"
+        elif base_CG_offset < 0:
+            this_position = "prev"
+        else:
+            raise ValueError(f"base_CG_offset is 0, which is not allowed. additional_point_info={additional_point_info}")
+        base_CG_U = MG_top_flange_point_dict[bridge_name][MG_name][base_idx].U
+        base_CG_D = MG_top_flange_point_dict[bridge_name][MG_name][base_idx].D
+        base_CG_C = MG_top_flange_point_dict[bridge_name][MG_name][base_idx].C
+        if base_idx == 0: #最初だったら後のやつとの比較
+            next_CG_U = MG_top_flange_point_dict[bridge_name][MG_name][1].U
+            next_CG_D = MG_top_flange_point_dict[bridge_name][MG_name][1].D
+            next_CG_C = MG_top_flange_point_dict[bridge_name][MG_name][1].C
+            rough_U_point = get_point_by_xy_offset(
+                point1=base_CG_U,
+                point2=next_CG_U,
+                offset=base_CG_offset, #オフセットは次横桁方向が正
+            )
+            rough_D_point = get_point_by_xy_offset(
+                point1=base_CG_D,
+                point2=next_CG_D,
+                offset=base_CG_offset, #オフセットは次横桁方向が正
+            )
+            rough_C_point = get_point_by_xy_offset(
+                point1=base_CG_C,
+                point2=next_CG_C,
+                offset=base_CG_offset, #オフセットは次横桁方向が正
+            )
+        else: #それ以外は前との比較
+            prev_CG_U = MG_top_flange_point_dict[bridge_name][MG_name][base_idx-1].U
+            prev_CG_D = MG_top_flange_point_dict[bridge_name][MG_name][base_idx-1].D
+            prev_CG_C = MG_top_flange_point_dict[bridge_name][MG_name][base_idx-1].C
+            rough_U_point = get_point_by_xy_offset(
+                point1=base_CG_U,
+                point2=prev_CG_U,
+                offset=-base_CG_offset, #オフセットは前横桁方向が負
+            )
+            rough_D_point = get_point_by_xy_offset(
+                point1=base_CG_D,
+                point2=prev_CG_D,
+                offset=-base_CG_offset, #オフセットは前横桁方向が負
+            )
+            rough_C_point = get_point_by_xy_offset(
+                point1=base_CG_C,
+                point2=prev_CG_C,
+                offset=-base_CG_offset, #オフセットは前横桁方向が負
+            )
+        slab_pre_CG_name = additional_point_info.slab_pre_CG_name
+        slab_post_CG_name = additional_point_info.slab_post_CG_name
+        slab_name = f"{slab_pre_CG_name}_to_{slab_post_CG_name}"
+        for slab_unique_bridge_name, slab_dict in all_slab_dict.items():
+            slab_bridge_name = slab_unique_bridge_name.split("_")[0]
+            if slab_bridge_name == bridge_name and slab_name in slab_dict:
+                slab_brep = slab_dict[slab_name]
+                break
+        if slab_brep is None:
+            raise ValueError(f"追加点の床版が見つかりませんでした。slab_name={slab_name}, bridge_name={bridge_name}")
+        def get_slab_bottom_point(rough_point):
+            intersect_pts = get_intersect_points_on_brep_with_point(
+                brep = slab_brep,
+                intersection_points = rough_point,
+            )
+            bottom_point = intersect_pts[0] if intersect_pts[0].Z < intersect_pts[1].Z else intersect_pts[1]
+            return Point3D(x=bottom_point.X, y=bottom_point.Y, z=bottom_point.Z)
+
+        U_point = get_slab_bottom_point(rough_U_point)
+        D_point = get_slab_bottom_point(rough_D_point)
+        C_point = get_slab_bottom_point(rough_C_point)
+        this_info = TopFlangePointInfo(
+            CG=CG_name,
+            U=U_point,
+            D=D_point,
+            C=C_point,
+        )
+        if this_position == "next":
+            MG_top_flange_point_dict[bridge_name][MG_name].insert(base_idx + 1, this_info)
+        elif this_position == "prev":
+            MG_top_flange_point_dict[bridge_name][MG_name].insert(base_idx, this_info)
+        else:
+            raise ValueError(f"Invalid this_position value: {this_position}")
+    for bridge_name, MG_dict in MG_top_flange_point_dict.items():
+        for MG_name, top_flange_points in MG_dict.items():
+            main_girder_info = next(mg for mg in all_MG_infos if mg.bridge_name == bridge_name and mg.MG_name == MG_name)
+            original_CG_names = main_girder_info.original_CG_names
+            top_flange_point_CG_names = [p.CG for p in top_flange_points]
+            # originalにあるものが全て入っていることを確認する
+            for original_CG_name in original_CG_names:
+                if original_CG_name not in top_flange_point_CG_names:
+                    raise ValueError(f"主桁の上端部点のCG名が不足しています。bridge_name={bridge_name}, MG_name={MG_name}, missing_CG_name={original_CG_name}")
+            print(f"主桁の上端部点のCG名が確認できました。bridge_name={bridge_name}, MG_name={MG_name}")
+            # 追加点のCG名がoriginalにないものは全て追加点であることを確認する
+            for top_flange_point_CG_name in top_flange_point_CG_names:
+                if top_flange_point_CG_name not in original_CG_names:
+                    if top_flange_point_CG_name not in [add.CG_name for add in additional_point_infos]:
+                        raise ValueError(f"主桁の上端部点のCG名がoriginalにも追加点にもないものがあります。bridge_name={bridge_name}, MG_name={MG_name}, CG_name={top_flange_point_CG_name}")
+                    else:
+                        print(f"主桁の上端部点のCG名が追加点で確認できました。bridge_name={bridge_name}, MG_name={MG_name}, CG_name={top_flange_point_CG_name}")
+    return MG_top_flange_point_dict
 
 
 def main(initial_or_final: str):
@@ -707,6 +846,13 @@ def main(initial_or_final: str):
     slab_infos = load_from_pickle(
         file_path=DIR /  f"{Filenames.INPUT}_{Filenames.SLAB}.pickle",
     )
+    MG_infos = load_from_pickle(
+        file_path=DIR /  f"{Filenames.INPUT}_{Filenames.MG}.pickle",
+    )
+    add_point_infos = load_from_pickle(
+        file_path=DIR /  f"{Filenames.INPUT}_{Filenames.SLAB}_{Filenames.ADDITONAL_POINTS}.pickle",
+    )
+
     MG_top_points_dict = {}
     all_L_top_point_dict = {}
     all_R_top_point_dict = {}
@@ -723,19 +869,27 @@ def main(initial_or_final: str):
         all_R_top_point_dict[unique_slab_name] = R_top_point_dict # ここはpickel用
         world_items_dict_for_bake[unique_slab_name] = slab_dict # ここはbake用
     
-    MG_point_dict_name = f"{Filenames.WORLD}_{Filenames.MG}_{Filenames.TOP_POINTS}"
+    all_MG_top_flange_point_dict = get_all_MG_points(
+        all_slab_dict = world_items_dict_for_bake,
+        all_MG_top_point_dict = MG_top_points_dict,
+        all_MG_infos = MG_infos,
+        additional_point_infos=add_point_infos,
+    )
+
+    all_MG_top_flange_point_dict_name = f"{Filenames.WORLD}_{Filenames.MG}_{Filenames.TOP_POINTS}"
     all_L_top_point_dict_name = f"{Filenames.WORLD}_{Filenames.SLAB}_{Filenames.UP}_{Filenames.TOP_POINTS}"
     all_R_top_point_dict_name = f"{Filenames.WORLD}_{Filenames.SLAB}_{Filenames.DOWN}_{Filenames.TOP_POINTS}"
 
     for dict, name in zip(
-        [MG_top_points_dict, all_L_top_point_dict, all_R_top_point_dict],
-        [MG_point_dict_name, all_L_top_point_dict_name, all_R_top_point_dict_name]
+        [all_MG_top_flange_point_dict, all_L_top_point_dict, all_R_top_point_dict],
+        [all_MG_top_flange_point_dict_name, all_L_top_point_dict_name, all_R_top_point_dict_name]
     ):
         save_json_and_pickle(
             data = dict,
             folder_path = DIR,
             name = name
         )
+
 
     def get_keys_and_values_for_bake(world_items_dict):
         flatten_dict_for_bake = flatten_any(world_items_dict)
@@ -748,4 +902,4 @@ def main(initial_or_final: str):
     return get_keys_and_values_for_bake(world_items_dict_for_bake)
 
 if __name__ == "__main__":
-    bake_keys, bake_objs = main("initial")
+    (bake_keys, bake_objs) = main("initial")

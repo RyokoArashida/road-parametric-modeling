@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import List
 
+from my_project.config.util_schemas import Point3D
+
 
 @dataclass(frozen=True)
 class GirderBlockInfo:
@@ -18,6 +20,7 @@ class WidthChangeInfo:
     y: float
     straight_x: float
     slope_x: float
+    change_type: str # start, end, middle
 
 @dataclass(frozen=True)
 class HeightChangeInfo:
@@ -32,14 +35,21 @@ class HeightChangeInfo:
     height: float
 
 @dataclass(frozen=True)
+class TopFlangePointInfo:
+    CG: str
+    U: Point3D
+    C: Point3D
+    D: Point3D
+
+@dataclass(frozen=True)
 class MainGirderInfo:
     bridge_name: str
-    girder_name: str
-    girder_type: str
+    MG_name: str
+    MG_type: str
     basic_height: float
     bottom_flange_width: float
     web_offset: float
     block_infos: List[GirderBlockInfo]
     width_change_infos: List[WidthChangeInfo]
     height_change_infos: List[HeightChangeInfo]
-
+    original_CG_names: List[str]

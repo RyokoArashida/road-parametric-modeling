@@ -10,13 +10,14 @@ from my_project.config.paths import (
     INITIAL_OUTPUT_DIR,
 )
 from my_project.config.schemas.slab_schemas import (
+    AdditionalPointInfo,
     BottomSurfaceInfo,
     CommonHeightInfo,
     CommonWidthInfo,
     EmergencyLaneInfo,
     MainGirderTopPointInfo,
+    SlabCGPointInfo,
     SlabInfo,
-    SlabPointInfo,
 )
 from my_project.config.schemas.superstructure_schemas import (
     CoordInfo,
@@ -52,24 +53,32 @@ def get_indiv_slab_info(
     start_cross_girder_key = df_row["開始横桁"]
     end_cross_girder_key = df_row["終了横桁"]
     barrier_type = df_row["壁高欄タイプ"]
+    MGs = df_row["主桁"].split(",")
+
     if pd.isna(start_cross_girder_key):
         start_cross_girder_key = coord_infos[0].name
     if pd.isna(end_cross_girder_key):
         end_cross_girder_key = coord_infos[-1].name
     start_idx = next(i for i, c in enumerate(coord_infos) if c.name == start_cross_girder_key)
-    end_idx = next(i for i, c in enumerate(coord_infos) if c.name == end_cross_girder_key)    
+    end_idx = next(i for i, c in enumerate(coord_infos) if c.name == end_cross_girder_key)
+    target_point_dict = {}
     points = []
     for i in range(start_idx, end_idx+1):
-        cross_girder_name = coord_infos[i].name
-        if i != start_idx and i != end_idx and "GE" in cross_girder_name:
-            continue # 開始・終了横桁以外のGEはスキップ（床版をカットする単位にならない。）
         frame_2D = coord_infos[i].UDframe2D
         slope = coord_infos[i].UDslope
         point_dict = coord_infos[i].Points
+
+        girder_keys = [
+            key for key in point_dict.keys()
+            if key.endswith(tuple(MGs))
+        ]
+        cross_girder_name = coord_infos[i].name
+        
         if CL_key in point_dict and point_dict[CL_key] is not None:
             CL_point = point_dict[CL_key]
         else:
-            raise ValueError(f"{bridge_name}の{coord_infos[i].name}にCLの点が見つかりません")
+            print(f"{bridge_name}の{coord_infos[i].name}にCLの点が見つかりません")
+            continue
         if L2_key in point_dict and point_dict[L2_key] is not None:
             L2_point = point_dict[L2_key]
         else:
@@ -78,17 +87,16 @@ def get_indiv_slab_info(
             R2_point = point_dict[R2_key]
         else:
             raise ValueError(f"{bridge_name}の{coord_infos[i].name}にR2の点が見つかりません")
-        girders = df_row["主桁"].split(",")
-        girder_keys = [
-            key for key in point_dict.keys()
-            if key.endswith(tuple(girders))
-        ]
         main_girder_points = []
         for girder_key in girder_keys:
             if girder_key in point_dict and point_dict[girder_key] is not None:
+                if girder_key is not target_point_dict:
+                    target_point_dict[girder_key] = [cross_girder_name]
+                else:
+                    target_point_dict[girder_key].append(cross_girder_name)
                 main_girder_points.append(
                     MainGirderTopPointInfo(
-                        name = girder_key,
+                        MG_name = girder_key,
                         center = point_dict[girder_key],
                         U_edge = None,
                         D_edge = None,
@@ -97,14 +105,14 @@ def get_indiv_slab_info(
         # Lに近い方からソート
         distances_to_L2 = [((p.center.x - L2_point.x)**2 + (p.center.y - L2_point.y)**2)**0.5 for p in main_girder_points]
         main_girder_points = [p for _, p in sorted(zip(distances_to_L2, main_girder_points), key=lambda x: x[0])]
-        point_info = SlabPointInfo(
-            name = cross_girder_name,
+        point_info = SlabCGPointInfo(
+            CG_name = cross_girder_name,
             CL = CL_point,
             L2 = L2_point,
             R2 = R2_point,
             UDframe2D = frame_2D,
             UDslope = slope,
-            main_girder_points = main_girder_points,
+            MG_points = main_girder_points,
         )
         points.append(point_info)
 
@@ -137,9 +145,9 @@ def get_indiv_slab_info(
 
     bottom_surface_info = []
     for _, bottom_surface_row in bottom_surface_df_for_bridge.iterrows():
-        start_cross_girder = bottom_surface_row["開始横桁"] if not pd.isna(bottom_surface_row["開始横桁"]) else points[0].name
+        start_cross_girder = bottom_surface_row["開始横桁"] if not pd.isna(bottom_surface_row["開始横桁"]) else points[0].CG_name
         start_cross_girder_offset = bottom_surface_row["開始横桁から距離"] if not pd.isna(bottom_surface_row["開始横桁から距離"]) else 0.0
-        end_cross_girder = bottom_surface_row["終了横桁"] if not pd.isna(bottom_surface_row["終了横桁"]) else points[-1].name
+        end_cross_girder = bottom_surface_row["終了横桁"] if not pd.isna(bottom_surface_row["終了横桁"]) else points[-1].CG_name
         end_cross_girder_offset = bottom_surface_row["終了横桁から距離"] if not pd.isna(bottom_surface_row["終了横桁から距離"]) else 0.0
         
         
@@ -197,12 +205,18 @@ def main(initial_or_final: str) -> None:
         file_path = input_dir / "床版諸元.xlsx",
         sheet_name = "壁高欄共通"
     )
+    
+    additional_point_df = read_file_to_df(
+        file_path = input_dir / "床版諸元.xlsx",
+        sheet_name = "追加点"
+    )
 
     coord_dict = load_from_pickle(
         file_path = output_dir / f"{Filenames.INPUT}_{Filenames.SUPERSTRUCTURE}_{Filenames.COMMON}.pickle",
     )
 
     all_slab_infos = list()
+    all_additional_point_infos = list()
     for _, common_row in common_df.iterrows():
         name = common_row["橋梁"]
         coord_info = coord_dict[name]
@@ -219,11 +233,28 @@ def main(initial_or_final: str) -> None:
             coord_infos = coord_info,
         )
         all_slab_infos.append(slab_info)
-        
+    for _, additional_point_row in additional_point_df.iterrows():
+        all_additional_point_infos.append(
+            AdditionalPointInfo(
+                bridge_name = additional_point_row["橋梁"],
+                MG_name = additional_point_row["主桁"],
+                CG_name = additional_point_row["横桁"],
+                base_CG_name = additional_point_row["基準横桁"],
+                base_CG_offset = additional_point_row["基準横桁から距離"],
+                slab_pre_CG_name = additional_point_row["床版横桁手前"],
+                slab_post_CG_name = additional_point_row["床版横桁奥"],
+            )
+        )
+
     save_json_and_pickle(
         data = all_slab_infos,
         folder_path = output_dir,
         name = f"{Filenames.INPUT}_{Filenames.SLAB}",
+    )
+    save_json_and_pickle(
+        data = all_additional_point_infos,
+        folder_path = output_dir,
+        name = f"{Filenames.INPUT}_{Filenames.SLAB}_{Filenames.ADDITONAL_POINTS}",
     )
 
 if __name__ == "__main__":
