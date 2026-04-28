@@ -100,7 +100,7 @@ def get_indiv_girder_info(
         ))
 
     height_change_infos = []
-    for i, row in height_change_df_for_MG.iterrows():
+    for _, row in height_change_df_for_MG.iterrows():
         height_change_infos.append(HeightChangeInfo(
             start_CG = row["変化開始横桁"],
             start_offset = row["変化開始横桁から距離"],

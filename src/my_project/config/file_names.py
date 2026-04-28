@@ -20,4 +20,6 @@ class Filenames:
     TOP_POINTS = "top_points"
     CENTER = "center"
     ADDITONAL_POINTS = "additional"
+    CENTER_POINTS = "center_points"
+    BOTTOM_POINTS = "bottom_points"
 

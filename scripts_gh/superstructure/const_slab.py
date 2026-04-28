@@ -7,6 +7,7 @@ from my_project.config.paths import (
     FINAL_OUTPUT_DIR,
     INITIAL_OUTPUT_DIR,
 )
+from my_project.config.schemas.cross_girder_schemas import SlabBottomPoints
 from my_project.config.schemas.main_girder_schemas import (
     MainGirderInfo,
     TopFlangePointInfo,
@@ -689,19 +690,29 @@ def get_each_slab(
         L_top_point_dist = L_top_point_dict,
         R_top_point_dist = R_top_point_dict,
     )
-    origin_names = [p.CG_name for p in slab_info.point_infos]
+    origin_CG_names = [p.CG_name for p in slab_info.point_infos]
     slab_dict = const_indiv_slab(
         corner_points = corner_points,
-        origin_names = origin_names
+        origin_names = origin_CG_names
     )
 
     # 主桁の上面の点のデータは必要なので返す
     MG_point_dict = {}
-    for name in origin_names:
+    for name in origin_CG_names:
         corner_point_info = next(cps for cps in corner_points if cps.CG_name == name)
         MG_point_dict[name] = corner_point_info.MG_top_points
     
-    return slab_dict, MG_point_dict, L_top_point_dict, R_top_point_dict
+    # 下の端のデータは必要なので返す（横桁の張り出し）
+    bottom_edge_point_dict = {}
+    origin_CG_names_wo_GE = [name for name in origin_CG_names if "GE" not in name] # エッジには横桁はない
+    for name in origin_CG_names_wo_GE:
+        corner_point_info = next(cps for cps in corner_points if cps.CG_name == name)
+        bottom_edge_point_dict[name] = SlabBottomPoints(
+            U = corner_point_info.Ubottom,
+            D = corner_point_info.Dbottom,
+        )
+
+    return slab_dict, MG_point_dict, bottom_edge_point_dict, L_top_point_dict, R_top_point_dict
 
 
 def get_all_MG_points(
@@ -836,6 +847,19 @@ def get_all_MG_points(
                         print(f"主桁の上端部点のCG名が追加点で確認できました。bridge_name={bridge_name}, MG_name={MG_name}, CG_name={top_flange_point_CG_name}")
     return MG_top_flange_point_dict
 
+def get_all_bottom_edge_points(
+    bottom_edge_point_dict: dict[str, dict[str, SlabBottomPoints]],
+):
+    all_bottom_edge_points = {}
+    for unique_slab_name, edge_point_dict in bottom_edge_point_dict.items():
+        bridge_name = unique_slab_name.split("_")[0]
+        if bridge_name not in all_bottom_edge_points:
+            all_bottom_edge_points[bridge_name] = {}
+        for CG_name, edge_points in edge_point_dict.items():
+            if CG_name in all_bottom_edge_points[bridge_name]:
+                raise ValueError(f"同じ橋の同じCG名の下面端部点が既に存在しています。bridge_name={bridge_name}, CG_name={CG_name}")
+            all_bottom_edge_points[bridge_name][CG_name] = edge_points
+    return all_bottom_edge_points
 
 def main(initial_or_final: str):
     if initial_or_final == "initial":
@@ -853,7 +877,8 @@ def main(initial_or_final: str):
         file_path=DIR /  f"{Filenames.INPUT}_{Filenames.SLAB}_{Filenames.ADDITONAL_POINTS}.pickle",
     )
 
-    MG_top_points_dict = {}
+    MG_points_dict = {}
+    bottom_edge_point_dict = {}
     all_L_top_point_dict = {}
     all_R_top_point_dict = {}
     world_items_dict_for_bake = {}
@@ -861,28 +886,34 @@ def main(initial_or_final: str):
 
     for slab_info in slab_infos:
         unique_slab_name = f"{slab_info.name}_{slab_info.num}"
-        slab_dict, MG_point_dict, L_top_point_dict, R_top_point_dict = get_each_slab(
+        slab_dict, this_MG_point_dict, this_bottom_edge_point_dict, L_top_point_dict, R_top_point_dict = get_each_slab(
             slab_info = slab_info,
         )
-        MG_top_points_dict[unique_slab_name] = MG_point_dict # ここはpickel用
+        MG_points_dict[unique_slab_name] = this_MG_point_dict # ここはpickel用
+        bottom_edge_point_dict[unique_slab_name] = this_bottom_edge_point_dict # ここはpickel用
         all_L_top_point_dict[unique_slab_name] = L_top_point_dict # ここはpickel用
         all_R_top_point_dict[unique_slab_name] = R_top_point_dict # ここはpickel用
         world_items_dict_for_bake[unique_slab_name] = slab_dict # ここはbake用
     
     all_MG_top_flange_point_dict = get_all_MG_points(
         all_slab_dict = world_items_dict_for_bake,
-        all_MG_top_point_dict = MG_top_points_dict,
+        all_MG_top_point_dict = MG_points_dict,
         all_MG_infos = MG_infos,
         additional_point_infos=add_point_infos,
     )
 
+    all_bottom_edge_points = get_all_bottom_edge_points(
+        bottom_edge_point_dict = bottom_edge_point_dict,
+    )
+
     all_MG_top_flange_point_dict_name = f"{Filenames.WORLD}_{Filenames.MG}_{Filenames.TOP_POINTS}"
+    all_bottom_edge_points_dict_name = f"{Filenames.WORLD}_{Filenames.SLAB}_{Filenames.BOTTOM_POINTS}"
     all_L_top_point_dict_name = f"{Filenames.WORLD}_{Filenames.SLAB}_{Filenames.UP}_{Filenames.TOP_POINTS}"
     all_R_top_point_dict_name = f"{Filenames.WORLD}_{Filenames.SLAB}_{Filenames.DOWN}_{Filenames.TOP_POINTS}"
 
     for dict, name in zip(
-        [all_MG_top_flange_point_dict, all_L_top_point_dict, all_R_top_point_dict],
-        [all_MG_top_flange_point_dict_name, all_L_top_point_dict_name, all_R_top_point_dict_name]
+        [all_MG_top_flange_point_dict, all_bottom_edge_points, all_L_top_point_dict, all_R_top_point_dict],
+        [all_MG_top_flange_point_dict_name, all_bottom_edge_points_dict_name, all_L_top_point_dict_name, all_R_top_point_dict_name]
     ):
         save_json_and_pickle(
             data = dict,
