@@ -1,5 +1,5 @@
 
-from typing import Tuple
+from typing import Any, Sequence, Tuple
 
 import pandas as pd
 
@@ -26,5 +26,28 @@ def get_four_corners(coord_df: pd.DataFrame, pier_name: str, corner_names:Tuple[
     return tuple(get_coord_data(coord_df, pier_name, corner_name) for corner_name in corner_names)
 
 
+def get_single(obj: Any, context: str = ""):
+    # DataFrame
+    if isinstance(obj, pd.DataFrame):
+        if obj.empty:
+            raise ValueError(f"{context} に該当する行が存在しません")
+        if len(obj) > 1:
+            raise ValueError(f"{context} に該当する行が複数あります")
+        return obj.iloc[0]
+
+    # Series（すでに1行想定）
+    if isinstance(obj, pd.Series):
+        return obj
+
+    # list / tuple
+    if isinstance(obj, Sequence) and not isinstance(obj, (str, bytes)):
+        if len(obj) == 0:
+            raise ValueError(f"{context} が空です")
+        if len(obj) > 1:
+            raise ValueError(f"{context} が複数あります")
+        return obj[0]
+
+    # その他
+    raise TypeError(f"{context} の型が想定外: {type(obj)}")
 
 

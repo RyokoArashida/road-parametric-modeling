@@ -17,9 +17,13 @@ class Filenames:
     MG = "main_girder"
     UP = "up"
     DOWN = "down"
-    TOP_POINTS = "top_points"
+    TOP = "top"
+    BOTTOM = "bottom"
     CENTER = "center"
-    ADDITONAL_POINTS = "additional"
-    CENTER_POINTS = "center_points"
+    POINTS = "points"
+    CENTER = "center"
+    ADDITIONAL = "additional"
     BOTTOM_POINTS = "bottom_points"
+    CG = "cross_girder"
+
 

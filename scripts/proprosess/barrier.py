@@ -136,10 +136,10 @@ def main(initial_or_final: str) -> None:
         file_path = output_dir / f"{Filenames.INPUT}_{Filenames.SUPERSTRUCTURE}_{Filenames.COMMON}.pickle",
     )
     all_L_top_point_dict = load_from_pickle(
-        file_path = output_dir / f"{Filenames.WORLD}_{Filenames.SLAB}_{Filenames.UP}_{Filenames.TOP_POINTS}.pickle",
+        file_path = output_dir / f"{Filenames.WORLD}_{Filenames.SLAB}_{Filenames.UP}_{Filenames.TOP}_{Filenames.POINTS}.pickle",
     )
     all_R_top_point_dict = load_from_pickle(
-        file_path = output_dir / f"{Filenames.WORLD}_{Filenames.SLAB}_{Filenames.DOWN}_{Filenames.TOP_POINTS}.pickle",
+        file_path = output_dir / f"{Filenames.WORLD}_{Filenames.SLAB}_{Filenames.DOWN}_{Filenames.TOP}_{Filenames.POINTS}.pickle",
     )
 
 

@@ -7,7 +7,6 @@ from my_project.config.paths import (
     FINAL_OUTPUT_DIR,
     INITIAL_OUTPUT_DIR,
 )
-from my_project.config.schemas.cross_girder_schemas import SlabBottomPoints
 from my_project.config.schemas.main_girder_schemas import (
     MainGirderInfo,
     TopFlangePointInfo,
@@ -18,6 +17,7 @@ from my_project.config.schemas.slab_schemas import (
     DepressedPointInfo,
     EmergencyLaneInfo,
     MainGirderTopPointInfo,
+    SlabBottomPoints,
     SlabCGPointInfo,
     SlabCorners,
     SlabInfo,
@@ -874,7 +874,7 @@ def main(initial_or_final: str):
         file_path=DIR /  f"{Filenames.INPUT}_{Filenames.MG}.pickle",
     )
     add_point_infos = load_from_pickle(
-        file_path=DIR /  f"{Filenames.INPUT}_{Filenames.SLAB}_{Filenames.ADDITONAL_POINTS}.pickle",
+        file_path=DIR /  f"{Filenames.INPUT}_{Filenames.SLAB}_{Filenames.ADDITIONAL}_{Filenames.POINTS}.pickle",
     )
 
     MG_points_dict = {}
@@ -906,10 +906,10 @@ def main(initial_or_final: str):
         bottom_edge_point_dict = bottom_edge_point_dict,
     )
 
-    all_MG_top_flange_point_dict_name = f"{Filenames.WORLD}_{Filenames.MG}_{Filenames.TOP_POINTS}"
-    all_bottom_edge_points_dict_name = f"{Filenames.WORLD}_{Filenames.SLAB}_{Filenames.BOTTOM_POINTS}"
-    all_L_top_point_dict_name = f"{Filenames.WORLD}_{Filenames.SLAB}_{Filenames.UP}_{Filenames.TOP_POINTS}"
-    all_R_top_point_dict_name = f"{Filenames.WORLD}_{Filenames.SLAB}_{Filenames.DOWN}_{Filenames.TOP_POINTS}"
+    all_MG_top_flange_point_dict_name = f"{Filenames.WORLD}_{Filenames.MG}_{Filenames.TOP}_{Filenames.POINTS}"
+    all_bottom_edge_points_dict_name = f"{Filenames.WORLD}_{Filenames.SLAB}_{Filenames.BOTTOM}_{Filenames.POINTS}"
+    all_L_top_point_dict_name = f"{Filenames.WORLD}_{Filenames.SLAB}_{Filenames.UP}_{Filenames.TOP}_{Filenames.POINTS}"
+    all_R_top_point_dict_name = f"{Filenames.WORLD}_{Filenames.SLAB}_{Filenames.DOWN}_{Filenames.TOP}_{Filenames.POINTS}"
 
     for dict, name in zip(
         [all_MG_top_flange_point_dict, all_bottom_edge_points, all_L_top_point_dict, all_R_top_point_dict],

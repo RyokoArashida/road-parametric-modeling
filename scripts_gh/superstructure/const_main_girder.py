@@ -1,3 +1,5 @@
+from dataclasses import fields
+
 import pandas as pd
 import Rhino.Geometry as rg
 
@@ -8,9 +10,11 @@ from my_project.config.paths import (
 )
 from my_project.config.schemas.main_girder_schemas import (
     BottomFlangePointInfo,
+    BoxGirderInfo,
     FlangePointInfo,
-    MainGirderCenterPointInfo,
+    IGirderInfo,
     MainGirderInfo,
+    MainGirderPointInfo,
     TopFlangePointInfo,
 )
 from my_project.config.util_schemas import (
@@ -481,65 +485,8 @@ def get_individual_MG_breps(
     MG_type = MG_info.MG_type
     web_offset = MG_info.web_offset
     original_CG_names = [MG_outer_point.CG for MG_outer_point in top_flange_MG_points]
-    MG_C_points_dict = {}
-    for i, (MG_outer_point, distance) in enumerate(zip(MG_outer_points, distances)):
-        CG = MG_outer_point.CG
-        top_flange_points = MG_outer_point.top
-        bottom_flange_points = MG_outer_point.bottom
-        if i == len(MG_outer_points) - 1:
-            thickness_info = thickness_infos[-1]
-        else:
-            thickness_info = next(ti for ti in thickness_infos if ti[0] <= distance < ti[1])
-        top_flange_thickness, bottom_flange_thickness, web_thickness = thickness_info[2]
+    MG_points_dict = {}
 
-        #まずは横桁用のデータを控える
-        if CG in original_CG_names:
-            if MG_type == "鈑桁":
-                MG_C_points_dict[CG] = MainGirderCenterPointInfo(
-                    top_flange_thickness=top_flange_thickness,
-                    bottom_flange_thickness=bottom_flange_thickness,
-                    web_thickness=web_thickness,
-                    C_top = top_flange_points.C,
-                    C_bottom = bottom_flange_points.C,
-                    L_top = None,
-                    L_bottom = None,
-                    R_top = None,
-                    R_bottom = None,
-                )
-            elif MG_type == "箱桁":
-                U_top = get_point_by_xy_offset(
-                    point1 = top_flange_points.C,
-                    point2 = top_flange_points.U,
-                    offset = web_offset,
-                )
-                D_top = get_point_by_xy_offset(
-                    point1 = top_flange_points.C,
-                    point2 = top_flange_points.D,
-                    offset = web_offset,
-                )
-                U_bottom = get_point_by_xy_offset(
-                    point1 = bottom_flange_points.C,
-                    point2 = bottom_flange_points.U,
-                    offset = web_offset,
-                )
-                D_bottom = get_point_by_xy_offset(
-                    point1 = bottom_flange_points.C,
-                    point2 = bottom_flange_points.D,
-                    offset = web_offset,
-                )
-                MG_C_points_dict[CG] = MainGirderCenterPointInfo(
-                    top_flange_thickness=top_flange_thickness,
-                    bottom_flange_thickness=bottom_flange_thickness,
-                    web_thickness=web_thickness,
-                    C_top = None,
-                    C_bottom = None,
-                    L_top = U_top,
-                    L_bottom = U_bottom,
-                    R_top = D_top,
-                    R_bottom = D_bottom,
-                )
-        
-    # MGのBrepを作る
     def get_top_bottom_MG_points(top_flange_points, bottom_flange_points, thickness_info):
         top_flange_thickness, bottom_flange_thickness, web_thickness = thickness_info
         top_out_L_point = top_flange_points.U
@@ -657,10 +604,56 @@ def get_individual_MG_breps(
                 [top_out_C_point, top_out_L_point, top_in_L_point, Lweb_top_L_point, Lweb_bottom_L_point, bottom_in_L_point, bottom_out_L_point, bottom_out_C_point, bottom_in_C_point, Lweb_bottom_R_point, Lweb_top_R_point, top_in_C_point],
                 [top_out_C_point, top_out_R_point, top_in_R_point, Rweb_top_R_point, Rweb_bottom_R_point, bottom_in_R_point, bottom_out_R_point, bottom_out_C_point, bottom_in_C_point, Rweb_bottom_L_point, Rweb_top_L_point, top_in_C_point]
             )
-    
+        
+    def get_MG_point_info(MG_points, L_MG_points, R_MG_points, MG_type, thickness_info):
+        top_flange_thickness, bottom_flange_thickness, web_thickness = thickness_info
+        if MG_type == "鈑桁":
+            [top_out_R_point, top_out_L_point, top_in_L_point, web_top_L_point, web_bottom_L_point, bottom_in_L_point, bottom_out_L_point, bottom_out_R_point, bottom_in_R_point, web_bottom_R_point, web_top_R_point, top_in_R_point] = MG_points
+        elif MG_type == "箱桁":
+            [top_out_C_point, top_out_L_point, top_in_L_point, Lweb_top_L_point, Lweb_bottom_L_point, bottom_in_L_point, bottom_out_L_point, bottom_out_C_point, bottom_in_C_point, Lweb_bottom_R_point, Lweb_top_R_point, top_in_C_point] = L_MG_points
+            [top_out_C_point, top_out_R_point, top_in_R_point, Rweb_top_R_point, Rweb_bottom_R_point, bottom_in_R_point, bottom_out_R_point, bottom_out_C_point, bottom_in_C_point, Rweb_bottom_L_point, Rweb_top_L_point, top_in_C_point] = R_MG_points
+        return MainGirderPointInfo(
+            top_flange_thickness=top_flange_thickness,
+            bottom_flange_thickness=bottom_flange_thickness,
+            web_thickness=web_thickness,
+            I_points = IGirderInfo(
+                top_out_R_point = top_out_R_point,
+                top_out_L_point = top_out_L_point,
+                top_in_L_point = top_in_L_point,
+                web_top_L_point = web_top_L_point,
+                web_bottom_L_point = web_bottom_L_point,
+                bottom_in_L_point = bottom_in_L_point,
+                bottom_out_L_point = bottom_out_L_point,
+                bottom_out_R_point = bottom_out_R_point,
+                bottom_in_R_point = bottom_in_R_point,
+                web_bottom_R_point = web_bottom_R_point,
+                web_top_R_point = web_top_R_point,
+                top_in_R_point = top_in_R_point,
+            ) if MG_type == "鈑桁" else None,
+            Box_points = BoxGirderInfo(
+                top_out_R_point = top_out_R_point,
+                top_out_L_point = top_out_L_point,
+                top_in_L_point = top_in_L_point,
+                Lweb_top_L_point = Lweb_top_L_point,
+                Lweb_bottom_L_point = Lweb_bottom_L_point,
+                bottom_in_L_point = bottom_in_L_point,
+                bottom_out_L_point = bottom_out_L_point,
+                bottom_out_R_point = bottom_out_R_point,
+                bottom_in_R_point = bottom_in_R_point,
+                Rweb_bottom_R_point = Rweb_bottom_R_point,
+                Rweb_top_R_point = Rweb_top_R_point,
+                top_in_R_point = top_in_R_point,
+                Rweb_top_L_point = Rweb_top_L_point,
+                Lweb_top_R_point = Lweb_top_R_point,
+                Lweb_bottom_R_point = Lweb_bottom_R_point,
+                Rweb_bottom_L_point = Rweb_bottom_L_point,
+            ) if MG_type == "箱桁" else None,
+        )
+
+        
     CG_names = [MG_outer_point.CG for MG_outer_point in MG_outer_points]
     block_end_CG_ids = [CG_names.index(cg) for cg in block_end_CG_names]
-
+    MG_points_dict = {}
     MG_dict = {}
     for i in range(len(block_end_CG_ids)):
         block_num = i
@@ -679,6 +672,12 @@ def get_individual_MG_breps(
         for idx in range(start_idx, end_idx):
             this_MG_outer_point = MG_outer_points[idx]
             next_MG_outer_point = MG_outer_points[idx+1]
+            this_MG_points = None
+            this_L_MG_points = None
+            this_R_MG_points = None
+            next_MG_points = None
+            next_L_MG_points = None
+            next_R_MG_points = None
             if MG_type == "鈑桁":
                 this_MG_points = get_MG_points(this_MG_outer_point.top, this_MG_outer_point.bottom, thickness_info, MG_type, web_offset)
                 next_MG_points = get_MG_points(next_MG_outer_point.top, next_MG_outer_point.bottom, thickness_info, MG_type, web_offset)
@@ -697,10 +696,24 @@ def get_individual_MG_breps(
                 right_brep = const_srf_from_crvs([this_R_MG_crv, next_R_MG_crv])
                 brep = rg.Brep.JoinBreps([left_brep, right_brep], 0.01)[0]
                 breps.append(brep)
+            
+            # MG_points_dictを作成
+            this_CG_name = this_MG_outer_point.CG
+            if this_CG_name in original_CG_names:
+                MG_points_dict[this_CG_name] = get_MG_point_info(this_MG_points, this_L_MG_points, this_R_MG_points, MG_type, thickness_info)
+            if idx == end_idx - 1: # ブロックの終点に対応するMGポイント情報も保存
+                if next_MG_outer_point.CG in original_CG_names:
+                    MG_points_dict[next_MG_outer_point.CG] = get_MG_point_info(next_MG_points, next_L_MG_points, next_R_MG_points, MG_type, thickness_info)
+                
         brep = rg.Brep.JoinBreps(breps, 0.01)[0]
         brep = brep.CapPlanarHoles(0.01)
         MG_dict[block_num] = brep
-    return MG_C_points_dict, MG_dict
+    
+    # original_CG_namesのものが全てあるか確認
+    for CG_name in original_CG_names:
+        if CG_name not in MG_points_dict:
+            raise ValueError(f"MG_outer_pointsのCG {CG_name} に対応するMGポイント情報がMG_points_dictに見つかりませんでした。")
+    return MG_points_dict, MG_dict
 
 def get_each_MG(
     MG_info: MainGirderInfo,
@@ -727,7 +740,7 @@ def get_each_MG(
         height_infos = height_infos,
     )
 
-    MG_C_points_dict, MG_dict = get_individual_MG_breps(
+    MG_points_dict, MG_dict = get_individual_MG_breps(
         MG_outer_points = MG_outer_points,
         distances = additional_distances_with_block,
         thickness_infos = thickness_infos,
@@ -735,7 +748,7 @@ def get_each_MG(
         MG_info = MG_info,
         top_flange_MG_points = top_flange_MG_points,
     )
-    return MG_C_points_dict, MG_dict
+    return MG_points_dict, MG_dict
 
 
 
@@ -749,34 +762,34 @@ def main(initial_or_final: str, debug: bool = False):
         file_path = DIR / f"{Filenames.INPUT}_{Filenames.MG}.pickle",
     )
     top_flange_MG_points_infos = load_from_pickle(
-        file_path = DIR / f"{Filenames.WORLD}_{Filenames.MG}_{Filenames.TOP_POINTS}.pickle",
+        file_path = DIR / f"{Filenames.WORLD}_{Filenames.MG}_{Filenames.TOP}_{Filenames.POINTS}.pickle",
     )
 
-    all_MG_center_points_dict = {}
+    all_MG_points_dict = {}
     world_items_dict_for_bake = {}
     world_items_dict_for_bake_2 = {}
 
     if not debug:
         for MG_info in MG_infos:
             bridge_name = MG_info.bridge_name
-            if bridge_name not in all_MG_center_points_dict:
-                all_MG_center_points_dict[bridge_name] = {}
+            if bridge_name not in all_MG_points_dict:
+                all_MG_points_dict[bridge_name] = {}
             if bridge_name not in world_items_dict_for_bake:
                 world_items_dict_for_bake[bridge_name] = {}
             MG_name = MG_info.MG_name
             top_flange_MG_points = top_flange_MG_points_infos[bridge_name][MG_name]
 
-            MG_center_points_dict, MG_dict = get_each_MG(
+            MG_points_dict, MG_dict = get_each_MG(
                 MG_info = MG_info,
                 top_flange_MG_points = top_flange_MG_points,
             )
-            all_MG_center_points_dict[bridge_name][MG_name] = MG_center_points_dict
+            all_MG_points_dict[bridge_name][MG_name] = MG_points_dict
             world_items_dict_for_bake[bridge_name][MG_name] = MG_dict
 
         save_json_and_pickle(
-            data = all_MG_center_points_dict,
+            data = all_MG_points_dict,
             folder_path = DIR,
-            name = f"{Filenames.WORLD}_{Filenames.MG}_{Filenames.CENTER_POINTS}",
+            name = f"{Filenames.WORLD}_{Filenames.MG}_{Filenames.POINTS}",
         )
         return get_keys_and_values_for_bake(world_items_dict_for_bake)
 
@@ -784,8 +797,8 @@ def main(initial_or_final: str, debug: bool = False):
         points = []
         for MG_info in MG_infos:
             bridge_name = MG_info.bridge_name
-            if bridge_name not in all_MG_center_points_dict:
-                all_MG_center_points_dict[bridge_name] = {}
+            if bridge_name not in all_MG_points_dict:
+                all_MG_points_dict[bridge_name] = {}
             if bridge_name not in world_items_dict_for_bake:
                 world_items_dict_for_bake[bridge_name] = {}
             if bridge_name not in world_items_dict_for_bake_2:
@@ -794,29 +807,27 @@ def main(initial_or_final: str, debug: bool = False):
             print(f"Processing {bridge_name} {MG_name}...")
             top_flange_MG_points = top_flange_MG_points_infos[bridge_name][MG_name]
 
-            MG_center_points_dict, MG_dict = get_each_MG(
+            MG_points_dict, MG_dict = get_each_MG(
                 MG_info = MG_info,
                 top_flange_MG_points = top_flange_MG_points,
             )
-            all_MG_center_points_dict[bridge_name][MG_name] = MG_center_points_dict
+            all_MG_points_dict[bridge_name][MG_name] = MG_points_dict
             world_items_dict_for_bake[bridge_name][MG_name] = MG_dict
 
-            for CG_name, point_info in MG_center_points_dict.items():
-                MG_name = MG_info.MG_name
-                points.extend([
-                    point_info.C_top,
-                    point_info.C_bottom,
-                    point_info.L_top,
-                    point_info.L_bottom,
-                    point_info.R_top,
-                    point_info.R_bottom,
-                ])
+            for _, point_info in MG_points_dict.items():
+                I_points = point_info.I_points
+                Box_points = point_info.Box_points
+                if I_points is not None:
+                    this_points = [getattr(I_points, f.name) for f in fields(I_points)]
+                elif Box_points is not None:
+                    this_points = [getattr(Box_points, f.name) for f in fields(Box_points)]
+                points.extend(this_points)
             points = [const_point_obj(point) for point in points if point is not None]
                 
         save_json_and_pickle(
-            data = all_MG_center_points_dict,
+            data = all_MG_points_dict,
             folder_path = DIR,
-            name = f"{Filenames.WORLD}_{Filenames.MG}_{Filenames.CENTER_POINTS}",
+            name = f"{Filenames.WORLD}_{Filenames.MG}_{Filenames.POINTS}",
         )
         return get_keys_and_values_for_bake(world_items_dict_for_bake), points
     

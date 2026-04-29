@@ -67,16 +67,45 @@ class MainGirderInfo:
     height_change_infos: List[HeightChangeInfo]
     original_CG_names: List[str]
 
+@dataclass(frozen=True)
+class IGirderInfo:
+    top_out_R_point: Point3D
+    top_out_L_point: Point3D
+    top_in_L_point: Point3D
+    web_top_L_point: Point3D
+    web_bottom_L_point: Point3D
+    bottom_in_L_point: Point3D
+    bottom_out_L_point: Point3D
+    bottom_out_R_point: Point3D
+    bottom_in_R_point: Point3D
+    web_bottom_R_point: Point3D
+    web_top_R_point: Point3D
+    top_in_R_point: Point3D
 
 @dataclass(frozen=True)
-class MainGirderCenterPointInfo:
+class BoxGirderInfo:
+    top_out_R_point: Point3D
+    top_out_L_point: Point3D
+    top_in_L_point: Point3D
+    Lweb_top_L_point: Point3D
+    Lweb_bottom_L_point: Point3D
+    bottom_in_L_point: Point3D
+    bottom_out_L_point: Point3D
+    bottom_out_R_point: Point3D
+    bottom_in_R_point: Point3D
+    Rweb_bottom_R_point: Point3D
+    Rweb_top_R_point: Point3D
+    top_in_R_point: Point3D
+    Rweb_top_L_point: Point3D
+    Lweb_top_R_point: Point3D
+    Lweb_bottom_R_point: Point3D
+    Rweb_bottom_L_point: Point3D
+
+@dataclass(frozen=True)
+class MainGirderPointInfo:
     top_flange_thickness: float
     bottom_flange_thickness: float
     web_thickness: float
-    C_top: Optional[Point3D]
-    C_bottom: Optional[Point3D]
-    L_top: Optional[Point3D] # 箱桁
-    L_bottom: Optional[Point3D]
-    R_top: Optional[Point3D] # 箱桁
-    R_bottom: Optional[Point3D]
+    I_points: Optional[IGirderInfo] = None
+    Box_points: Optional[BoxGirderInfo] = None
 

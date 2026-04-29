@@ -254,7 +254,7 @@ def main(initial_or_final: str) -> None:
     save_json_and_pickle(
         data = all_additional_point_infos,
         folder_path = output_dir,
-        name = f"{Filenames.INPUT}_{Filenames.SLAB}_{Filenames.ADDITONAL_POINTS}",
+        name = f"{Filenames.INPUT}_{Filenames.SLAB}_{Filenames.ADDITIONAL}_{Filenames.POINTS}",
     )
 
 if __name__ == "__main__":
