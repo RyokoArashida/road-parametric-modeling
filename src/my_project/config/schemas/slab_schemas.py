@@ -101,6 +101,7 @@ class SlabCorners:
 
 @dataclass(frozen=True)
 class SlabBottomPoints:
+    CG_name: str
     U: Point3D
     D: Point3D
 

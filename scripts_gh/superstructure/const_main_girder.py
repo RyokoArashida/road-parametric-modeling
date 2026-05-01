@@ -480,15 +480,13 @@ def get_individual_MG_breps(
     thickness_infos: list[tuple[float, float, tuple[float, float, float]]],
     block_end_CG_names: list[str],
     MG_info: MainGirderInfo,
-    top_flange_MG_points: list[TopFlangePointInfo],
 ):
     MG_type = MG_info.MG_type
     web_offset = MG_info.web_offset
-    original_CG_names = [MG_outer_point.CG for MG_outer_point in top_flange_MG_points]
-    MG_points_dict = {}
+    MG_points_list = {}
 
     def get_top_bottom_MG_points(top_flange_points, bottom_flange_points, thickness_info):
-        top_flange_thickness, bottom_flange_thickness, web_thickness = thickness_info
+        top_flange_thickness, bottom_flange_thickness, _ = thickness_info
         top_out_L_point = top_flange_points.U
         top_out_R_point = top_flange_points.D
         top_out_C_point = top_flange_points.C
@@ -605,7 +603,7 @@ def get_individual_MG_breps(
                 [top_out_C_point, top_out_R_point, top_in_R_point, Rweb_top_R_point, Rweb_bottom_R_point, bottom_in_R_point, bottom_out_R_point, bottom_out_C_point, bottom_in_C_point, Rweb_bottom_L_point, Rweb_top_L_point, top_in_C_point]
             )
         
-    def get_MG_point_info(MG_points, L_MG_points, R_MG_points, MG_type, thickness_info):
+    def get_MG_point_info(MG_points, L_MG_points, R_MG_points, MG_type, thickness_info, CG_name):
         top_flange_thickness, bottom_flange_thickness, web_thickness = thickness_info
         if MG_type == "鈑桁":
             [top_out_R_point, top_out_L_point, top_in_L_point, web_top_L_point, web_bottom_L_point, bottom_in_L_point, bottom_out_L_point, bottom_out_R_point, bottom_in_R_point, web_bottom_R_point, web_top_R_point, top_in_R_point] = MG_points
@@ -613,6 +611,7 @@ def get_individual_MG_breps(
             [top_out_C_point, top_out_L_point, top_in_L_point, Lweb_top_L_point, Lweb_bottom_L_point, bottom_in_L_point, bottom_out_L_point, bottom_out_C_point, bottom_in_C_point, Lweb_bottom_R_point, Lweb_top_R_point, top_in_C_point] = L_MG_points
             [top_out_C_point, top_out_R_point, top_in_R_point, Rweb_top_R_point, Rweb_bottom_R_point, bottom_in_R_point, bottom_out_R_point, bottom_out_C_point, bottom_in_C_point, Rweb_bottom_L_point, Rweb_top_L_point, top_in_C_point] = R_MG_points
         return MainGirderPointInfo(
+            CG_name=CG_name,
             top_flange_thickness=top_flange_thickness,
             bottom_flange_thickness=bottom_flange_thickness,
             web_thickness=web_thickness,
@@ -653,7 +652,7 @@ def get_individual_MG_breps(
         
     CG_names = [MG_outer_point.CG for MG_outer_point in MG_outer_points]
     block_end_CG_ids = [CG_names.index(cg) for cg in block_end_CG_names]
-    MG_points_dict = {}
+    MG_points_list = []
     MG_dict = {}
     for i in range(len(block_end_CG_ids)):
         block_num = i
@@ -667,7 +666,6 @@ def get_individual_MG_breps(
         if len(thickness_info_list) != 1:
             raise ValueError(f"Blockの開始位置 {start_distance} に対応する厚さ情報が見つからないか、複数見つかっています。{thickness_info_list}")
         thickness_info = thickness_info_list[0][2]
-        top_flange_thickness, bottom_flange_thickness, web_thickness = thickness_info
         breps = []
         for idx in range(start_idx, end_idx):
             this_MG_outer_point = MG_outer_points[idx]
@@ -699,21 +697,15 @@ def get_individual_MG_breps(
             
             # MG_points_dictを作成
             this_CG_name = this_MG_outer_point.CG
-            if this_CG_name in original_CG_names:
-                MG_points_dict[this_CG_name] = get_MG_point_info(this_MG_points, this_L_MG_points, this_R_MG_points, MG_type, thickness_info)
+            MG_points_list.append(get_MG_point_info(this_MG_points, this_L_MG_points, this_R_MG_points, MG_type, thickness_info, this_CG_name))
             if idx == end_idx - 1: # ブロックの終点に対応するMGポイント情報も保存
-                if next_MG_outer_point.CG in original_CG_names:
-                    MG_points_dict[next_MG_outer_point.CG] = get_MG_point_info(next_MG_points, next_L_MG_points, next_R_MG_points, MG_type, thickness_info)
+                MG_points_list.append(get_MG_point_info(next_MG_points, next_L_MG_points, next_R_MG_points, MG_type, thickness_info, next_MG_outer_point.CG))
                 
         brep = rg.Brep.JoinBreps(breps, 0.01)[0]
         brep = brep.CapPlanarHoles(0.01)
         MG_dict[block_num] = brep
     
-    # original_CG_namesのものが全てあるか確認
-    for CG_name in original_CG_names:
-        if CG_name not in MG_points_dict:
-            raise ValueError(f"MG_outer_pointsのCG {CG_name} に対応するMGポイント情報がMG_points_dictに見つかりませんでした。")
-    return MG_points_dict, MG_dict
+    return MG_points_list, MG_dict
 
 def get_each_MG(
     MG_info: MainGirderInfo,
@@ -740,15 +732,14 @@ def get_each_MG(
         height_infos = height_infos,
     )
 
-    MG_points_dict, MG_dict = get_individual_MG_breps(
+    MG_points_list, MG_dict = get_individual_MG_breps(
         MG_outer_points = MG_outer_points,
         distances = additional_distances_with_block,
         thickness_infos = thickness_infos,
         block_end_CG_names = block_end_CG_names,
         MG_info = MG_info,
-        top_flange_MG_points = top_flange_MG_points,
     )
-    return MG_points_dict, MG_dict
+    return MG_points_list, MG_dict
 
 
 
@@ -779,11 +770,11 @@ def main(initial_or_final: str, debug: bool = False):
             MG_name = MG_info.MG_name
             top_flange_MG_points = top_flange_MG_points_infos[bridge_name][MG_name]
 
-            MG_points_dict, MG_dict = get_each_MG(
+            MG_points_list, MG_dict = get_each_MG(
                 MG_info = MG_info,
                 top_flange_MG_points = top_flange_MG_points,
             )
-            all_MG_points_dict[bridge_name][MG_name] = MG_points_dict
+            all_MG_points_dict[bridge_name][MG_name] = MG_points_list
             world_items_dict_for_bake[bridge_name][MG_name] = MG_dict
 
         save_json_and_pickle(
@@ -807,14 +798,14 @@ def main(initial_or_final: str, debug: bool = False):
             print(f"Processing {bridge_name} {MG_name}...")
             top_flange_MG_points = top_flange_MG_points_infos[bridge_name][MG_name]
 
-            MG_points_dict, MG_dict = get_each_MG(
+            MG_points_list, MG_dict = get_each_MG(
                 MG_info = MG_info,
                 top_flange_MG_points = top_flange_MG_points,
             )
-            all_MG_points_dict[bridge_name][MG_name] = MG_points_dict
+            all_MG_points_dict[bridge_name][MG_name] = MG_points_list
             world_items_dict_for_bake[bridge_name][MG_name] = MG_dict
 
-            for _, point_info in MG_points_dict.items():
+            for point_info in MG_points_list:
                 I_points = point_info.I_points
                 Box_points = point_info.Box_points
                 if I_points is not None:

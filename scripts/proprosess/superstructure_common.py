@@ -83,17 +83,24 @@ def main(initial_or_final: str) -> None:
     }
 
     all_coord_info_dict = dict()
+    all_original_CG_names = dict()
     for key, df in bridge_df_dict.items():
         coord_infos = []
         for _, row in df.iterrows():
             coord_info = get_indiv_superstructure_coord_info(row, coord_colnames)
             coord_infos.append(coord_info)
         all_coord_info_dict[key] = coord_infos
+        all_original_CG_names[key] = list(coord_info.name for coord_info in coord_infos if "GE" not in coord_info.name)
     
     save_json_and_pickle(
         data = all_coord_info_dict,
         folder_path = this_dir,
         name = f"{Filenames.INPUT}_{Filenames.SUPERSTRUCTURE}_{Filenames.COMMON}",
+    )
+    save_json_and_pickle(
+        data = all_original_CG_names,
+        folder_path = this_dir,
+        name = f"{Filenames.INPUT}_{Filenames.ORIGINAL}_{Filenames.CG}_{Filenames.NAMES}",
     )
 
 if __name__ == "__main__":

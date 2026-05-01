@@ -25,6 +25,7 @@ from my_project.config.schemas.cross_girder_schemas import (
     YokobariInfo,
     YokogetaInfo,
 )
+from my_project.config.schemas.main_girder_schemas import MainGirderPointInfo
 from my_project.utils.io import load_from_pickle, read_file_to_df, save_json_and_pickle
 from my_project.utils.proprocess import get_single
 
@@ -365,6 +366,52 @@ def get_yokogeta_info_from_row(
         inner_info = inner_info, # 張出
     )
 
+def get_MG_infos_IO(
+    MG_info: MainGirderPointInfo,
+    MG_name: str,
+    UD: str,
+) -> MainGirderPointInfo_IO:
+    top_flange_thickness = MG_info.top_flange_thickness
+    bottom_flange_thickness = MG_info.bottom_flange_thickness
+    web_thickness = MG_info.web_thickness
+    I_points = MG_info.I_points
+    Box_points = MG_info.Box_points
+    I_points_IO = None
+    Box_points_IO = None
+    if pd.notna(I_points):
+        I_points_IO = convert_class_RL_or_UD_to_IO(I_points, UD, IGirderInfo_IO)
+    elif pd.notna(Box_points):
+        Box_points_IO = convert_class_RL_or_UD_to_IO(Box_points, UD, BoxGirderInfo_IO)
+    MG_info_IO = MainGirderPointInfo_IO(
+        MG_name = MG_name,
+        CG_name = MG_info.CG_name,
+        top_flange_thickness = top_flange_thickness,
+        bottom_flange_thickness = bottom_flange_thickness,
+        web_thickness = web_thickness,
+        I_points = I_points_IO,
+        Box_points = Box_points_IO,
+    )
+    return MG_info_IO
+    
+def get_MG_infos_IO_dict(
+    CG_name: str,
+    MG_point_dict_for_CG: dict[str, MainGirderPointInfo], # MG_name: MG_info
+    MG_order: list[str],
+    UD: str,
+):
+    MG_data = list(MG_point_dict_for_CG.items())
+    # MG_dataの名前の中でMG_orderにないものがあったらvalue error
+    if any(MG_name not in MG_order for MG_name, _ in MG_data):
+        raise ValueError(f"Error: {CG_name}のMGのうち、MG_orderに存在しないものがあります。MG_order: {MG_order}, MG_data: {MG_data}")
+    sorted_MG_data = sorted(MG_data, key=lambda x: MG_order.index(x[0]))
+    sorted_MG_infos = [MG_info for _, MG_info in sorted_MG_data]
+    sorted_MG_names = [MG_name for MG_name, _ in sorted_MG_data]
+    print(f"{CG_name}のMGの順番: {[MG_name for MG_name, _ in sorted_MG_data]}")
+    MG_infos_IO = []
+    for MG_name, MG_info in zip(sorted_MG_names, sorted_MG_infos):
+        MG_info_IO = get_MG_infos_IO(MG_info, MG_name, UD)
+        MG_infos_IO.append(MG_info_IO)
+    return MG_infos_IO
 
 def main(initial_or_final: str) -> None:
     if initial_or_final == "initial":
@@ -410,107 +457,101 @@ def main(initial_or_final: str) -> None:
         output_dir / f"{Filenames.WORLD}_{Filenames.SLAB}_{Filenames.BOTTOM}_{Filenames.POINTS}.pickle",
     )
 
+    original_CG_names_dict = load_from_pickle(
+        output_dir / f"{Filenames.INPUT}_{Filenames.ORIGINAL}_{Filenames.CG}_{Filenames.NAMES}.pickle",
+    )
 
     all_mapping_dict = get_all_mapping_dict(mapping_df)
     all_CG_infos = {}
-
+    all_MG_infos_for_CG_IO_dict = {}
+    all_MG_infos_IO_dict = {}
+    all_slab_bottom_points_IO_dict = {}
     for bridge_name, CG_dict in all_mapping_dict.items():
         all_CG_infos[bridge_name] = []
-        MG_point_dict_for_bridge = MG_point_dict[bridge_name]
-        original_CG_names = []
-        MG_point_dict_for_bridge_changed = {}
-        for MG_name, MG_point_dict_for_MG in MG_point_dict_for_bridge.items():
-            original_CG_names.extend(list(MG_point_dict_for_MG.keys()))
-            for CG_name, MG_infos in MG_point_dict_for_MG.items():
-                if CG_name not in MG_point_dict_for_bridge_changed:
-                    MG_point_dict_for_bridge_changed[CG_name] = {}
-                MG_point_dict_for_bridge_changed[CG_name][MG_name] = MG_infos
-        original_CG_names = list(set(original_CG_names))
-        original_CG_names = [CG_name for CG_name in original_CG_names if "GE" not in CG_name] # GEは横桁のCGなので除外
-        slab_bottom_points_for_bridge = slab_bottom_points[bridge_name]
-        slab_CG_names = list(slab_bottom_points_for_bridge.keys())
-        # originalにあってslabにないもの
-        gap = set(original_CG_names) - set(slab_CG_names)
-        if gap:
-            print(f"Warning: {bridge_name}のCGのうち、以下のCGはスラブの情報に存在しません。: {gap}")
+        original_CG_names = original_CG_names_dict[bridge_name]
         UD = UD_df[UD_df["橋梁"] == bridge_name]["UD"].values[0]
+        for CG_name in original_CG_names:
+            if "GE" not in CG_name: # GEは横桁がない
+                CG_map = CG_dict.get(CG_name)
+                if CG_map is None:
+                    raise ValueError(f"Error: {bridge_name}の{CG_name}はmapping_dictに存在しません。")
+                CG_type, CG_type_num = CG_map
+                yokobari_info = None
+                taikeikou_info = None
+                yokogeta_info = None
+                if CG_type == "横梁":
+                    yokobari_row = yokobari_df[yokobari_df["全体_全体_番号"] == CG_type_num]
+                    yokobari_row = get_single(yokobari_row)
+                    yokobari_info = get_yokobari_info_from_row(yokobari_row)
+                elif CG_type == "対傾構":
+                    taikeikou_row = taikeikou_df[taikeikou_df["全体_全体_番号"] == CG_type_num]
+                    taikeikou_row = get_single(taikeikou_row)
+                    taikeikou_info = get_taikeikou_info_from_row(taikeikou_row)
+                elif CG_type == "横桁":
+                    yokogeta_row = yokogeta_df[yokogeta_df["全体_全体_番号"] == CG_type_num]
+                    yokogeta_row = get_single(yokogeta_row)
+                    yokogeta_info = get_yokogeta_info_from_row(yokogeta_row)
+
+                CG_info = CrossGirderInfo(
+                    bridge_name = bridge_name,
+                    CG_name = CG_name,
+                    CG_type=CG_type,
+                    yokobari_info=yokobari_info,
+                    taikeikou_info=taikeikou_info,
+                    yokogeta_info=yokogeta_info,
+                )
+                all_CG_infos[bridge_name].append(CG_info)
+        
+
+        all_MG_infos_for_CG_IO_dict[bridge_name] = {}
+        all_MG_infos_IO_dict[bridge_name] = {}
+        MG_point_dict_for_bridge = MG_point_dict[bridge_name]
         MG_order = UD_df[UD_df["橋梁"] == bridge_name]["主桁路肩から中央"].values[0]
         MG_order = MG_order.replace(" ", "").split(",")
-        for CG_name in original_CG_names:
-            CG_map = CG_dict.get(CG_name)
-            if CG_map is None:
-                print(f"Warning: {bridge_name}の{CG_name}は対応表に存在しません。")
-                continue
-            CG_type, CG_type_num = CG_map
-            yokobari_info = None
-            taikeikou_info = None
-            yokogeta_info = None
-            if CG_type == "横梁":
-                yokobari_row = yokobari_df[yokobari_df["全体_全体_番号"] == CG_type_num]
-                yokobari_row = get_single(yokobari_row)
-                yokobari_info = get_yokobari_info_from_row(yokobari_row)
-            elif CG_type == "対傾構":
-                taikeikou_row = taikeikou_df[taikeikou_df["全体_全体_番号"] == CG_type_num]
-                taikeikou_row = get_single(taikeikou_row)
-                taikeikou_info = get_taikeikou_info_from_row(taikeikou_row)
-            elif CG_type == "横桁":
-                yokogeta_row = yokogeta_df[yokogeta_df["全体_全体_番号"] == CG_type_num]
-                yokogeta_row = get_single(yokogeta_row)
-                yokogeta_info = get_yokogeta_info_from_row(yokogeta_row)
+        MG_point_dict_for_bridge_changed = {}
+        for MG_name, CG_MG_infos in MG_point_dict_for_bridge.items():
+            all_MG_infos_IO_dict[bridge_name][MG_name] = []
+            for CG_MG_info in CG_MG_infos:
+                CG_name = CG_MG_info.CG_name
+                if CG_name not in MG_point_dict_for_bridge_changed:
+                    MG_point_dict_for_bridge_changed[CG_name] = {}
+                MG_point_dict_for_bridge_changed[CG_name][MG_name] = CG_MG_info
+                CG_MG_info_IO = get_MG_infos_IO(CG_MG_info, MG_name, UD)
+                all_MG_infos_IO_dict[bridge_name][MG_name].append(CG_MG_info_IO)
+        for CG_name, MG_point_dict_for_CG in MG_point_dict_for_bridge_changed.items():
+            MG_infos_IO = get_MG_infos_IO_dict(CG_name, MG_point_dict_for_CG, MG_order, UD)
+            all_MG_infos_for_CG_IO_dict[bridge_name][CG_name] = MG_infos_IO
 
-            MG_point_dict_for_CG = MG_point_dict_for_bridge_changed.get(CG_name, {})
-            MG_names = list(MG_point_dict_for_CG.keys())
-            MG_data = [(MG_name, MG_point_dict_for_CG[MG_name]) for MG_name in MG_names]
-            # MG_dataの名前の中でMG_orderにないものがあったらvalue error
-            if any(MG_name not in MG_order for MG_name, _ in MG_data):
-                raise ValueError(f"Error: {bridge_name}の{CG_name}のMGのうち、MG_orderに存在しないものがあります。MG_order: {MG_order}, MG_data: {MG_data}")
-            sorted_MG_data = sorted(MG_data, key=lambda x: MG_order.index(x[0]))
-            sorted_MG_infos = [MG_info for _, MG_info in sorted_MG_data]
-            print(f"{bridge_name}の{CG_name}のMGの順番: {[MG_name for MG_name, _ in sorted_MG_data]}")
-            MG_infos_IO = []
-            for MG_info in sorted_MG_infos:
-                top_flange_thickness = MG_info.top_flange_thickness
-                bottom_flange_thickness = MG_info.bottom_flange_thickness
-                web_thickness = MG_info.web_thickness
-                I_points = MG_info.I_points
-                Box_points = MG_info.Box_points
-                I_points_IO = None
-                Box_points_IO = None
-                if pd.notna(I_points):
-                    I_points_IO = convert_class_RL_or_UD_to_IO(I_points, UD, IGirderInfo_IO)
-                elif pd.notna(Box_points):
-                    Box_points_IO = convert_class_RL_or_UD_to_IO(Box_points, UD, BoxGirderInfo_IO)
-                MG_info_IO = MainGirderPointInfo_IO(
-                    top_flange_thickness = top_flange_thickness,
-                    bottom_flange_thickness = bottom_flange_thickness,
-                    web_thickness = web_thickness,
-                    I_points = I_points_IO,
-                    Box_points = Box_points_IO,
-                )
-                MG_infos_IO.append(MG_info_IO)
 
-            slab_bottom_points_for_CG = slab_bottom_points_for_bridge.get(CG_name)
-            if slab_bottom_points_for_CG is None:
-                print(f"Warning: {bridge_name}の{CG_name}はスラブの情報に存在しません。")
-                continue
-            slab_bottom_points_for_CG_IO = convert_class_RL_or_UD_to_IO(slab_bottom_points_for_CG, UD, SlabBottomPoints_IO)
-            CG_info = CrossGirderInfo(
-                bridge_name = bridge_name,
-                CG_name = CG_name,
-                MGs = MG_infos_IO,
-                slab_bottom_points = slab_bottom_points_for_CG_IO,
-                CG_type=CG_type,
-                yokobari_info=yokobari_info,
-                taikeikou_info=taikeikou_info,
-                yokogeta_info=yokogeta_info,
-            )
-            all_CG_infos[bridge_name].append(CG_info)
+        slab_bottom_points_for_bridge = slab_bottom_points[bridge_name]
+        all_slab_bottom_points_IO_dict[bridge_name] = []
+        
+        for slab_point_infos in slab_bottom_points_for_bridge: # 2つ床版があるときはリスト2つ入ってる
+            slab_point_info_list = []
+            for slab_point_info in slab_point_infos:
+                slab_bottom_points_for_CG_IO = convert_class_RL_or_UD_to_IO(slab_point_info, UD, SlabBottomPoints_IO)
+                slab_point_info_list.append(slab_bottom_points_for_CG_IO)
+            all_slab_bottom_points_IO_dict[bridge_name].append(slab_point_info_list)
 
-    
     save_json_and_pickle(
         data = all_CG_infos,
         folder_path = output_dir,
         name = f"{Filenames.INPUT}_{Filenames.CG}"
+    )
+    save_json_and_pickle(
+        data = all_MG_infos_for_CG_IO_dict,
+        folder_path = output_dir,
+        name = f"{Filenames.WORLD}_{Filenames.MG}_{Filenames.POINTS}_for_{Filenames.CG}"
+    )
+    save_json_and_pickle(
+        data = all_slab_bottom_points_IO_dict,
+        folder_path = output_dir,
+        name = f"{Filenames.WORLD}_{Filenames.SLAB}_{Filenames.BOTTOM}_{Filenames.POINTS}_for_{Filenames.CG}"
+    )
+    save_json_and_pickle(
+        data = all_MG_infos_IO_dict,
+        folder_path = output_dir,
+        name = f"{Filenames.WORLD}_{Filenames.MG}_{Filenames.POINTS}_IO"
     )
 
 

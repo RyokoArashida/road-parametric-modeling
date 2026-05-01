@@ -71,6 +71,7 @@ class YokogetaInfo:
 
 @dataclass(frozen=True)
 class SlabBottomPoints_IO:
+    CG_name: str
     I: Point3D
     O: Point3D
 
@@ -110,6 +111,8 @@ class BoxGirderInfo_IO:
 
 @dataclass(frozen=True)
 class MainGirderPointInfo_IO:
+    MG_name: str
+    CG_name: str
     top_flange_thickness: float
     bottom_flange_thickness: float
     web_thickness: float
@@ -120,11 +123,18 @@ class MainGirderPointInfo_IO:
 class CrossGirderInfo:
     bridge_name: str
     CG_name: str
-    MGs: list[MainGirderPointInfo_IO] # CLに遠い方から
-    slab_bottom_points: SlabBottomPoints_IO
     CG_type: str # 横梁、対傾構、横桁
     yokobari_info: Optional[YokobariInfo] = None
     taikeikou_info: Optional[TaikeikouInfo] = None
     yokogeta_info: Optional[YokogetaInfo] = None
-    
 
+
+
+@dataclass(frozen=True)
+class MGPointSideInfo:
+    top_out: Point3D
+    top_in: Point3D
+    web_top: Point3D
+    web_bottom: Point3D
+    bottom_in: Point3D
+    bottom_out: Point3D

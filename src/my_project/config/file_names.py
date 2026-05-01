@@ -25,5 +25,7 @@ class Filenames:
     ADDITIONAL = "additional"
     BOTTOM_POINTS = "bottom_points"
     CG = "cross_girder"
+    NAMES = "names"
+    ORIGINAL = "original"
 
 

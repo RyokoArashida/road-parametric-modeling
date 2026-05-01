@@ -45,9 +45,21 @@ def get_point_by_xy_offset(
         z=point1.z + dz * t,
     )
 
+def get_point_by_xy_z_offset(
+    point1: Point3D,
+    point2: Point3D,
+    offset_xy: float, # 正の値のときpoint1から見てpoint2の方向にオフセットする
+    offset_z: float, # 正の値のとき上方向にオフセットする
+) -> Point3D:
+    point_xy_offset = get_point_by_xy_offset(point1, point2, offset_xy)
+    return Point3D(
+        x=point_xy_offset.x,
+        y=point_xy_offset.y,
+        z=point_xy_offset.z + offset_z,
+    )
 
 
-def get_offset_point_LR_within_line(L_point, R_point, offset_xy):
+def get_both_points_by_xy_offset(L_point, R_point, offset_xy):
     return (
         get_point_by_xy_offset(
             point1=L_point,
@@ -61,8 +73,9 @@ def get_offset_point_LR_within_line(L_point, R_point, offset_xy):
         )
     )
 
+
 def get_point_LR_x_z(L_point, R_point, offset_xy, offset_z): # これはｚが絶対座標
-    L_in_line, R_in_line = get_offset_point_LR_within_line(L_point, R_point, offset_xy)
+    L_in_line, R_in_line = get_both_points_by_xy_offset(L_point, R_point, offset_xy)
     return (
         Point3D(x=L_in_line.x, y=L_in_line.y, z=L_point.z + offset_z),
         Point3D(x=R_in_line.x, y=R_in_line.y, z=R_point.z + offset_z),

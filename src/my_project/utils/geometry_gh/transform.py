@@ -62,3 +62,11 @@ def place_obj(
     else:
         raise ValueError(f"Unsupported object type: {type(obj)}")
 
+def move_obj(
+    obj: Union[rg.Brep, rg.Curve, rg.Point3d],
+    move_vector: rg.Vector3d,
+) -> Union[rg.Brep, rg.Curve, rg.Point3d]:
+    transform = rg.Transform.Translation(move_vector)
+    new_obj = obj.Duplicate()
+    new_obj.Transform(transform)
+    return new_obj

@@ -31,6 +31,7 @@ from my_project.utils.geometry.vectors import get_frame_2D
 from my_project.utils.geometry_gh.attributes import get_distance_along_crv
 from my_project.utils.geometry_gh.const import (
     const_planer_srf_from_points,
+    const_point_obj,
     const_polycurve_obj,
     const_srf_from_crvs,
 )
@@ -703,15 +704,15 @@ def get_each_slab(
         MG_point_dict[name] = corner_point_info.MG_top_points
     
     # 下の端のデータは必要なので返す（横桁の張り出し）
+    final_CG_names = [p.CG_name for p in new_point_infos]
     bottom_edge_point_dict = {}
-    origin_CG_names_wo_GE = [name for name in origin_CG_names if "GE" not in name] # エッジには横桁はない
-    for name in origin_CG_names_wo_GE:
+    for name in final_CG_names:
         corner_point_info = next(cps for cps in corner_points if cps.CG_name == name)
         bottom_edge_point_dict[name] = SlabBottomPoints(
+            CG_name=name,
             U = corner_point_info.Ubottom,
             D = corner_point_info.Dbottom,
         )
-
     return slab_dict, MG_point_dict, bottom_edge_point_dict, L_top_point_dict, R_top_point_dict
 
 
@@ -854,11 +855,11 @@ def get_all_bottom_edge_points(
     for unique_slab_name, edge_point_dict in bottom_edge_point_dict.items():
         bridge_name = unique_slab_name.split("_")[0]
         if bridge_name not in all_bottom_edge_points:
-            all_bottom_edge_points[bridge_name] = {}
-        for CG_name, edge_points in edge_point_dict.items():
-            if CG_name in all_bottom_edge_points[bridge_name]:
-                raise ValueError(f"同じ橋の同じCG名の下面端部点が既に存在しています。bridge_name={bridge_name}, CG_name={CG_name}")
-            all_bottom_edge_points[bridge_name][CG_name] = edge_points
+            all_bottom_edge_points[bridge_name] = []
+        edge_points = []
+        for CG_name, edge_point_info in edge_point_dict.items():
+            edge_points.append(edge_point_info)
+        all_bottom_edge_points[bridge_name].append(edge_points)
     return all_bottom_edge_points
 
 def main(initial_or_final: str):
@@ -906,6 +907,14 @@ def main(initial_or_final: str):
         bottom_edge_point_dict = bottom_edge_point_dict,
     )
 
+    # debug
+    points = []
+    for bridge_name, edge_point_lists in all_bottom_edge_points.items():
+        for edge_point_list in edge_point_lists:
+            for edge_points in edge_point_list:
+                points.append(const_point_obj(edge_points.U))
+                points.append(const_point_obj(edge_points.D))
+
     all_MG_top_flange_point_dict_name = f"{Filenames.WORLD}_{Filenames.MG}_{Filenames.TOP}_{Filenames.POINTS}"
     all_bottom_edge_points_dict_name = f"{Filenames.WORLD}_{Filenames.SLAB}_{Filenames.BOTTOM}_{Filenames.POINTS}"
     all_L_top_point_dict_name = f"{Filenames.WORLD}_{Filenames.SLAB}_{Filenames.UP}_{Filenames.TOP}_{Filenames.POINTS}"
@@ -930,7 +939,10 @@ def main(initial_or_final: str):
         keys = [k for k, _ in items]
         values = [v for _, v in items]
         return keys, values
-    return get_keys_and_values_for_bake(world_items_dict_for_bake)
+    # return get_keys_and_values_for_bake(world_items_dict_for_bake)
+    # debug
+    return get_keys_and_values_for_bake(world_items_dict_for_bake), points
 
 if __name__ == "__main__":
-    (bake_keys, bake_objs) = main("initial")
+    # (bake_keys, bake_objs) = main("initial")
+    (bake_keys, bake_objs), points = main("initial")

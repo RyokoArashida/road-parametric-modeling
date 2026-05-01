@@ -17,7 +17,7 @@ from my_project.config.util_schemas import (
 )
 from my_project.utils.dataframe import flatten_any
 from my_project.utils.geometry.points import (
-    get_offset_point_LR_within_line,
+    get_both_points_by_xy_offset,
     get_point_LR_x_z,
 )
 from my_project.utils.geometry.vectors import get_frame_2D
@@ -39,7 +39,7 @@ def get_barrier_points(
     slab_edge_points: LR_point,
 ) -> tuple[dict[str, list[Point3D]], Point3D, Point3D]:
     base_point_in_L, base_point_in_R = slab_edge_points.Lpoint, slab_edge_points.Rpoint
-    base_bottom_L, base_bottom_R = get_offset_point_LR_within_line(
+    base_bottom_L, base_bottom_R = get_both_points_by_xy_offset(
         L_point=base_point_in_L,
         R_point=base_point_in_R,
         offset_xy=common_info.x - common_info.edge_watertreatment_x
@@ -284,7 +284,7 @@ def get_center_barrier_points(
     LR2_point: LR_point,
 ) -> tuple[dict[str, list[Point3D]], Point3D, Point3D, Point3D, Point3D]:
     base_bottom_L, base_bottom_R = LR2_point.Lpoint, LR2_point.Rpoint
-    bottom_out_L, bottom_out_R = get_offset_point_LR_within_line(
+    bottom_out_L, bottom_out_R = get_both_points_by_xy_offset(
         L_point=base_bottom_L,
         R_point=base_bottom_R,
         offset_xy=barrier_common_info.x

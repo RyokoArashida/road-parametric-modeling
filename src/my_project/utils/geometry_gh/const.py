@@ -43,7 +43,7 @@ def const_closed_polycurve_obj(
         raise ValueError(f"Curve is not closed. points={corner_points}")
     return curve
 
-def const_surf_obj_from_points(
+def const_planer_srf_obj_from_points(
     points: Union[list[Point3D], list[Point2D]]
 ) -> rg.Brep:
     curve = const_closed_polycurve_obj(points)
@@ -55,6 +55,8 @@ def const_surf_obj_from_points(
             f"Failed to create planar brep. points={points}"
         )
     return breps[0]
+
+    
 
 def const_extrude_brep_from_curve(
     crv: Union[rg.Curve, rg.Line, rg.PolylineCurve, rg.Circle],
@@ -155,7 +157,7 @@ def const_vertical_line_from_point(
     return rg.LineCurve(line)
 
 # そのポイントを通り、与えた軸に沿った、かつ垂直な平面のサーフェスを作る
-def const_srf_from_point_and_axis(
+def const_vertical_srf_from_point_and_axis(
     point: Union[Point3D, rg.Point3d],
     axis_vector: Vector2D,
     height: float = 100000, # 100m
@@ -177,4 +179,64 @@ def const_srf_from_point_and_axis(
     srf = const_srf_from_crvs([rg.LineCurve(plus_line), rg.LineCurve(minus_line)])
     return srf
 
+# 2つの点を通る長い直線をつくる
+def const_extended_line_from_two_points(
+    point1: Union[Point3D, rg.Point3d],
+    point2: Union[Point3D, rg.Point3d],
+    length: float = 100000, # 100m
+) -> rg.LineCurve:
+    point1 = const_point_obj(point1)
+    point2 = const_point_obj(point2)
+    mid_pt = rg.Point3d(
+        (point1.X + point2.X) / 2,
+        (point1.Y + point2.Y) / 2,
+        (point1.Z + point2.Z) / 2,
+    )
+    dir_vector = rg.Vector3d(
+        point2.X - point1.X,
+        point2.Y - point1.Y,
+        point2.Z - point1.Z,
+    )
+    dir_vector.Unitize()
+    dir_vector *= length / 2
+    plus_pt = mid_pt + dir_vector
+    minus_pt = mid_pt - dir_vector
+    line = rg.Line(minus_pt, plus_pt)
+    return rg.LineCurve(line)
 
+# 2つの点を通り、垂直な平面のサーフェスを作る
+def const_vertical_srf_from_two_points(
+    point1: Union[Point3D, rg.Point3d],
+    point2: Union[Point3D, rg.Point3d],
+    height: float = 100000, # 100m
+    length: float = 100000, # 100m
+) -> rg.Brep:
+    point1 = const_point_obj(point1)
+    point2 = const_point_obj(point2)
+    mid_pt = rg.Point3d(
+        (point1.X + point2.X) / 2,
+        (point1.Y + point2.Y) / 2,
+        (point1.Z + point2.Z) / 2,
+    )
+    axis_vector = Vector2D(x=point2.X - point1.X, y=point2.Y - point1.Y)
+    srf = const_vertical_srf_from_point_and_axis(mid_pt, axis_vector, height=height, length=length)
+    return srf
+
+
+def const_point_along_curve(curve: rg.Curve, base_point: Union[Point3D, rg.Point3d], offset: float) -> rg.Point3d:
+    base_point = const_point_obj(base_point)
+    ok, t0 = curve.ClosestPoint(base_point)
+    if not ok:
+        raise ValueError("ClosestPoint failed")
+
+    # base_ptまでの弧長
+    length0 = curve.GetLength(rg.Interval(curve.Domain.Min, t0))
+
+    # 進みたい位置の弧長
+    target_length = length0 + offset
+
+    # 弧長 → parameter に変換
+    ok, t = curve.LengthParameter(target_length)
+    if not ok:
+        raise ValueError("LengthParameter failed (out of range?)")
+    return curve.PointAt(t)

@@ -103,6 +103,7 @@ class BoxGirderInfo:
 
 @dataclass(frozen=True)
 class MainGirderPointInfo:
+    CG_name: str
     top_flange_thickness: float
     bottom_flange_thickness: float
     web_thickness: float
