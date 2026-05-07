@@ -64,6 +64,7 @@ class TaikeikouInfo:
 @dataclass(frozen=True)
 class YokogetaInfo:
     center_info: HInfo
+    center_top_offset_z : float # 主桁上面上からH鋼中間まで
     outer_existence: bool
     inner_existence: bool
     outer_info: Optional[HInfo] = None # 張出
@@ -127,8 +128,6 @@ class CrossGirderInfo:
     yokobari_info: Optional[YokobariInfo] = None
     taikeikou_info: Optional[TaikeikouInfo] = None
     yokogeta_info: Optional[YokogetaInfo] = None
-
-
 
 @dataclass(frozen=True)
 class MGPointSideInfo:

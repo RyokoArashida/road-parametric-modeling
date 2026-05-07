@@ -70,3 +70,49 @@ def move_obj(
     new_obj = obj.Duplicate()
     new_obj.Transform(transform)
     return new_obj
+
+def get_offset_normal_vector_on_plane(
+    p1: rg.Point3d,
+    p2: rg.Point3d,
+    plane_p3: rg.Point3d,
+) -> rg.Vector3d:
+    # 平面法線
+    a = rg.Vector3d(p2 - p1)
+    b = rg.Vector3d(plane_p3 - p1)
+    normal = rg.Vector3d.CrossProduct(a, b)
+    if not normal.Unitize():
+        raise ValueError("Plane normal is zero. The plane points may be collinear.")
+
+    # 線分方向
+    line_vec = rg.Vector3d(p2 - p1)
+    if not line_vec.Unitize():
+        raise ValueError("Line segment length is zero.")
+
+    # 平面内で線分に直交する方向
+    move_vec = rg.Vector3d.CrossProduct(normal, line_vec)
+    if not move_vec.Unitize():
+        raise ValueError("Failed to compute perpendicular vector.")
+    
+    return move_vec, -move_vec
+
+def offset_line_segment_on_plane(
+    p1: rg.Point3d,
+    p2: rg.Point3d,
+    plane_p3: rg.Point3d,
+    offset: float,
+) -> tuple[rg.Point3d, rg.Point3d]:
+    move_vec_pos, move_vec_neg = get_offset_normal_vector_on_plane(p1, p2, plane_p3)
+    move_vec_pos = move_vec_pos * offset
+    move_vec_neg = move_vec_neg * offset
+    return (p1 + move_vec_pos, p2 + move_vec_pos), (p1 + move_vec_neg, p2 + move_vec_neg)
+
+def offset_line_segment_on_plane_and_get_vectors(
+    p1: rg.Point3d,
+    p2: rg.Point3d,
+    plane_p3: rg.Point3d,
+    offset: float,
+) -> tuple[rg.Point3d, rg.Point3d]:
+    move_vec_pos, move_vec_neg = get_offset_normal_vector_on_plane(p1, p2, plane_p3)
+    move_vec_pos_with_offset = move_vec_pos * offset
+    move_vec_neg_with_offset = move_vec_neg * offset
+    return (p1 + move_vec_pos_with_offset, p2 + move_vec_pos_with_offset), (p1 + move_vec_neg_with_offset, p2 + move_vec_neg_with_offset), move_vec_pos, move_vec_neg 

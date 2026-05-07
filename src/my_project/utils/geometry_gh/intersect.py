@@ -4,6 +4,7 @@ import Rhino.Geometry as rg
 
 from my_project.config.util_schemas import Point2D, Point3D, Vector2D
 from my_project.utils.geometry_gh.const import (
+    const_curve_obj,
     const_extended_line_from_two_points,
     const_point_obj,
     const_vertical_line_from_point,
@@ -50,6 +51,7 @@ def get_intersect_point_on_curve_with_xy(
     point: Point2D,
     axis_vector: Vector2D, # 断面で考えているときはそれに直交する方向。
 )->Point3D:
+    curve = const_curve_obj(curve)
     planer_srf = const_vertical_srf_from_point_and_axis(point, axis_vector)
     intersection_events = rg.Intersect.Intersection.CurveBrep(curve, planer_srf, 0.01)
     if not intersection_events:
@@ -79,22 +81,30 @@ def get_intersect_point_on_srf_with_point(
     intersect_pt = point[0]
     return Point3D(x=intersect_pt.X, y=intersect_pt.Y, z=intersect_pt.Z)
 
-def get_intersect_point_on_srf_with_points(
+def get_intersect_point_on_srf_with_curve(
     srf: Union[rg.Surface, rg.Brep],
-    points: list[Union[Point3D, Point2D, rg.Point3d]],
+    curve: Union[rg.Curve, rg.Line, rg.PolylineCurve],
 ) -> Optional[Point3D]:
-    linecrv = const_extended_line_from_two_points(*points)
     brep_srf = srf if isinstance(srf, rg.Brep) else srf.ToBrep()
-    intersection_events = rg.Intersect.Intersection.CurveBrep(linecrv, brep_srf, 0.01)
+    curve = const_curve_obj(curve)
+    intersection_events = rg.Intersect.Intersection.CurveBrep(curve, brep_srf, 0.01)
     if not intersection_events:
         raise ValueError("曲線とサーフェスの交差が見つかりませんでした")
     point = intersection_events[2]
     if len(point) == 0:
         raise ValueError("曲線とサーフェスの交点が見つかりませんでした")
     if len(point) > 1:
+        print(f"曲線とサーフェスの交点が複数見つかりました。point={point}")
         raise ValueError("曲線とサーフェスの交点が複数見つかりました")
     intersect_pt = point[0]
     return Point3D(x=intersect_pt.X, y=intersect_pt.Y, z=intersect_pt.Z)
+
+def get_intersect_point_on_srf_with_points(
+    srf: Union[rg.Surface, rg.Brep],
+    points: list[Union[Point3D, Point2D, rg.Point3d]],
+) -> Optional[Point3D]:
+    linecrv = const_extended_line_from_two_points(*points)
+    return get_intersect_point_on_srf_with_curve(srf, linecrv)
 
 
 def get_intersect_points_on_brep_with_point(
@@ -109,7 +119,7 @@ def get_intersect_points_on_brep_with_point(
     if len(intersection_points) == 0:
         raise ValueError(f"曲線とブレップの交点が見つかりませんでした。point={intersection_points}")
     if len(intersection_points) > 2:
-        raise ValueError(f"曲線とブレップの交点が複数見つかりました。point={intersection_points}")
+        raise ValueError(f"曲線とブレップの交点が3個以上複数見つかりました。point={intersection_points}")
     return intersection_points
 
 def get_intersect_point_on_crvs_with_both_edge_points(
@@ -124,16 +134,7 @@ def get_intersect_point_on_crvs_with_both_edge_points(
         target_crv_points[0],
         target_crv_points[1],
     )
-    intersection_events = rg.Intersect.Intersection.CurveBrep(target_crv, planer_srf, 0.01)
-    if not intersection_events:
-        raise ValueError("曲線と平面の交差が見つかりませんでした。")
-    point = intersection_events[2]
-    if len(point) == 0:
-        raise ValueError("曲線と平面の交点が見つかりませんでした。")
-    if len(point) > 1:
-        raise ValueError("曲線と平面の交点が複数見つかりました。")
-    intersect_pt = point[0]
-    return Point3D(x=intersect_pt.X, y=intersect_pt.Y, z=intersect_pt.Z)
+    return get_intersect_point_on_srf_with_curve(planer_srf, target_crv)
 
 def get_intersect_point_on_crvs(
     target_crv: Union[rg.Curve, rg.Line, rg.PolylineCurve],
@@ -143,34 +144,32 @@ def get_intersect_point_on_crvs(
         cutter_crv_points[0],
         cutter_crv_points[1],
     )
-    if isinstance(target_crv, rg.Curve):
-        target_curve = target_crv
-    elif isinstance(target_crv, rg.Line):
-        target_curve = rg.LineCurve(target_crv)
-    elif isinstance(target_crv, rg.PolylineCurve):
-        target_curve = rg.PolylineCurve(target_crv)
-    elif isinstance(target_crv, rg.Circle):
-        target_curve = target_crv.ToNurbsCurve()
-    else:
-        raise ValueError(f"Unsupported object type: {type(target_crv)}")
+    target_crv = const_curve_obj(target_crv)
+    return get_intersect_point_on_srf_with_curve(planer_srf, target_crv)
 
-    intersection_events = rg.Intersect.Intersection.CurveBrep(target_curve, planer_srf, 0.01)
+def get_intersect_point_on_crvs_in_the_same_plane(
+    target_crv: Union[rg.Curve, rg.Line, rg.PolylineCurve],
+    cutter_crv: Union[rg.Curve, rg.Line, rg.PolylineCurve],
+) -> Optional[Point3D]:
+    target_crv = const_curve_obj(target_crv)
+    cutter_crv = const_curve_obj(cutter_crv)
+    intersection_events = rg.Intersect.Intersection.CurveCurve(target_crv, cutter_crv, 0.01, 0.01)
     if not intersection_events:
-        raise ValueError("曲線と平面の交差が見つかりませんでした。")
-    point = intersection_events[2]
-    if len(point) == 0:
-        raise ValueError("曲線と平面の交点が見つかりませんでした。")
-    if len(point) > 1:
-        raise ValueError("曲線と平面の交点が複数見つかりました。")
-    intersect_pt = point[0]
+        raise ValueError("曲線同士の交差が見つかりませんでした")
+    if len(intersection_events) == 0:
+        raise ValueError("曲線同士の交点が見つかりませんでした")
+    if len(intersection_events) > 1:
+        raise ValueError("曲線同士の交点が複数見つかりました")
+    intersect_pt = intersection_events[0].PointA
     return Point3D(x=intersect_pt.X, y=intersect_pt.Y, z=intersect_pt.Z)
 
 
 def trim_curve_between_two_points(
-    target_curve: rg.Curve,
+    target_curve: Union[rg.Curve, rg.Line, rg.PolylineCurve],
     start_point: Union[Point3D, rg.Point3d],
     end_point: Union[Point3D, rg.Point3d],
 ) -> rg.Curve:
+    target_curve = const_curve_obj(target_curve)
     start_point = const_point_obj(start_point)
     end_point = const_point_obj(end_point)
     ok1, t1 = target_curve.ClosestPoint(start_point)

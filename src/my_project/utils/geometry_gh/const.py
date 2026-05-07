@@ -16,6 +16,31 @@ def const_point_obj(point: Union[Point3D, Point2D, rg.Point3d]) -> rg.Point3d:
         return rg.Point3d(point.x, point.y, point.z)
     return point
 
+def const_3Dpoint(point:Union[Point3D, Point2D, rg.Point3d]) -> Point3D:
+    if isinstance(point, Point3D):
+        return point
+    if isinstance(point, Point2D):
+        return Point3D(x=point.x, y=point.y, z=0)
+    return Point3D(x=point.X, y=point.Y, z=point.Z)
+
+def const_curve_obj(
+    crv: Union[rg.Curve, rg.Line, rg.PolylineCurve, rg.Circle]
+) -> rg.Curve:
+    if isinstance(crv, rg.Curve):
+        curve = crv
+    elif isinstance(crv, rg.Line):
+        curve = rg.LineCurve(crv)
+    elif isinstance(crv, rg.PolylineCurve):
+        curve = rg.PolylineCurve(crv)
+    elif isinstance(crv, rg.Circle):
+        curve = crv.ToNurbsCurve()
+    else:
+        raise ValueError(f"Unsupported object type: {type(crv)}")
+    if curve is None:
+        raise ValueError("Failed to create curve object")
+    return curve
+
+
 def const_line_obj(
     start: Union[Point3D, Point2D, rg.Point3d],
     end: Union[Point3D, Point2D, rg.Point3d],
@@ -64,16 +89,7 @@ def const_extrude_brep_from_curve(
     cap: bool = True,
     tol: float = 0.01,
 ) -> Any:
-    if isinstance(crv, rg.Curve):
-        curve = crv
-    elif isinstance(crv, rg.Line):
-        curve = rg.LineCurve(crv)
-    elif isinstance(crv, rg.PolylineCurve):
-        curve = rg.PolylineCurve(crv)
-    elif isinstance(crv, rg.Circle):
-        curve = crv.ToNurbsCurve()
-    else:
-        raise ValueError(f"Unsupported object type: {type(crv)}")
+    curve = const_curve_obj(crv)
     srf = rg.Surface.CreateExtrusion(curve, vector)
     if srf is None:
             raise ValueError("Surface.CreateExtrusion failed")
@@ -105,6 +121,7 @@ def const_planer_srf_from_points(points: list[Union[Point3D, Point2D, rg.Point3d
 def const_srf_from_crvs(curves: list[Union[rg.Curve, rg.Line, rg.PolylineCurve]]) -> rg.Brep:
     if len(curves) < 2:
         raise ValueError(f"Need at least 2 curves to loft, got {len(curves)}")
+    curves = [const_curve_obj(crv) for crv in curves]
     loft_type = rg.LoftType.Normal
     lofted = rg.Brep.CreateFromLoft(curves, rg.Point3d.Unset, rg.Point3d.Unset, loft_type, False)
     if not lofted or len(lofted) == 0:
@@ -218,13 +235,20 @@ def const_vertical_srf_from_two_points(
         (point1.Y + point2.Y) / 2,
         (point1.Z + point2.Z) / 2,
     )
-    axis_vector = Vector2D(x=point2.X - point1.X, y=point2.Y - point1.Y)
+    axis_vector = rg.Vector3d(point2.X - point1.X, point2.Y - point1.Y, 0)
+    axis_vector.Unitize()
+    axis_vector = Vector2D(x=axis_vector.X, y=axis_vector.Y)
     srf = const_vertical_srf_from_point_and_axis(mid_pt, axis_vector, height=height, length=length)
     return srf
 
 
-def const_point_along_curve(curve: rg.Curve, base_point: Union[Point3D, rg.Point3d], offset: float) -> rg.Point3d:
+def const_point_along_curve(
+    curve: Union[rg.Curve, rg.Line, rg.PolylineCurve, rg.Circle], 
+    base_point: Union[Point3D, rg.Point3d], 
+    offset: float
+) -> rg.Point3d:
     base_point = const_point_obj(base_point)
+    curve = const_curve_obj(curve)
     ok, t0 = curve.ClosestPoint(base_point)
     if not ok:
         raise ValueError("ClosestPoint failed")
@@ -240,3 +264,54 @@ def const_point_along_curve(curve: rg.Curve, base_point: Union[Point3D, rg.Point
     if not ok:
         raise ValueError("LengthParameter failed (out of range?)")
     return curve.PointAt(t)
+
+def get_normal_vector_on_curve_2d(
+    curve: Union[rg.Curve, rg.Line, rg.PolylineCurve, rg.Circle],
+    point: Union[Point3D, rg.Point3d],
+) -> tuple[rg.Vector3d, rg.Vector3d]:
+    """
+    crv上のpointにおける接線に対して、
+    XY平面上の右側・左側単位ベクトルを返す。
+
+    前提:
+    - crvは下側を始点、上側を終点とする向き
+    - XY平面上で処理する
+    """
+    curve = const_curve_obj(curve)
+    point = const_point_obj(point)
+    success, t = curve.ClosestPoint(point)
+    if not success:
+        raise ValueError("point is not near the curve.")
+    tangent = curve.TangentAt(t)
+    # XY成分だけ使う
+    tangent.Z = 0
+    if not tangent.Unitize():
+        raise ValueError("tangent vector is zero.")
+    right = rg.Vector3d(tangent.Y, -tangent.X, 0)
+    return right
+
+def const_normal_srf_from_curve_and_point(
+    curve: Union[rg.Curve, rg.Line, rg.PolylineCurve, rg.Circle], 
+    point: Union[Point3D, rg.Point3d], 
+    height: float = 100000, # 100m
+    length: float = 100000, # 100m
+) -> rg.Brep:
+    point = const_point_obj(point)
+    curve = const_curve_obj(curve)
+    right_vec = get_normal_vector_on_curve_2d(curve, point)
+    srf = const_vertical_srf_from_point_and_axis(point, Vector2D(right_vec.X, right_vec.Y), height=height, length=length)
+    return srf
+
+
+def const_brep_from_all_crvs(crvs):
+    crvs = crvs + [crvs[0]]
+    breps = []
+    for i in range(len(crvs)-1):
+        crv1 = crvs[i]
+        crv2 = crvs[i+1]
+        srf = const_srf_from_crvs([crv1, crv2])
+        breps.append(srf)
+    brep = rg.Brep.JoinBreps(breps, 0.01)[0]
+    brep = brep.CapPlanarHoles(0.01)
+    return brep
+

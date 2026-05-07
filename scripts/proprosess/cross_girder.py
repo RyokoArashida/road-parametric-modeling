@@ -312,6 +312,7 @@ def get_yokogeta_info_from_row(
             height = yokogeta_row["中間_全体_z"]
         )
     )
+    center_top_offset_z = yokogeta_row["中間_全体_主桁上から上端z"]
     outer_existence = False
     inner_existence = False
     outer_info = None # 張出
@@ -360,6 +361,7 @@ def get_yokogeta_info_from_row(
         )
     return YokogetaInfo(
         center_info = center_info,
+        center_top_offset_z = center_top_offset_z,
         outer_existence = outer_existence,
         inner_existence = inner_existence,
         outer_info = outer_info, # 張出

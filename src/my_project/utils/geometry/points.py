@@ -26,6 +26,13 @@ def offset_point_in_frame(
         z = point.z + local_offset.z,
     )
 
+def interpolate_point_3d(p0: Point3D, p1: Point3D, ratio: float) -> Point3D:
+    return Point3D(
+        x=p0.x + (p1.x - p0.x) * ratio,
+        y=p0.y + (p1.y - p0.y) * ratio,
+        z=p0.z + (p1.z - p0.z) * ratio,
+    )
+
 def get_point_by_xy_offset(
     point1: Point3D,
     point2: Point3D,
@@ -33,17 +40,25 @@ def get_point_by_xy_offset(
 ) -> Point3D:
     dx = point2.x - point1.x
     dy = point2.y - point1.y
-    dz = point2.z - point1.z
-
     xy_distance = math.hypot(dx, dy)
     if xy_distance == 0:
         raise ValueError("point1 and point2 have the same XY coordinates")
     t = offset / xy_distance
-    return Point3D(
-        x=point1.x + dx * t,
-        y=point1.y + dy * t,
-        z=point1.z + dz * t,
-    )
+    return interpolate_point_3d(point1, point2, t)
+
+def get_point_by_xyz_offset(
+    point1: Point3D,
+    point2: Point3D,
+    offset_xyz: float, # 正の値のときpoint1から見てpoint2の方向にオフセットする
+) -> Point3D:
+    dx = point2.x - point1.x
+    dy = point2.y - point1.y
+    dz = point2.z - point1.z
+    distance = math.sqrt(dx**2 + dy**2 + dz**2)
+    if distance == 0:
+        raise ValueError("point1 and point2 are the same")
+    t = offset_xyz / distance
+    return interpolate_point_3d(point1, point2, t)
 
 def get_point_by_xy_z_offset(
     point1: Point3D,
@@ -80,3 +95,4 @@ def get_point_LR_x_z(L_point, R_point, offset_xy, offset_z): # これはｚが�
         Point3D(x=L_in_line.x, y=L_in_line.y, z=L_point.z + offset_z),
         Point3D(x=R_in_line.x, y=R_in_line.y, z=R_point.z + offset_z),
     )
+
