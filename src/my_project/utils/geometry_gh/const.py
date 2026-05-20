@@ -24,7 +24,7 @@ def const_3Dpoint(point:Union[Point3D, Point2D, rg.Point3d]) -> Point3D:
     return Point3D(x=point.X, y=point.Y, z=point.Z)
 
 def const_curve_obj(
-    crv: Union[rg.Curve, rg.Line, rg.PolylineCurve, rg.Circle]
+    crv: Union[rg.Curve, rg.Line, rg.PolylineCurve, rg.Circle, rg.Arc]
 ) -> rg.Curve:
     if isinstance(crv, rg.Curve):
         curve = crv
@@ -32,6 +32,8 @@ def const_curve_obj(
         curve = rg.LineCurve(crv)
     elif isinstance(crv, rg.PolylineCurve):
         curve = rg.PolylineCurve(crv)
+    elif isinstance(crv, rg.Arc):
+        curve = rg.ArcCurve(crv)
     elif isinstance(crv, rg.Circle):
         curve = crv.ToNurbsCurve()
     else:
@@ -47,25 +49,32 @@ def const_line_obj(
 ) -> rg.Line:
     return rg.Line(const_point_obj(start), const_point_obj(end))
 
+def remove_same_points(points: list[Union[Point3D, Point2D, rg.Point3d]], tol: float = 0.01) -> list[Union[Point3D, Point2D, rg.Point3d]]:
+    unique_points = []
+    for point in points:
+        if point is None:
+            continue
+        if all(const_point_obj(point).DistanceTo(const_point_obj(existing)) > tol for existing in unique_points):
+            unique_points.append(const_point_obj(point))
+    return unique_points
+
 def const_polycurve_obj(points: list[Union[Point3D, Point2D, rg.Point3d]]) -> rg.PolylineCurve:
-    valid_points = [point for point in points if point is not None]
-    corner_points = [const_point_obj(point) for point in valid_points]
-    if len(corner_points) < 2:
-        raise ValueError(f"Need at least 2 valid points, got {len(corner_points)}")
-    polyline = rg.Polyline(corner_points)
+    unique_points = remove_same_points(points)
+    if len(unique_points) < 2:
+        raise ValueError(f"Need at least 2 valid points, got {len(unique_points)}")
+    polyline = rg.Polyline(unique_points)
     return rg.PolylineCurve(polyline)
 
 def const_closed_polycurve_obj(
     points: Union[list[Point3D], list[Point2D], list[rg.Point3d]]
 ) -> rg.PolylineCurve:
-    valid_points = [point for point in points if point is not None]
-    corner_points = [const_point_obj(point) for point in valid_points]
-    if len(corner_points) < 3:
-        raise ValueError(f"Need at least 3 valid points, got {len(corner_points)}")
-    polyline = rg.Polyline(corner_points + [corner_points[0]])
+    unique_points = remove_same_points(points)
+    if len(unique_points) < 3:
+        raise ValueError(f"Need at least 3 valid points, got {len(unique_points)}")
+    polyline = rg.Polyline(unique_points + [unique_points[0]])
     curve = rg.PolylineCurve(polyline)
     if not curve.IsClosed:
-        raise ValueError(f"Curve is not closed. points={corner_points}")
+        raise ValueError(f"Curve is not closed. points={unique_points}")
     return curve
 
 def const_planer_srf_obj_from_points(
@@ -103,30 +112,28 @@ def const_extrude_brep_from_curve(
     return brep
 
 def const_planer_srf_from_points(points: list[Union[Point3D, Point2D, rg.Point3d]]) -> rg.Brep:
-    valid_points = [point for point in points if point is not None]
-    corner_points = [const_point_obj(point) for point in valid_points]
-    if len(corner_points) < 3:
-        raise ValueError(f"Need at least 3 valid points, got {len(corner_points)}")
-    polyline = rg.Polyline(corner_points + [corner_points[0]])
+    unique_points = remove_same_points(points)
+    if len(unique_points) < 3:
+        raise ValueError(f"Need at least 3 valid points, got {len(unique_points)}")
+    polyline = rg.Polyline(unique_points + [unique_points[0]])
     curve = rg.PolylineCurve(polyline)
     if not curve.IsClosed:
-        raise ValueError(f"Curve is not closed. points={corner_points}")
+        raise ValueError(f"Curve is not closed. points={unique_points}")
     breps = rg.Brep.CreatePlanarBreps(curve)
     if not breps:
         raise ValueError(
-            f"Failed to create planar brep. points={corner_points}"
+            f"Failed to create planar brep. points={unique_points}"
         )
     return breps[0]
 
-def const_srf_from_crvs(curves: list[Union[rg.Curve, rg.Line, rg.PolylineCurve]]) -> rg.Brep:
-    if len(curves) < 2:
-        raise ValueError(f"Need at least 2 curves to loft, got {len(curves)}")
+def const_srf_from_2crvs(curves: list[Union[rg.Curve, rg.Line, rg.PolylineCurve]]) -> rg.Brep:
+    if len(curves) != 2:
+        raise ValueError(f"Need 2 curves, got {len(curves)}")
     curves = [const_curve_obj(crv) for crv in curves]
-    loft_type = rg.LoftType.Normal
-    lofted = rg.Brep.CreateFromLoft(curves, rg.Point3d.Unset, rg.Point3d.Unset, loft_type, False)
-    if not lofted or len(lofted) == 0:
-        raise ValueError("Loft failed")
-    return lofted[0]
+    srf = rg.NurbsSurface.CreateRuledSurface(curves[0], curves[1])
+    if srf is None:
+        raise ValueError("Failed to create ruled surface")
+    return srf.ToBrep()
 
 def const_arc_half_from_center_edge_points(
     center: Union[Point3D, Point2D, rg.Point3d],
@@ -193,7 +200,7 @@ def const_vertical_srf_from_point_and_axis(
     )
     plus_line = const_vertical_line_from_point(plus_pt, height)
     minus_line = const_vertical_line_from_point(minus_pt, height)
-    srf = const_srf_from_crvs([rg.LineCurve(plus_line), rg.LineCurve(minus_line)])
+    srf = const_srf_from_2crvs([rg.LineCurve(plus_line), rg.LineCurve(minus_line)])
     return srf
 
 # 2つの点を通る長い直線をつくる
@@ -241,6 +248,21 @@ def const_vertical_srf_from_two_points(
     srf = const_vertical_srf_from_point_and_axis(mid_pt, axis_vector, height=height, length=length)
     return srf
 
+def const_vertical_srf_from_closed_curve(
+    curve: Union[rg.Curve, rg.Line, rg.PolylineCurve],
+    height: float = 100000, # 100m
+) -> rg.Brep:
+    curve = const_curve_obj(curve)
+    if not curve.IsClosed:
+        raise ValueError("Curve must be closed")
+    minus_transform = rg.Transform.Translation(rg.Vector3d(0, 0, -height / 2))
+    plus_transform = rg.Transform.Translation(rg.Vector3d(0, 0, height / 2))
+    bottom_crv = curve.Duplicate()
+    top_crv = curve.Duplicate()
+    bottom_crv.Transform(minus_transform)
+    top_crv.Transform(plus_transform)
+    srf = const_srf_from_2crvs([bottom_crv, top_crv])
+    return srf
 
 def const_point_along_curve(
     curve: Union[rg.Curve, rg.Line, rg.PolylineCurve, rg.Circle], 
@@ -303,15 +325,16 @@ def const_normal_srf_from_curve_and_point(
     return srf
 
 
-def const_brep_from_all_crvs(crvs):
+def const_brep_from_all_crvs(crvs, cap=True, tol=0.01):
     crvs = crvs + [crvs[0]]
     breps = []
     for i in range(len(crvs)-1):
         crv1 = crvs[i]
         crv2 = crvs[i+1]
-        srf = const_srf_from_crvs([crv1, crv2])
+        srf = const_srf_from_2crvs([crv1, crv2])
         breps.append(srf)
     brep = rg.Brep.JoinBreps(breps, 0.01)[0]
-    brep = brep.CapPlanarHoles(0.01)
+    if cap:
+        brep = brep.CapPlanarHoles(0.01)
     return brep
 

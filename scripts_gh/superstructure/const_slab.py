@@ -33,7 +33,7 @@ from my_project.utils.geometry_gh.const import (
     const_planer_srf_from_points,
     const_point_obj,
     const_polycurve_obj,
-    const_srf_from_crvs,
+    const_srf_from_2crvs,
 )
 from my_project.utils.geometry_gh.intersect import (
     get_intersect_point_on_curve_with_xy,
@@ -582,7 +582,7 @@ def const_indiv_slab(
         last_MG_point2 = corner2.MG_top_points[-1]
         top_edge_crv1 = const_polycurve_obj([first_MG_point1.U_edge, corner1.Ubottom, corner1.Utop, corner1.Dtop, corner1.Dbottom, last_MG_point1.D_edge])
         top_edge_crv2 = const_polycurve_obj([first_MG_point2.U_edge, corner2.Ubottom, corner2.Utop, corner2.Dtop, corner2.Dbottom, last_MG_point2.D_edge])
-        common_srf = const_srf_from_crvs([top_edge_crv1, top_edge_crv2])
+        common_srf = const_srf_from_2crvs([top_edge_crv1, top_edge_crv2])
         slab_srfs = [common_srf]
 
         # 真ん中がへこんでいない場合、主桁の点は同じL,Rトップ上にある中心点からオフセットでとって、同じ距離ｚにずらしただけなので、端部だけつなげればよい。対象外の点も必ず端部の直線上にあるはず。
@@ -590,7 +590,7 @@ def const_indiv_slab(
         if (not corner1_is_depressed) and (not corner2_is_depressed):
             crv1 = const_polycurve_obj([first_MG_point1.U_edge, last_MG_point1.D_edge])
             crv2 = const_polycurve_obj([first_MG_point2.U_edge, last_MG_point2.D_edge])
-            bottom_srf = const_srf_from_crvs([crv1, crv2])
+            bottom_srf = const_srf_from_2crvs([crv1, crv2])
             slab_srfs.append(bottom_srf)
 
         # 両方へこんでいる場合は桁の数も同じ＝点の数が同じ
@@ -609,7 +609,7 @@ def const_indiv_slab(
             corner2_points = get_all_points(corner2)
             corner1_curve = const_polycurve_obj(corner1_points)
             corner2_curve = const_polycurve_obj(corner2_points)
-            bottom_srf = const_srf_from_crvs([corner1_curve, corner2_curve])
+            bottom_srf = const_srf_from_2crvs([corner1_curve, corner2_curve])
             slab_srfs.append(bottom_srf)
 
         else:
@@ -621,7 +621,7 @@ def const_indiv_slab(
                 # まず桁の上面
                 dep_crv = const_polycurve_obj([dep_MG_point.U_edge, dep_MG_point.center, dep_MG_point.D_edge])
                 nondep_crv = const_polycurve_obj([nondep_MG_point.U_edge, nondep_MG_point.center, nondep_MG_point.D_edge])
-                girder_srf = const_srf_from_crvs([dep_crv, nondep_crv])
+                girder_srf = const_srf_from_2crvs([dep_crv, nondep_crv])
                 slab_srfs.append(girder_srf)
                 # 次にへこんでいるところ
                 if i < len(Dep_corner.MG_top_points) - 1:
@@ -637,7 +637,7 @@ def const_indiv_slab(
                     nondep_UG = nondep_MG_point.D_edge
                     nondep_DG = NonDep_corner.MG_top_points[i+1].U_edge
                     Usrf = const_planer_srf_from_points([dep_UG, dep_UD, nondep_UG])
-                    Csrf = const_srf_from_crvs([
+                    Csrf = const_srf_from_2crvs([
                         const_polycurve_obj([dep_UD, dep_DD]),
                         const_polycurve_obj([nondep_UG, nondep_DG])
                     ])

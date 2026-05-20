@@ -22,6 +22,7 @@ from my_project.config.util_schemas import (
 from my_project.utils.dataframe import flatten_any
 from my_project.utils.geometry.vectors import get_frame_2D
 from my_project.utils.geometry_gh.const import (
+    const_3Dpoint,
     const_planer_srf_from_points,
 )
 from my_project.utils.geometry_gh.transform import (
@@ -200,7 +201,7 @@ def const_columns(
 
 def get_each_column(
     input_pier_info: InputPierInfo,
-) -> dict[str, rg.Brep]:
+):
     # 橋脚のローカル2D座標系を求める
     point_u = input_pier_info.points_for_vector.point_u
     point_d = input_pier_info.points_for_vector.point_d
@@ -231,6 +232,16 @@ def get_each_column(
     piertop_surf_corners = get_pier_top_surf_corners(
         pier_top_surf_info=input_pier_info.piertop_surf,
         UD_x=UD_x,
+    )
+
+    # 橋座面の点はワールドに変換して保存しておく
+    world_piertop_surf_corners = Square_and_center_Corners(
+        UC = const_3Dpoint(place_obj(obj=piertop_surf_corners.UC, local_origin=Point3D(0,0,0), world_origin=zero_point, frame_2D=frame_2D)),
+        DC = const_3Dpoint(place_obj(obj=piertop_surf_corners.DC, local_origin=Point3D(0,0,0), world_origin=zero_point, frame_2D=frame_2D)),
+        UT = const_3Dpoint(place_obj(obj=piertop_surf_corners.UT, local_origin=Point3D(0,0,0), world_origin=zero_point, frame_2D=frame_2D)),
+        DT = const_3Dpoint(place_obj(obj=piertop_surf_corners.DT, local_origin=Point3D(0,0,0), world_origin=zero_point, frame_2D=frame_2D)),
+        UN = const_3Dpoint(place_obj(obj=piertop_surf_corners.UN, local_origin=Point3D(0,0,0), world_origin=zero_point, frame_2D=frame_2D)),
+        DN = const_3Dpoint(place_obj(obj=piertop_surf_corners.DN, local_origin=Point3D(0,0,0), world_origin=zero_point, frame_2D=frame_2D)),
     )
 
     # 各柱の中心点
@@ -266,13 +277,14 @@ def get_each_column(
         columns_dict[column_name] = column
         column_top_corners_dict[column_name] = top_corners
         column_bottom_corners_dict[column_name] = bottom_corners
-        # 柱の部品だけはbakeするので、ワールド座標に変換して保存しておく
+        # 柱の部品はbakeするので、ワールド座標に変換して保存しておく
         world_columns_dict[column_name] = place_obj(
             obj=column,
             local_origin=Point3D(0,0,0),
             world_origin=zero_point,
             frame_2D=frame_2D,
         )
+        
 
     return {
         "world_zero_point": zero_point,
@@ -280,7 +292,7 @@ def get_each_column(
         "piertop_surf_corners": piertop_surf_corners,
         "column_top_corners": column_top_corners_dict,
         "column_bottom_corners": column_bottom_corners_dict,
-    }, world_columns_dict
+    }, world_columns_dict, world_piertop_surf_corners
 
 def main(initial_or_final: str):
     if initial_or_final == "initial":
@@ -291,13 +303,18 @@ def main(initial_or_final: str):
     indiv_infos = load_from_pickle(DIR / f"{Filenames.INPUT}_{Filenames.PIER}_{Filenames.INDIV}.pickle")
 
     local_dict = {}
+    world_dict = {}
     world_columns_dict_for_bake = {}
 
     for pier_name, indiv_info in indiv_infos.items():
-        local_each_dict, world_columns = get_each_column(
+        local_each_dict, world_columns, world_piertop_surf_corners = get_each_column(
             input_pier_info=indiv_info,
         )
         local_dict[pier_name] = local_each_dict # ここはpickel用
+        world_dict[pier_name] = {
+            "frame_2D" : local_each_dict["frame_2D"],
+            "top_corners" : world_piertop_surf_corners
+        } # ここはpickel用
         world_columns_dict_for_bake[pier_name] = world_columns # ここはbake用
     
     # ローカルを全部pickelに保存
@@ -306,6 +323,12 @@ def main(initial_or_final: str):
         folder_path = DIR,
         name = f"{Filenames.LOCAL}_{Filenames.PIER}_{Filenames.COLUMN}",
     )
+    save_json_and_pickle(
+        data = world_dict,
+        folder_path = DIR,
+        name = f"{Filenames.WORLD}_{Filenames.PIER}_{Filenames.TOP}_{Filenames.POINTS}",
+    )
+    # ワールドの柱をbake用にフラット化して保存
     column_flatten_dict_for_bake = flatten_any(world_columns_dict_for_bake)
     items = list(column_flatten_dict_for_bake.items())
     keys = [k for k, _ in items]

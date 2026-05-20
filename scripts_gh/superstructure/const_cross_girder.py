@@ -33,7 +33,7 @@ from my_project.utils.geometry_gh.const import (
     const_point_along_curve,
     const_point_obj,
     const_polycurve_obj,
-    const_srf_from_crvs,
+    const_srf_from_2crvs,
 )
 from my_project.utils.geometry_gh.intersect import (
     get_intersect_point_on_crvs,
@@ -108,11 +108,11 @@ def get_MG_point_or_polyline(
         "top_out_I_point",
         "top_out_O_point",
         "top_in_O_point",
+        "top_in_I_point",
         "bottom_in_O_point",
         "bottom_out_O_point",
         "bottom_out_I_point",
         "bottom_in_I_point",
-        "top_in_I_point",
     ]
     replace_point_dict = { # keyはMG_point_infoのI_pointsの名前、valueはMG_point_infoのBox_pointsの名前
         "web_top_O_point": "Oweb_top_O_point",
@@ -343,7 +343,7 @@ def get_H_breps(
     web_brep = const_brep_from_all_crvs(web_crvs)
     return top_flange_brep, bottom_flange_brep, web_brep
 
-def get_haridashi_H_breps(slab_bottom_polyline, MG_point_side, MG_polyline_side_dict, info):
+def get_haridashi_H_breps(slab_bottom_polyline, MG_point_side, MG_polyline_side_dict, info, tol: float = 1e-1):
     # 上フランジ
     top_base_point = MG_point_side.top_out
     top_base_crv = MG_polyline_side_dict["top_out"]
@@ -388,14 +388,22 @@ def get_haridashi_H_breps(slab_bottom_polyline, MG_point_side, MG_polyline_side_
     bottom_flange_thickness = float(info.bottom_flange.thickness)
 
     # ウェブ
-    web_polylines = [
-        move_obj(top_flange_crvs[0], rg.Vector3d(0, 0, -top_flange_thickness)), # top_in_O
-        move_obj(bottom_flange_crvs[0], rg.Vector3d(0, 0, bottom_flange_thickness)), # bottom_in_O
-        move_obj(bottom_flange_crvs[1], rg.Vector3d(0, 0, bottom_flange_thickness)), # bottom_in_I
-        MG_polyline_side_dict["web_top"],
-        MG_polyline_side_dict["top_in"],
-        move_obj(top_flange_crvs[1], rg.Vector3d(0, 0, -top_flange_thickness)), # top_in_I
-    ]
+    if abs(MG_top_flange_thichkness - top_flange_thickness) < tol:
+        web_polylines = [
+            move_obj(top_flange_crvs[0], rg.Vector3d(0, 0, -top_flange_thickness)), # top_in_O
+            move_obj(bottom_flange_crvs[0], rg.Vector3d(0, 0, bottom_flange_thickness)), # bottom_in_O
+            move_obj(bottom_flange_crvs[1], rg.Vector3d(0, 0, bottom_flange_thickness)), # bottom_in_I
+            move_obj(top_flange_crvs[1], rg.Vector3d(0, 0, -top_flange_thickness)), # top_in_I
+        ]
+    else:
+        web_polylines = [
+            move_obj(top_flange_crvs[0], rg.Vector3d(0, 0, -top_flange_thickness)), # top_in_O
+            move_obj(bottom_flange_crvs[0], rg.Vector3d(0, 0, bottom_flange_thickness)), # bottom_in_O
+            move_obj(bottom_flange_crvs[1], rg.Vector3d(0, 0, bottom_flange_thickness)), # bottom_in_I
+            MG_polyline_side_dict["web_top"],
+            MG_polyline_side_dict["top_in"],
+            move_obj(top_flange_crvs[1], rg.Vector3d(0, 0, -top_flange_thickness)), # top_in_I
+        ]
 
 
     web_crvs = get_split_crvs_with_base_point_offset_with_plane(
@@ -416,7 +424,8 @@ def get_haridashi_H_breps(slab_bottom_polyline, MG_point_side, MG_polyline_side_
 def get_mid_H_breps(
     MG_point_side_O, MG_polyline_side_dict_O, MG_point_side_I, MG_polyline_side_dict_I, info, 
     offset_z_top: Optional[float] = None,
-    offset_z_bottom: Optional[float] = None
+    offset_z_bottom: Optional[float] = None,
+    tol: float = 1e-1, # 0.1mmくらいの誤差は許容する
 ):
     base_point_O = MG_point_side_O.top_out
     base_crv_O = MG_polyline_side_dict_O["top_out"]
@@ -432,64 +441,60 @@ def get_mid_H_breps(
         top_out_crv_O = base_crv_O
         top_out_point_I = base_point_I
         top_out_crv_I = base_crv_I
-        web_top_point_O = MG_point_side_O.web_top
+        top_in_point_O = MG_point_side_O.top_in
         web_top_crv_O = MG_polyline_side_dict_O["web_top"]
-        web_top_point_I = MG_point_side_I.web_top
+        top_in_point_I = MG_point_side_I.top_in
         web_top_crv_I = MG_polyline_side_dict_I["web_top"]
-        z_top_gap_O = top_out_point_O.z - web_top_point_O.z
-        z_top_gap_I = top_out_point_I.z - web_top_point_I.z
+        z_top_gap_O = top_out_point_O.z - top_in_point_O.z
+        z_top_gap_I = top_out_point_I.z - top_in_point_I.z
         bottom_gap_z = offset_z_top + info.web.height
         bottom_crvs = [
             move_obj(web_top_crv_O, rg.Vector3d(0, 0, -(bottom_gap_z - z_top_gap_O))),
             move_obj(web_top_crv_I, rg.Vector3d(0, 0, -(bottom_gap_z - z_top_gap_I))),
         ]
         if offset_z_top == 0: # 落ちが0の場合、上フランジ脇から
-            top_crvs = [
-                top_out_crv_O,
-                top_out_crv_I,
-            ]
-        elif offset_z_top < top_flange_thickness: # 落ちがフランジ厚より小さい場合、上フランジ脇から
-            top_crvs = [
-                move_obj(top_out_crv_O, rg.Vector3d(0, 0, -offset_z_top)),
-                move_obj(top_out_crv_I, rg.Vector3d(0, 0, -offset_z_top)),
-        ]
+            top_crv_O = top_out_crv_O
+            top_crv_I = top_out_crv_I
         else:
-            top_crvs = [
-                move_obj(web_top_crv_O, rg.Vector3d(0, 0, -(offset_z_top - z_top_gap_O))),
-                move_obj(web_top_crv_I, rg.Vector3d(0, 0, -(offset_z_top - z_top_gap_I))),
-            ]
+            if offset_z_top < z_top_gap_O: # 落ちがフランジ厚より小さい場合、上フランジ脇から
+                top_crv_O = move_obj(top_out_crv_O, rg.Vector3d(0, 0, -offset_z_top))
+            else:
+                top_crv_O = move_obj(web_top_crv_O, rg.Vector3d(0, 0, -(offset_z_top - z_top_gap_O)))
+            if offset_z_top < z_top_gap_I: # 落ちがフランジ厚より小さい場合、上フランジ脇から
+                top_crv_I = move_obj(top_out_crv_I, rg.Vector3d(0, 0, -offset_z_top))
+            else:
+                top_crv_I = move_obj(web_top_crv_I, rg.Vector3d(0, 0, -(offset_z_top - z_top_gap_I)))
+        top_crvs = [top_crv_O, top_crv_I]
     elif offset_z_bottom is not None: #下からの上がりを見るタイプのH鋼
         offset_z_bottom = float(offset_z_bottom)
         bottom_out_point_O = MG_point_side_O.bottom_out
         bottom_out_crv_O = MG_polyline_side_dict_O["bottom_out"]
         bottom_out_point_I = MG_point_side_I.bottom_out
         bottom_out_crv_I = MG_polyline_side_dict_I["bottom_out"]
-        web_bottom_point_O = MG_point_side_O.web_bottom
+        bottom_in_point_O = MG_point_side_O.bottom_in
         web_bottom_crv_O = MG_polyline_side_dict_O["web_bottom"]
-        web_bottom_point_I = MG_point_side_I.web_bottom
+        bottom_in_point_I = MG_point_side_I.bottom_in
         web_bottom_crv_I = MG_polyline_side_dict_I["web_bottom"]
-        z_bottom_gap_O = web_bottom_point_O.z - bottom_out_point_O.z
-        z_bottom_gap_I = web_bottom_point_I.z - bottom_out_point_I.z
+        z_bottom_gap_O = bottom_in_point_O.z - bottom_out_point_O.z
+        z_bottom_gap_I = bottom_in_point_I.z - bottom_out_point_I.z
         top_gap_z = offset_z_bottom + info.web.height
         top_crvs = [
             move_obj(web_bottom_crv_O, rg.Vector3d(0, 0, top_gap_z - z_bottom_gap_O)),
             move_obj(web_bottom_crv_I, rg.Vector3d(0, 0, top_gap_z - z_bottom_gap_I)),
         ]
         if offset_z_bottom == 0: # 上がりが0の場合、下フランジ脇から
-            bottom_crvs = [
-                bottom_out_crv_O,
-                bottom_out_crv_I,
-            ]
-        elif offset_z_bottom < bottom_flange_thickness: # 上がりがフランジ厚より小さい場合、下フランジ脇から
-            bottom_crvs = [
-                move_obj(bottom_out_crv_O, rg.Vector3d(0, 0, offset_z_bottom)),
-                move_obj(bottom_out_crv_I, rg.Vector3d(0, 0, offset_z_bottom)),
-            ]
+            bottom_crv_O = bottom_out_crv_O
+            bottom_crv_I = bottom_out_crv_I
         else:
-            bottom_crvs = [
-                move_obj(web_bottom_crv_O, rg.Vector3d(0, 0, offset_z_bottom - z_bottom_gap_O)),
-                move_obj(web_bottom_crv_I, rg.Vector3d(0, 0, offset_z_bottom - z_bottom_gap_I)),
-            ]
+            if offset_z_bottom < z_bottom_gap_O: # 上がりがフランジ厚より小さい場合、下フランジ脇から
+                bottom_crv_O = move_obj(bottom_out_crv_O, rg.Vector3d(0, 0, offset_z_bottom))
+            else:
+                bottom_crv_O = move_obj(web_bottom_crv_O, rg.Vector3d(0, 0, offset_z_bottom - z_bottom_gap_O))
+            if offset_z_bottom < z_bottom_gap_I: # 上がりがフランジ厚より小さい場合、下フランジ脇から
+                bottom_crv_I = move_obj(bottom_out_crv_I, rg.Vector3d(0, 0, offset_z_bottom))
+            else:
+                bottom_crv_I = move_obj(web_bottom_crv_I, rg.Vector3d(0, 0, offset_z_bottom - z_bottom_gap_I))
+        bottom_crvs = [bottom_crv_O, bottom_crv_I]
     else: 
         raise ValueError("Error: offset_z_topかoffset_z_bottomのどちらかはNoneであってはなりません。両方とも値がある、または両方ともNoneの場合はエラーです。")
     
@@ -534,37 +539,78 @@ def get_mid_H_breps(
         )
 
     # ウェブ
-    if offset_z_top is not None and offset_z_top < top_flange_thickness: #上からの落ちを見るタイプのH鋼
-        web_polylines = [
-            move_obj(top_flange_crvs[0], rg.Vector3d(0, 0, -top_flange_thickness)), # top_in_O
-            MG_polyline_side_dict_O["top_in"],
-            MG_polyline_side_dict_O["web_top"],
-            move_obj(bottom_flange_crvs[0], rg.Vector3d(0, 0, bottom_flange_thickness)), # bottom_in_O
-            move_obj(bottom_flange_crvs[1], rg.Vector3d(0, 0, bottom_flange_thickness)), # bottom_in_I
-            MG_polyline_side_dict_I["web_top"],
-            MG_polyline_side_dict_I["top_in"],
-            move_obj(top_flange_crvs[1], rg.Vector3d(0, 0, -top_flange_thickness)), # top_in_I
-        ]
-    elif offset_z_bottom is not None and offset_z_bottom < bottom_flange_thickness: #下からの上がりを見るタイプのH鋼
-        web_polylines = [
-            move_obj(top_flange_crvs[0], rg.Vector3d(0, 0, -top_flange_thickness)), # top_in_O
-            MG_polyline_side_dict_O["web_bottom"],
-            MG_polyline_side_dict_O["bottom_in"],
-            move_obj(bottom_flange_crvs[0], rg.Vector3d(0, 0, bottom_flange_thickness)), # bottom_in_O
-            move_obj(bottom_flange_crvs[1], rg.Vector3d(0, 0, bottom_flange_thickness)), # bottom_in_I
-            MG_polyline_side_dict_I["bottom_in"],
-            MG_polyline_side_dict_I["web_bottom"],
-            move_obj(top_flange_crvs[1], rg.Vector3d(0, 0, -top_flange_thickness)), # top_in_I
-        ]
+    if offset_z_top is not None:
+        if offset_z_top > z_top_gap_O:
+            O_polylines = [
+                move_obj(top_flange_crvs[0], rg.Vector3d(0, 0, -top_flange_thickness)), # top_in_O
+                move_obj(bottom_flange_crvs[0], rg.Vector3d(0, 0, bottom_flange_thickness)), # bottom_in_O
+            ]
+        elif abs(offset_z_top + top_flange_thickness - z_top_gap_O) < tol:
+            O_polylines = [
+                MG_polyline_side_dict_O["web_top"],
+                move_obj(bottom_flange_crvs[0], rg.Vector3d(0, 0, bottom_flange_thickness)), # bottom_in_O
+            ]
+        else:
+            O_polylines = [
+                move_obj(top_flange_crvs[0], rg.Vector3d(0, 0, -top_flange_thickness)), # top_in_O
+                MG_polyline_side_dict_O["top_in"],
+                MG_polyline_side_dict_O["web_top"],
+                move_obj(bottom_flange_crvs[0], rg.Vector3d(0, 0, bottom_flange_thickness)), # bottom_in_O
+            ]
+        if offset_z_top > z_top_gap_I:
+            I_polylines = [
+                move_obj(bottom_flange_crvs[1], rg.Vector3d(0, 0, bottom_flange_thickness)), # bottom_in_I
+                move_obj(top_flange_crvs[1], rg.Vector3d(0, 0, -top_flange_thickness)), # top_in_I
+            ]
+        elif abs(offset_z_top + top_flange_thickness - z_top_gap_I) < tol:
+            I_polylines = [
+                MG_polyline_side_dict_I["web_top"],
+                move_obj(bottom_flange_crvs[1], rg.Vector3d(0, 0, bottom_flange_thickness)), # bottom_in_I
+            ]
+        else:
+            I_polylines = [
+                move_obj(bottom_flange_crvs[1], rg.Vector3d(0, 0, bottom_flange_thickness)), # bottom_in_I
+                MG_polyline_side_dict_I["web_top"],
+                MG_polyline_side_dict_I["top_in"],
+                move_obj(top_flange_crvs[1], rg.Vector3d(0, 0, -top_flange_thickness)), # top_in_I
+            ]
 
-    else:
-        web_polylines = [
-            move_obj(top_flange_crvs[0], rg.Vector3d(0, 0, -top_flange_thickness)), # top_in_O
-            move_obj(bottom_flange_crvs[0], rg.Vector3d(0, 0, bottom_flange_thickness)), # bottom_in_O
-            move_obj(bottom_flange_crvs[1], rg.Vector3d(0, 0, bottom_flange_thickness)), # bottom_in_I
-            move_obj(top_flange_crvs[1], rg.Vector3d(0, 0, -top_flange_thickness)), # top_in_I
-        ]
-
+    elif offset_z_bottom is not None:
+        if offset_z_bottom > z_bottom_gap_O:
+            O_polylines = [
+                move_obj(top_flange_crvs[0], rg.Vector3d(0, 0, -top_flange_thickness)), # top_in_O
+                move_obj(bottom_flange_crvs[0], rg.Vector3d(0, 0, bottom_flange_thickness)), # bottom_in_O
+            ]
+        elif abs(offset_z_bottom + bottom_flange_thickness - z_bottom_gap_O) < tol:
+            O_polylines = [
+                move_obj(top_flange_crvs[0], rg.Vector3d(0, 0, -top_flange_thickness)), # top_in_O
+                MG_polyline_side_dict_O["web_bottom"],
+            ]
+        else:
+            O_polylines = [
+                move_obj(top_flange_crvs[0], rg.Vector3d(0, 0, -top_flange_thickness)), # top_in_O
+                MG_polyline_side_dict_O["web_bottom"],
+                MG_polyline_side_dict_O["bottom_in"],
+                move_obj(bottom_flange_crvs[0], rg.Vector3d(0, 0, bottom_flange_thickness)), # bottom_in_O
+            ]
+        if offset_z_bottom > z_bottom_gap_I:
+            I_polylines = [
+                move_obj(bottom_flange_crvs[1], rg.Vector3d(0, 0, bottom_flange_thickness)), # bottom_in_I
+                move_obj(top_flange_crvs[1], rg.Vector3d(0, 0, -top_flange_thickness)), # top_in_I
+            ]
+        elif abs(offset_z_bottom + bottom_flange_thickness - z_bottom_gap_I) < tol:
+            I_polylines = [
+                move_obj(bottom_flange_crvs[1], rg.Vector3d(0, 0, bottom_flange_thickness)), # bottom_in_I
+                MG_polyline_side_dict_I["web_bottom"],
+            ]
+        else:            
+            I_polylines = [
+                move_obj(bottom_flange_crvs[1], rg.Vector3d(0, 0, bottom_flange_thickness)), # bottom_in_I
+                MG_polyline_side_dict_I["bottom_in"],
+                MG_polyline_side_dict_I["web_bottom"],
+                move_obj(top_flange_crvs[1], rg.Vector3d(0, 0, -top_flange_thickness)), # top_in_I
+            ]
+    web_polylines = O_polylines + I_polylines
     web_crvs = get_split_crvs_with_base_points_offset(
         base_point_O = base_point_O,
         base_point_I = base_point_I,
@@ -915,8 +961,8 @@ def get_taikeikou_breps(
             target_crvs=[top_flange_bottom_O_polyline, top_flange_bottom_I_polyline, bottom_flange_top_O_polyline, bottom_flange_top_I_polyline],
             shared_offset= CG_info.center_L_info.web.thickness + 500 #交差するように少し大きく
         )
-        top_flange_bottom_srf = const_srf_from_crvs([temp_flange_crvs[0], temp_flange_crvs[1]])
-        bottom_flange_top_srf = const_srf_from_crvs([temp_flange_crvs[2], temp_flange_crvs[3]])
+        top_flange_bottom_srf = const_srf_from_2crvs([temp_flange_crvs[0], temp_flange_crvs[1]])
+        bottom_flange_top_srf = const_srf_from_2crvs([temp_flange_crvs[2], temp_flange_crvs[3]])
         L_thickness_crvs = get_split_crvs_with_base_points_offset(
             base_point_O=top_flange_bottom_O_point,
             base_point_I=top_flange_bottom_I_point,
@@ -1190,9 +1236,8 @@ def main(initial_or_final: str, debug: bool = False):
         file_path = DIR / f"{Filenames.WORLD}_{Filenames.SLAB}_{Filenames.BOTTOM}_{Filenames.POINTS}_for_{Filenames.CG}.pickle",
     )
     MG_point_IO_dict = load_from_pickle(
-        DIR / f"{Filenames.WORLD}_{Filenames.MG}_{Filenames.POINTS}_IO.pickle",
+        file_path = DIR / f"{Filenames.WORLD}_{Filenames.MG}_{Filenames.POINTS}_IO.pickle",
     )
-
 
     world_items_dict_for_bake = {}
     world_items_dict_for_bake_2 = {}
@@ -1222,16 +1267,12 @@ def main(initial_or_final: str, debug: bool = False):
         return get_keys_and_values_for_bake(world_items_dict_for_bake)
 
     else:
-        breps = []
-        for bridge_name, items_dict in world_items_dict_for_bake.items():
-            for CG_name, brep_dict in items_dict.items():
-                for part_name, brep in brep_dict.items():
-                    breps.append(brep)
-        return breps
+        crvs = []
+        return crvs
 
 
 if __name__ == "__main__":
-    # points = main("initial", debug=True)
+    # crvs = main("initial", debug=True)
     (bake_keys, bake_objs)= main("initial")
     # breps = main("initial", debug=False)
 

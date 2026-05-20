@@ -7,6 +7,9 @@ from my_project.config.util_schemas import Frame2D, LocalOffset, Point2D, Point3
 def get_distance_2D(point1: Point3D, point2: Point3D) -> float:
     return math.hypot(point2.x - point1.x, point2.y - point1.y)
 
+def get_distance_3D(point1: Point3D, point2: Point3D) -> float:
+    return math.sqrt((point2.x - point1.x) ** 2 + (point2.y - point1.y) ** 2 + (point2.z - point1.z) ** 2)
+
 def offset_point_in_frame(
     point: Union[Point3D, Point2D],
     local_offset: LocalOffset,

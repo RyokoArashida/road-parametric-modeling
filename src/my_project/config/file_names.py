@@ -27,5 +27,9 @@ class Filenames:
     CG = "cross_girder"
     NAMES = "names"
     ORIGINAL = "original"
+    SHOE = "shoe"
+    FALL_PROTECTION = "fall_protection"
+    I_BOX_JOINT = "I_box_joint"
+    
 
 

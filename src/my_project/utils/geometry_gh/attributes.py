@@ -56,3 +56,66 @@ def get_distance_along_crv(
         point_distances.append(distance)
     return point_distances
 
+def add_brep_with_boolean_union_or_numbering(
+    target_dict: dict,
+    key: str,
+    brep: rg.Brep,
+    tol: float = 0.01,
+):
+    """
+    target_dict[key] が未登録なら brep を登録。
+    既に同じ key がある場合は BooleanUnion を試す。
+
+    - 1個にUnionできた場合:
+        target_dict[key] = unioned_brep
+
+    - Unionできない / 複数に分かれる場合:
+        target_dict[key_1], target_dict[key_2], ... として保存する
+    """
+
+    def save_with_numbering(base_key: str, breps: list):
+        # 既存の base_key は消す
+        if base_key in target_dict:
+            del target_dict[base_key]
+
+        # 既存の base_key_1, base_key_2 ... も一度消す
+        remove_keys = [
+            k for k in target_dict.keys()
+            if k.startswith(base_key + "_")
+        ]
+        for k in remove_keys:
+            del target_dict[k]
+
+        # 通し番号で保存
+        for i, b in enumerate(breps, start=1):
+            target_dict[f"{base_key}_{i}"] = b
+
+    # まだkeyがなければ普通に登録
+    if key not in target_dict:
+        target_dict[key] = brep
+        return
+
+    old = target_dict[key]
+
+    # 念のため、既存値がlistだった場合にも対応
+    if isinstance(old, list):
+        breps = old + [brep]
+    else:
+        breps = [old, brep]
+
+    unioned = rg.Brep.CreateBooleanUnion(breps, tol)
+
+    if unioned and len(unioned) == 1:
+        # 完全に1個にできた場合
+        print(f"BooleanUnion succeeded for {key}, merged into 1 Brep.")
+        target_dict[key] = unioned[0]
+
+    elif unioned and len(unioned) > 1:
+        # BooleanUnionはできたが、複数ソリッドに分かれた場合
+        print(f"BooleanUnion for {key} resulted in {len(unioned)} Breps, saving with numbering.")
+        save_with_numbering(key, list(unioned))
+
+    else:
+        # BooleanUnion自体が失敗した場合
+        print(f"BooleanUnion failed for {key}, saving with numbering.")
+        save_with_numbering(key, breps)

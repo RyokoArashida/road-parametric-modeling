@@ -8,6 +8,7 @@ from my_project.utils.geometry_gh.const import (
     const_extended_line_from_two_points,
     const_point_obj,
     const_vertical_line_from_point,
+    const_vertical_srf_from_closed_curve,
     const_vertical_srf_from_point_and_axis,
     const_vertical_srf_from_two_points,
 )
@@ -80,6 +81,19 @@ def get_intersect_point_on_srf_with_point(
         raise ValueError("曲線とサーフェスの交点が複数見つかりました")
     intersect_pt = point[0]
     return Point3D(x=intersect_pt.X, y=intersect_pt.Y, z=intersect_pt.Z)
+
+def get_closest_point_on_srf_with_point(
+    srf: Union[rg.Surface, rg.Brep],
+    point: Union[Point3D, Point2D, rg.Point3d],
+) -> Optional[Point3D]:
+    linecrv = const_vertical_line_from_point(point)
+    brep_srf = srf if isinstance(srf, rg.Brep) else srf.ToBrep()
+    success, _, pt_on_brep, _ = linecrv.ClosestPoints([brep_srf])
+    if not success:
+        raise ValueError("ClosestPoints failed.")
+    return Point3D(x=pt_on_brep.X, y=pt_on_brep.Y, z=pt_on_brep.Z)
+
+
 
 def get_intersect_point_on_srf_with_curve(
     srf: Union[rg.Surface, rg.Brep],
@@ -163,6 +177,34 @@ def get_intersect_point_on_crvs_in_the_same_plane(
     intersect_pt = intersection_events[0].PointA
     return Point3D(x=intersect_pt.X, y=intersect_pt.Y, z=intersect_pt.Z)
 
+def get_intersect_crv_on_srfs(
+    srf_a: Union[rg.Surface, rg.Brep],
+    srf_b: Union[rg.Surface, rg.Brep],
+    tol: Optional[float] = 0.01,
+) -> Optional[rg.Curve]:
+    brep_a = srf_a if isinstance(srf_a, rg.Brep) else srf_a.ToBrep()
+    brep_b = srf_b if isinstance(srf_b, rg.Brep) else srf_b.ToBrep()
+    intersection_events = rg.Intersect.Intersection.BrepBrep(brep_a, brep_b, tol)
+    if not intersection_events[0]:
+        raise ValueError("サーフェス同士の交差が見つかりませんでした")
+    intersection_crvs = intersection_events[1]
+    print(intersection_crvs, len(intersection_crvs))
+    if len(intersection_crvs) == 0:
+        raise ValueError("サーフェス同士の交線が見つかりませんでした")
+    return  intersection_crvs
+
+def get_intersect_crv_on_srfs_with_cutter_points(
+    target_srf: Union[rg.Surface, rg.Brep],
+    cutter_crv_points: list[Union[Point3D, Point2D, rg.Point3d]],
+    tol: Optional[float] = 0.01,
+) -> Optional[rg.Curve]:
+    planer_srf =const_vertical_srf_from_two_points(
+        cutter_crv_points[0],
+        cutter_crv_points[1],
+    )
+    return get_intersect_crv_on_srfs(target_srf, planer_srf, tol)
+
+
 
 def trim_curve_between_two_points(
     target_curve: Union[rg.Curve, rg.Line, rg.PolylineCurve],
@@ -182,3 +224,72 @@ def trim_curve_between_two_points(
     if trimmed is None:
         raise ValueError("Trim failed.")
     return trimmed
+
+def get_any_interior_point_on_brep_by_mesh(
+    brep: rg.Brep,
+) -> rg.Point3d:
+    """
+    Brepをメッシュ化し、メッシュ面の中心からBrepFace内部点を探す。
+    細いSplit片ではUVグリッドサンプリングより安定しやすい。
+    """
+    meshes = rg.Mesh.CreateFromBrep(
+        brep,
+        rg.MeshingParameters.Default
+    )
+    if not meshes:
+        raise ValueError("Mesh could not be created from brep.")
+    for mesh in meshes:
+        for mf in mesh.Faces:
+            if mf.IsTriangle:
+                p0 = mesh.Vertices[mf.A]
+                p1 = mesh.Vertices[mf.B]
+                p2 = mesh.Vertices[mf.C]
+                center = rg.Point3d(
+                    (p0.X + p1.X + p2.X) / 3.0,
+                    (p0.Y + p1.Y + p2.Y) / 3.0,
+                    (p0.Z + p1.Z + p2.Z) / 3.0,
+                )
+            else:
+                p0 = mesh.Vertices[mf.A]
+                p1 = mesh.Vertices[mf.B]
+                p2 = mesh.Vertices[mf.C]
+                p3 = mesh.Vertices[mf.D]
+                center = rg.Point3d(
+                    (p0.X + p1.X + p2.X + p3.X) / 4.0,
+                    (p0.Y + p1.Y + p2.Y + p3.Y) / 4.0,
+                    (p0.Z + p1.Z + p2.Z + p3.Z) / 4.0,
+                )
+            # 念のため、その点がBrep面上のInteriorか確認
+            for face in brep.Faces:
+                rc, u, v = face.ClosestPoint(center)
+                if not rc:
+                    continue
+                relation = face.IsPointOnFace(u, v)
+                if relation == rg.PointFaceRelation.Interior:
+                    return face.PointAt(u, v)
+    raise ValueError("No interior point found on brep by mesh.")
+
+
+def trim_srf_by_closed_curve(
+    target_srf: Union[rg.Surface, rg.Brep],
+    cutter_crv: Union[rg.Curve, rg.Line, rg.PolylineCurve],
+) -> list[rg.Brep]:
+    target_brep = target_srf if isinstance(target_srf, rg.Brep) else target_srf.ToBrep()
+    cutter_crv = const_curve_obj(cutter_crv)
+    cutter_srf = const_vertical_srf_from_closed_curve(cutter_crv)
+    split_result = target_brep.Split(cutter_srf, 0.01)
+    if not split_result:
+        raise ValueError("サーフェスの分割に失敗しました")
+    if split_result.Length == 0:
+        raise ValueError("サーフェスの分割結果が空でした")
+    if split_result.Length == 1:
+        raise ValueError("サーフェスの分割結果が1つだけでした。分割されていない可能性があります。")
+    kept = []
+    for piece in split_result:
+        test_point = get_any_interior_point_on_brep_by_mesh(piece)
+        containment = cutter_crv.Contains(test_point)
+        if containment == rg.PointContainment.Inside:
+            kept.append(piece)
+    if len(kept) == 0:
+        raise ValueError("分割後のサーフェスのうち、切り取るべき部分が見つかりませんでした")
+    return kept

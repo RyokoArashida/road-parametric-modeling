@@ -25,7 +25,7 @@ from my_project.utils.geometry_gh.attributes import get_distance_along_crv
 from my_project.utils.geometry_gh.const import (
     const_closed_polycurve_obj,
     const_polycurve_obj,
-    const_srf_from_crvs,
+    const_srf_from_2crvs,
 )
 from my_project.utils.geometry_gh.intersect import (
     get_intersect_point_on_curve_with_xy,
@@ -127,8 +127,8 @@ def get_each_barrier(
             R_curve_i = const_closed_polycurve_obj(barrier_points_dict_i["R"])
             L_curve_i1 = const_closed_polycurve_obj(barrier_points_dict_i1["L"])
             R_curve_i1 = const_closed_polycurve_obj(barrier_points_dict_i1["R"])
-            L_brep = const_srf_from_crvs([L_curve_i, L_curve_i1]).CapPlanarHoles(0.01)
-            R_brep = const_srf_from_crvs([R_curve_i, R_curve_i1]).CapPlanarHoles(0.01)
+            L_brep = const_srf_from_2crvs([L_curve_i, L_curve_i1]).CapPlanarHoles(0.01)
+            R_brep = const_srf_from_2crvs([R_curve_i, R_curve_i1]).CapPlanarHoles(0.01)
             barrier_dict[f"{name_i}_to_{name_i1}"] = {
                 "L": L_brep,
                 "R": R_brep,
@@ -244,7 +244,7 @@ def get_center_barrier_and_nose_LR2points(
                 pre_name = nose_straight_LR2_points[-2].name
             pre_edge_point, pre_edge_point_idx = next((p, i) for i, p in enumerate(slab_edge_points) if p.name == pre_name)
             post_edge_point = slab_edge_points[pre_edge_point_idx + 1]
-            slab_top_srf = const_srf_from_crvs([
+            slab_top_srf = const_srf_from_2crvs([
                 const_polycurve_obj([pre_edge_point.Lpoint, pre_edge_point.Rpoint]),
                 const_polycurve_obj([post_edge_point.Lpoint, post_edge_point.Rpoint]),
             ])
@@ -385,8 +385,8 @@ def get_center_barriers_and_noses(
             R_curve_i = const_closed_polycurve_obj(barrier_points_dict_i["R"])
             L_curve_i1 = const_closed_polycurve_obj(barrier_points_dict_i1["L"])
             R_curve_i1 = const_closed_polycurve_obj(barrier_points_dict_i1["R"])
-            L_brep = const_srf_from_crvs([L_curve_i, L_curve_i1]).CapPlanarHoles(0.01)
-            R_brep = const_srf_from_crvs([R_curve_i, R_curve_i1]).CapPlanarHoles(0.01)
+            L_brep = const_srf_from_2crvs([L_curve_i, L_curve_i1]).CapPlanarHoles(0.01)
+            R_brep = const_srf_from_2crvs([R_curve_i, R_curve_i1]).CapPlanarHoles(0.01)
             center_barrier_dict["中央壁高欄"][f"{name_i}_to_{name_i1}"] = {
                 "L": L_brep,
                 "R": R_brep,
@@ -414,7 +414,7 @@ def get_center_barriers_and_noses(
             )
             curve_i = const_closed_polycurve_obj(nose_points_i)
             curve_i1 = const_closed_polycurve_obj(nose_points_i1)
-            brep = const_srf_from_crvs([curve_i, curve_i1]).CapPlanarHoles(0.01)
+            brep = const_srf_from_2crvs([curve_i, curve_i1]).CapPlanarHoles(0.01)
             center_barrier_dict["ノーズ"][f"{name_i}_to_{name_i1}"] = brep
     return center_barrier_dict, center_barrier_base_points_dict
 

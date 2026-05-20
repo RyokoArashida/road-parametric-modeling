@@ -30,7 +30,7 @@ from my_project.utils.geometry_gh.const import (
     const_closed_polycurve_obj,
     const_point_obj,
     const_polycurve_obj,
-    const_srf_from_crvs,
+    const_srf_from_2crvs,
 )
 from my_project.utils.io import load_from_pickle, save_json_and_pickle
 
@@ -681,17 +681,17 @@ def get_individual_MG_breps(
                 next_MG_points = get_MG_points(next_MG_outer_point.top, next_MG_outer_point.bottom, thickness_info, MG_type, web_offset)
                 this_MG_crv = const_closed_polycurve_obj(this_MG_points)
                 next_MG_crv = const_closed_polycurve_obj(next_MG_points)
-                brep = const_srf_from_crvs([this_MG_crv, next_MG_crv])
+                brep = const_srf_from_2crvs([this_MG_crv, next_MG_crv])
                 breps.append(brep)
             elif MG_type == "箱桁":
                 this_L_MG_points, this_R_MG_points = get_MG_points(this_MG_outer_point.top, this_MG_outer_point.bottom, thickness_info, MG_type, web_offset)
                 next_L_MG_points, next_R_MG_points = get_MG_points(next_MG_outer_point.top, next_MG_outer_point.bottom, thickness_info, MG_type, web_offset)
                 this_L_MG_crv = const_polycurve_obj(this_L_MG_points)
                 next_L_MG_crv = const_polycurve_obj(next_L_MG_points)
-                left_brep = const_srf_from_crvs([this_L_MG_crv, next_L_MG_crv])
+                left_brep = const_srf_from_2crvs([this_L_MG_crv, next_L_MG_crv])
                 this_R_MG_crv = const_polycurve_obj(this_R_MG_points)
                 next_R_MG_crv = const_polycurve_obj(next_R_MG_points)
-                right_brep = const_srf_from_crvs([this_R_MG_crv, next_R_MG_crv])
+                right_brep = const_srf_from_2crvs([this_R_MG_crv, next_R_MG_crv])
                 brep = rg.Brep.JoinBreps([left_brep, right_brep], 0.01)[0]
                 breps.append(brep)
             

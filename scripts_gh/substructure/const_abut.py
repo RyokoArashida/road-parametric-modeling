@@ -29,8 +29,9 @@ from my_project.utils.geometry.points import (
 )
 from my_project.utils.geometry.vectors import get_frame_2D
 from my_project.utils.geometry_gh.const import (
+    const_3Dpoint,
     const_closed_polycurve_obj,
-    const_srf_from_crvs,
+    const_srf_from_2crvs,
 )
 from my_project.utils.geometry_gh.transform import place_obj
 from my_project.utils.io import load_from_pickle, save_json_and_pickle
@@ -47,7 +48,7 @@ def get_box_from_SquareCorners(
         UN = Point3D(x=top_corners.UN.x, y=top_corners.UN.y, z=foundation_top_z),
         UT = Point3D(x=top_corners.UT.x, y=top_corners.UT.y, z=foundation_top_z),
     )
-    brep = const_srf_from_crvs([
+    brep = const_srf_from_2crvs([
         const_closed_polycurve_obj([top_corners.DT, top_corners.DN, bottom_corners.DN, bottom_corners.DT]),
         const_closed_polycurve_obj([top_corners.UT, top_corners.UN, bottom_corners.UN, bottom_corners.UT]),
     ])
@@ -351,7 +352,7 @@ def get_wings(
         if ab_height == 0 and bl_height == 0:
             out_curve = const_closed_polycurve_obj([out_B_top_point, out_E_top_point, out_E_bottom_point, out_B_bottom_point])
             in_curve = const_closed_polycurve_obj([in_B_top_point, in_E_top_point, in_E_bottom_point, in_B_bottom_point])
-            brep = const_srf_from_crvs([out_curve, in_curve])
+            brep = const_srf_from_2crvs([out_curve, in_curve])
             capped_brep = brep.CapPlanarHoles(0.01)
             return capped_brep, top_points 
 
@@ -371,7 +372,7 @@ def get_wings(
         )
         out_curve = const_closed_polycurve_obj([top_points.DT, top_points.DN, middle_wide_points.DN, middle_narrow_points.DN, bottom_points.DN, bottom_points.DT])
         in_curve = const_closed_polycurve_obj([top_points.UT, top_points.UN, middle_wide_points.UN, middle_narrow_points.UN, bottom_points.UN, bottom_points.UT])
-        brep = const_srf_from_crvs([out_curve, in_curve])
+        brep = const_srf_from_2crvs([out_curve, in_curve])
         capped_brep = brep.CapPlanarHoles(0.01)
         return capped_brep, top_points
     
@@ -428,7 +429,7 @@ def get_slabseat(
             return crv
         start_crv = get_slabseat_curve(backwall_start_top_point)
         end_crv = get_slabseat_curve(backwall_end_top_point)
-        brep = const_srf_from_crvs([start_crv, end_crv])
+        brep = const_srf_from_2crvs([start_crv, end_crv])
         capped_brep = brep.CapPlanarHoles(0.01)
         return capped_brep
     if not double:
@@ -574,10 +575,10 @@ def get_barrier(
         overhang_width = barrier_info.ED_overhang_width,
         UB = "D",
     )
-    U_backwall_barrier = const_srf_from_crvs([UB_backwall_crv, UE_backwall_crv])
-    D_backwall_barrier = const_srf_from_crvs([DB_backwall_crv, DE_backwall_crv])
-    U_wing_barrier = const_srf_from_crvs([UE_backwall_crv, UE_wing_crv])
-    D_wing_barrier = const_srf_from_crvs([DE_backwall_crv, DE_wing_crv]) 
+    U_backwall_barrier = const_srf_from_2crvs([UB_backwall_crv, UE_backwall_crv])
+    D_backwall_barrier = const_srf_from_2crvs([DB_backwall_crv, DE_backwall_crv])
+    U_wing_barrier = const_srf_from_2crvs([UE_backwall_crv, UE_wing_crv])
+    D_wing_barrier = const_srf_from_2crvs([DE_backwall_crv, DE_wing_crv]) 
     U_barrier = rg.Brep.JoinBreps([U_backwall_barrier, U_wing_barrier], 0.01)[0].CapPlanarHoles(0.01)
     D_barrier = rg.Brep.JoinBreps([D_backwall_barrier, D_wing_barrier], 0.01)[0].CapPlanarHoles(0.01)
     return {
@@ -594,7 +595,7 @@ def get_barrier(
 def get_each_abut(
     input_indiv_info: InputAbutInfo,
     input_common_info: CommonAbutInfo,
-) -> tuple[dict[str, rg.Brep], dict[str, Point3D]]:
+):
     # 橋脚のローカル2D座標系を求める
     point_u = input_indiv_info.points_for_vector.point_u
     point_d = input_indiv_info.points_for_vector.point_d
@@ -704,6 +705,33 @@ def get_each_abut(
         world_point = place_obj_setting(point)
         return Point3D(x=world_point.X, y=world_point.Y, z=world_point.Z)
 
+    # 上面のデータは必要(ワールド座標）
+    if not double:
+        top_surf_corners = [
+            Square_Corners(
+                DT = const_3Dpoint(place_point_setting(beamseat_dict["beamseat_top_corners"].DT)),
+                DN = const_3Dpoint(place_point_setting(beamseat_dict["beamseat_top_corners"].DN)),
+                UT = const_3Dpoint(place_point_setting(beamseat_dict["beamseat_top_corners"].UT)),
+                UN = const_3Dpoint(place_point_setting(beamseat_dict["beamseat_top_corners"].UN))
+            )
+        ]
+    else:
+        top_surf_corners = [
+            Square_Corners(
+                DT = const_3Dpoint(place_point_setting(beamseat_dict["U_beamseat_top_corners"].DT)),
+                DN = const_3Dpoint(place_point_setting(beamseat_dict["U_beamseat_top_corners"].DN)),
+                UT = const_3Dpoint(place_point_setting(beamseat_dict["U_beamseat_top_corners"].UT)),
+                UN = const_3Dpoint(place_point_setting(beamseat_dict["U_beamseat_top_corners"].UN))
+            ),
+            Square_Corners(
+                DT = const_3Dpoint(place_point_setting(beamseat_dict["D_beamseat_top_corners"].DT)),
+                DN = const_3Dpoint(place_point_setting(beamseat_dict["D_beamseat_top_corners"].DN)),
+                UT = const_3Dpoint(place_point_setting(beamseat_dict["D_beamseat_top_corners"].UT)),
+                UN = const_3Dpoint(place_point_setting(beamseat_dict["D_beamseat_top_corners"].UN))
+            ),
+        ]
+
+
     return ({
         "橋座": place_obj_setting(beamseat),
         "パラペット": place_obj_setting(backwall),
@@ -724,8 +752,11 @@ def get_each_abut(
         "DE_backwall": place_point_setting(DE_backwall_base_bottom),
         "UE_wing": place_point_setting(UE_wing_base_bottom),
         "DE_wing": place_point_setting(DE_wing_base_bottom),
+    },
+    {
+        "frame_2D": frame_2D,
+        "top_corners": top_surf_corners,
     })
-
 
 
 def main(initial_or_final: str):
@@ -737,18 +768,36 @@ def main(initial_or_final: str):
     indiv_infos = load_from_pickle(DIR / f"{Filenames.INPUT}_{Filenames.ABUT}_{Filenames.INDIV}.pickle")
     common_info_dict = load_from_pickle(DIR / f"{Filenames.INPUT}_{Filenames.ABUT}_{Filenames.COMMON}.pickle")
     barrier_base_bottom_dict = {}
+    local_top_surf_corners_dict = {}
     world_items_dict_for_bake = {}
     world_items_dict_for_bake_2 = {}
 
     for abut_name, indiv_info in indiv_infos.items():
         bridge_type = indiv_info.bridge_type
         common_info = common_info_dict[bridge_type]
-        abut_dict, barrier_dict, barrier_base_point_dict = get_each_abut(
+        abut_dict, barrier_dict, barrier_base_point_dict,top_surf_corners_dict = get_each_abut(
             input_indiv_info = indiv_info,
             input_common_info = common_info,
         )
 
         barrier_base_bottom_dict[abut_name] = barrier_base_point_dict # ここはpickel用
+        frame_2D = top_surf_corners_dict["frame_2D"]
+        top_surf_corners = top_surf_corners_dict["top_corners"]
+        if len(top_surf_corners) == 1:
+            local_top_surf_corners_dict[abut_name] = {
+                "frame_2D": frame_2D,
+                "top_corners": top_surf_corners[0],
+            }
+        else:
+            local_top_surf_corners_dict[f"{abut_name}A"] = {
+                "frame_2D": frame_2D,
+                "top_corners": top_surf_corners[0],
+            }
+            local_top_surf_corners_dict[f"{abut_name}B"] = {
+                "frame_2D": frame_2D,
+                "top_corners": top_surf_corners[1],
+            }
+        
         world_items_dict_for_bake[abut_name] = abut_dict # ここはbake用
         world_items_dict_for_bake_2[abut_name] = barrier_dict # ここはbake用
     
@@ -757,6 +806,11 @@ def main(initial_or_final: str):
         data = barrier_base_bottom_dict,
         folder_path = DIR,
         name = f"{Filenames.WORLD}_{Filenames.ABUT}_{Filenames.BARRIER}_{Filenames.BASE_POINT}",
+    )
+    save_json_and_pickle(
+        data = local_top_surf_corners_dict,
+        folder_path = DIR,
+        name = f"{Filenames.WORLD}_{Filenames.ABUT}_{Filenames.TOP}_{Filenames.POINTS}",
     )
     def get_keys_and_values_for_bake(world_items_dict):
         flatten_dict_for_bake = flatten_any(world_items_dict)

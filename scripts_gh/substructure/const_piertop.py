@@ -20,7 +20,7 @@ from my_project.utils.geometry_gh.const import (
     const_planer_srf_from_points,
     const_point_obj,
     const_polycurve_obj,
-    const_srf_from_crvs,
+    const_srf_from_2crvs,
 )
 from my_project.utils.geometry_gh.intersect import split_two_surfaces
 from my_project.utils.geometry_gh.transform import place_obj
@@ -90,9 +90,9 @@ def get_slope_or_curve_edge_srf(
             tangent_dir= tangent_dir,
         )
 
-    T_srf = const_srf_from_crvs([TT_curve, TN_curve])
-    C_srf = const_srf_from_crvs([TN_curve, NT_curve])
-    N_srf = const_srf_from_crvs([NT_curve, NN_curve])
+    T_srf = const_srf_from_2crvs([TT_curve, TN_curve])
+    C_srf = const_srf_from_2crvs([TN_curve, NT_curve])
+    N_srf = const_srf_from_2crvs([NT_curve, NN_curve])
     return T_srf, C_srf, N_srf
 
 def get_top_and_edge_srf(
@@ -267,9 +267,9 @@ def get_between_srf(
         TN_crv, _, _, _ = get_short_crv(Ucol_TN_point, Dcol_TN_point)
         NT_crv, _, _, _ = get_short_crv(Ucol_NT_point, Dcol_NT_point)
         NN_crv, _, _, _ = get_short_crv(Ucol_NN_point, Dcol_NN_point)
-        T_srf = const_srf_from_crvs([TT_crv, TN_crv])
-        C_srf = const_srf_from_crvs([TN_crv, NT_crv])
-        N_srf = const_srf_from_crvs([NT_crv, NN_crv])
+        T_srf = const_srf_from_2crvs([TT_crv, TN_crv])
+        C_srf = const_srf_from_2crvs([TN_crv, NT_crv])
+        N_srf = const_srf_from_2crvs([NT_crv, NN_crv])
         btw_srfs.extend([T_srf, C_srf, N_srf])
 
     else:
@@ -294,15 +294,15 @@ def get_between_srf(
         UTNcrv, TNmid_crv, DTNcrv_moved = get_three_crvs(UTNcrv, DTNcrv, TNmid, hri_len)
         UNTcrv, NTmid_crv, DNTcrv_moved = get_three_crvs(UNTcrv, DNTcrv, NTmid, hri_len)
         UNNcrv, NNmid_crv, DNNcrv_moved = get_three_crvs(UNNcrv, DNNcrv, NNmid, hri_len)
-        UT_srf = const_srf_from_crvs([UTTcrv, UTNcrv])
-        UC_srf = const_srf_from_crvs([UTNcrv, UNTcrv])
-        UN_srf = const_srf_from_crvs([UNTcrv, UNNcrv])
-        hriT_srf = const_srf_from_crvs([TTmid_crv, TNmid_crv])
-        hriC_srf = const_srf_from_crvs([TNmid_crv, NTmid_crv])
-        hriN_srf = const_srf_from_crvs([NTmid_crv, NNmid_crv])
-        DT_srf = const_srf_from_crvs([DTTcrv_moved, DTNcrv_moved])
-        DC_srf = const_srf_from_crvs([DTNcrv_moved, DNTcrv_moved])
-        DN_srf = const_srf_from_crvs([DNTcrv_moved, DNNcrv_moved])
+        UT_srf = const_srf_from_2crvs([UTTcrv, UTNcrv])
+        UC_srf = const_srf_from_2crvs([UTNcrv, UNTcrv])
+        UN_srf = const_srf_from_2crvs([UNTcrv, UNNcrv])
+        hriT_srf = const_srf_from_2crvs([TTmid_crv, TNmid_crv])
+        hriC_srf = const_srf_from_2crvs([TNmid_crv, NTmid_crv])
+        hriN_srf = const_srf_from_2crvs([NTmid_crv, NNmid_crv])
+        DT_srf = const_srf_from_2crvs([DTTcrv_moved, DTNcrv_moved])
+        DC_srf = const_srf_from_2crvs([DTNcrv_moved, DNTcrv_moved])
+        DN_srf = const_srf_from_2crvs([DNTcrv_moved, DNNcrv_moved])
         btw_srfs.extend([UT_srf, UC_srf, UN_srf, hriT_srf, hriC_srf, hriN_srf, DT_srf, DC_srf, DN_srf])
 
     return btw_srfs
