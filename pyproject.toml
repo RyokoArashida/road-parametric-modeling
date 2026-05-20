@@ -3,9 +3,9 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "my-project"
+name = "road-parametric-modeling"
 version = "0.1.0"
-description = "Internal tools for analysis"
+description = "Tools for preprocessing road bridge parameters and generating Rhino/Grasshopper geometry data"
 readme = "README.md"
 requires-python = ">=3.9"
 dependencies = [
@@ -13,6 +13,9 @@ dependencies = [
   "numpy",
   "openpyxl",
   "matplotlib",
+  "python-dotenv",
+  "pyproj",
+  "pyarrow",
 ]
 
 [tool.setuptools]
