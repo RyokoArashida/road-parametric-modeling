@@ -140,18 +140,50 @@ Copy-Item .env.example .env
 
 ### 4. 前処理を実行する
 
-各スクリプトはデフォルトで `main("initial")` を実行します。
+各スクリプトはデフォルトで `main("initial")` を実行します。`final` 側を処理する場合は、対象スクリプトまたは Grasshopper 側で `main("final")` を呼び出してください。
+
+コード上の入出力依存関係から見ると、実行順の目安は以下です。
+
+1. 上部工座標を前処理します。
 
 ```bash
 python scripts/preprocess/superstructure_coords.py
 python scripts/preprocess/superstructure_common.py
+```
+
+2. 上部工の基本部材入力を作成します。
+
+```bash
 python scripts/preprocess/slab.py
 python scripts/preprocess/main_girder.py
+```
+
+3. Grasshopper / Rhino で床版と主桁を生成します。
+
+```text
+scripts_gh/superstructure/const_slab.py
+scripts_gh/superstructure/const_main_girder.py
+```
+
+この段階で、後続処理が参照する主桁点群、主桁上フランジ点、床版下面点などの pickle が出力されます。
+
+4. 下部工の基本入力を作成します。
+
+```bash
 python scripts/preprocess/pier.py
 python scripts/preprocess/abutment.py
 ```
 
-一部のスクリプトは、先に生成された pickle や Grasshopper / Rhino 側で生成された点群データを必要とします。
+5. Grasshopper / Rhino で橋脚柱、橋台、基礎などを生成します。
+
+```text
+scripts_gh/substructure/const_column.py
+scripts_gh/substructure/const_piertop.py
+scripts_gh/substructure/const_foundation.py
+scripts_gh/substructure/const_abut.py
+```
+
+6. 床版・主桁・下部工から生成された点群を使う部材の入力を作成します。
 
 ```bash
 python scripts/preprocess/cross_girder.py
@@ -159,6 +191,27 @@ python scripts/preprocess/barrier.py
 python scripts/preprocess/shoe.py
 python scripts/preprocess/I_box_joint.py
 ```
+
+7. Grasshopper / Rhino で残りの上部工部材、支承、接続部を生成します。
+
+```text
+scripts_gh/superstructure/const_cross_girder.py
+scripts_gh/superstructure/const_barriers.py
+scripts_gh/substructure/const_shoe.py
+scripts_gh/superstructure/const_I_box_joint.py
+```
+
+主な依存関係は以下です。
+
+- `superstructure_common.py` は `superstructure_coords.py` の出力を読み込みます。
+- `slab.py`, `main_girder.py`, `shoe.py` は `superstructure_common.py` の出力を読み込みます。
+- `const_slab.py` は `slab.py` と `main_girder.py` の出力を読み込み、主桁上フランジ点と床版下面点を出力します。
+- `const_main_girder.py` は `main_girder.py` と `const_slab.py` の出力を読み込み、主桁点群を出力します。
+- `cross_girder.py` は `const_slab.py`, `const_main_girder.py`, `superstructure_common.py` の出力を読み込み、横桁用入力と `world_main_girder_points_IO` を出力します。
+- `barrier.py` は `const_slab.py` の床版上面端部点を読み込みます。
+- `I_box_joint.py` と `const_shoe.py` は `cross_girder.py` が出力する `world_main_girder_points_IO` を読み込みます。
+- `const_piertop.py` は `pier.py` と `const_column.py` の出力を読み込みます。
+- `const_shoe.py` は `shoe.py`, `const_abut.py`, `const_column.py`, `cross_girder.py` の出力を読み込みます。
 
 実際の実行順は、作成する部材と Grasshopper 側で生成済みのデータに合わせて調整してください。
 
@@ -317,18 +370,50 @@ The Excel input data is not included in this GitHub repository. Contact the auth
 
 ### 4. Run Preprocessing
 
-Most scripts default to `main("initial")`.
+Most scripts default to `main("initial")`. To process the final model data, call `main("final")` from the target script or Grasshopper.
+
+Based on the input and output dependencies in the code, the recommended execution order is:
+
+1. Preprocess superstructure coordinates.
 
 ```bash
 python scripts/preprocess/superstructure_coords.py
 python scripts/preprocess/superstructure_common.py
+```
+
+2. Create basic superstructure member inputs.
+
+```bash
 python scripts/preprocess/slab.py
 python scripts/preprocess/main_girder.py
+```
+
+3. Generate slab and main girder data in Grasshopper / Rhino.
+
+```text
+scripts_gh/superstructure/const_slab.py
+scripts_gh/superstructure/const_main_girder.py
+```
+
+This step outputs pickle files for downstream processes, including main girder points, top flange points, and slab bottom points.
+
+4. Create basic substructure inputs.
+
+```bash
 python scripts/preprocess/pier.py
 python scripts/preprocess/abutment.py
 ```
 
-Some later preprocessing scripts depend on pickle files or point data generated from Grasshopper / Rhino.
+5. Generate pier columns, abutments, and foundations in Grasshopper / Rhino.
+
+```text
+scripts_gh/substructure/const_column.py
+scripts_gh/substructure/const_piertop.py
+scripts_gh/substructure/const_foundation.py
+scripts_gh/substructure/const_abut.py
+```
+
+6. Create inputs for members that depend on generated slab, girder, and substructure point data.
 
 ```bash
 python scripts/preprocess/cross_girder.py
@@ -336,6 +421,27 @@ python scripts/preprocess/barrier.py
 python scripts/preprocess/shoe.py
 python scripts/preprocess/I_box_joint.py
 ```
+
+7. Generate the remaining superstructure members, bearings, and joints in Grasshopper / Rhino.
+
+```text
+scripts_gh/superstructure/const_cross_girder.py
+scripts_gh/superstructure/const_barriers.py
+scripts_gh/substructure/const_shoe.py
+scripts_gh/superstructure/const_I_box_joint.py
+```
+
+Main dependencies:
+
+- `superstructure_common.py` reads the output from `superstructure_coords.py`.
+- `slab.py`, `main_girder.py`, and `shoe.py` read the output from `superstructure_common.py`.
+- `const_slab.py` reads outputs from `slab.py` and `main_girder.py`, then writes main girder top flange points and slab bottom points.
+- `const_main_girder.py` reads outputs from `main_girder.py` and `const_slab.py`, then writes main girder point data.
+- `cross_girder.py` reads outputs from `const_slab.py`, `const_main_girder.py`, and `superstructure_common.py`, then writes cross girder inputs and `world_main_girder_points_IO`.
+- `barrier.py` reads slab top edge points generated by `const_slab.py`.
+- `I_box_joint.py` and `const_shoe.py` read `world_main_girder_points_IO` generated by `cross_girder.py`.
+- `const_piertop.py` reads outputs from `pier.py` and `const_column.py`.
+- `const_shoe.py` reads outputs from `shoe.py`, `const_abut.py`, `const_column.py`, and `cross_girder.py`.
 
 Adjust the actual execution order based on the members being generated and the data already created in Grasshopper.
 
