@@ -131,9 +131,19 @@ def const_srf_from_2crvs(curves: list[Union[rg.Curve, rg.Line, rg.PolylineCurve]
         raise ValueError(f"Need 2 curves, got {len(curves)}")
     curves = [const_curve_obj(crv) for crv in curves]
     srf = rg.NurbsSurface.CreateRuledSurface(curves[0], curves[1])
-    if srf is None:
-        raise ValueError("Failed to create ruled surface")
-    return srf.ToBrep()
+    if srf is not None:
+        return srf.ToBrep()
+
+    lofts = rg.Brep.CreateFromLoft(
+        curves,
+        rg.Point3d.Unset,
+        rg.Point3d.Unset,
+        rg.LoftType.Normal,
+        False,
+    )
+    if not lofts or len(lofts) == 0:
+        raise ValueError("Failed to create ruled or loft surface")
+    return lofts[0]
 
 def const_arc_half_from_center_edge_points(
     center: Union[Point3D, Point2D, rg.Point3d],

@@ -6,6 +6,11 @@ from pathlib import Path
 from typing import Any, Optional, Union
 
 import numpy as np
+
+from my_project.config.locale_compat import normalize_lc_time
+
+normalize_lc_time()
+
 import pandas as pd
 
 from my_project.utils.dataframe import merge_cols

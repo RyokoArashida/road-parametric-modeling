@@ -1,6 +1,10 @@
 
 from typing import Any, Sequence, Tuple
 
+from my_project.config.locale_compat import normalize_lc_time
+
+normalize_lc_time()
+
 import pandas as pd
 
 from my_project.config.util_schemas import (

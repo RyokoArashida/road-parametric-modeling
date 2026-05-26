@@ -319,6 +319,19 @@ def get_flange_crvs(thickness, TB, base_I_crv, base_O_crv):
         raise ValueError(f"Error: TBは'top'か'bottom'でなければなりません。TB: {TB}")
     return below_I_crv, above_I_crv, above_O_crv, below_O_crv
 
+def debug_curve_on_base(cut_crv, base_crv, name: str):
+    print(f"\n===== {name} =====")
+    for label, pt in [("start", cut_crv.PointAtStart), ("end", cut_crv.PointAtEnd)]:
+        ok, t = base_crv.ClosestPoint(pt)
+        if ok:
+            base_pt = base_crv.PointAt(t)
+            print(f"{label} distance to base:", pt.DistanceTo(base_pt))
+            print(f"{label} z delta:", pt.Z - base_pt.Z)
+            print(f"{label} cut:", pt)
+            print(f"{label} base:", base_pt)
+        else:
+            print(f"{label} closest point failed")
+
 def get_H_breps(
     top_flange_crvs: list[rg.Polyline], #top_flange_top_O_crv, top_flange_top_I_crv
     bottom_flange_crvs: list[rg.Polyline], #bottom_flange_bottom_O_crv, bottom_flange_bottom_I_crv,
@@ -343,7 +356,7 @@ def get_H_breps(
     web_brep = const_brep_from_all_crvs(web_crvs)
     return top_flange_brep, bottom_flange_brep, web_brep
 
-def get_haridashi_H_breps(slab_bottom_polyline, MG_point_side, MG_polyline_side_dict, info, tol: float = 1e-1):
+def get_haridashi_H_breps(slab_bottom_polyline, MG_point_side, MG_polyline_side_dict, info, tol: float = 1e-1, debug_crvs: Optional[list] = None):
     # 上フランジ
     top_base_point = MG_point_side.top_out
     top_base_crv = MG_polyline_side_dict["top_out"]
@@ -367,9 +380,12 @@ def get_haridashi_H_breps(slab_bottom_polyline, MG_point_side, MG_polyline_side_
 
     # 下フランジ
     MG_top_flange_thichkness = MG_point_side.top_out.z - MG_point_side.top_in.z
-    I_gap = info.web.height - MG_top_flange_thichkness # 主桁ウェブの付け根からの落ち
+    bottom_flange_thickness = float(info.bottom_flange.thickness)
+    edge_height = float(info.web.edge_height)
+    web_height = float(info.web.height)
+    I_gap = web_height - MG_top_flange_thichkness
     bottom_base_crv_I = move_obj(MG_polyline_side_dict["web_top"], rg.Vector3d(0, 0, -I_gap))
-    bottom_base_crv_O = move_obj(slab_bottom_crv, rg.Vector3d(0, 0, -info.web.edge_height))
+    bottom_base_crv_O = move_obj(slab_bottom_crv, rg.Vector3d(0, 0, -edge_height))
     if info.bottom_flange.width is None:
         bottom_flange_crvs = get_split_crvs_with_base_point_offset_with_plane(
             base_point = top_base_point,
@@ -385,21 +401,29 @@ def get_haridashi_H_breps(slab_bottom_polyline, MG_point_side, MG_polyline_side_
             target_crvs = [bottom_base_crv_O, bottom_base_crv_I],
             shared_offset= info.bottom_flange.width,
         )
-    bottom_flange_thickness = float(info.bottom_flange.thickness)
+    if debug_crvs is not None:
+        debug_crvs.extend(top_flange_crvs)
+        debug_crvs.extend(bottom_flange_crvs)
+        debug_curve_on_base(
+            bottom_flange_crvs[1],
+            MG_polyline_side_dict["bottom_out"],
+            "haridashi bottom_flange I cut vs MG bottom_out",
+        )
+    bottom_web_crv_I = move_obj(bottom_flange_crvs[1], rg.Vector3d(0, 0, bottom_flange_thickness))
 
     # ウェブ
     if abs(MG_top_flange_thichkness - top_flange_thickness) < tol:
         web_polylines = [
             move_obj(top_flange_crvs[0], rg.Vector3d(0, 0, -top_flange_thickness)), # top_in_O
             move_obj(bottom_flange_crvs[0], rg.Vector3d(0, 0, bottom_flange_thickness)), # bottom_in_O
-            move_obj(bottom_flange_crvs[1], rg.Vector3d(0, 0, bottom_flange_thickness)), # bottom_in_I
+            bottom_web_crv_I, # bottom_in_I
             move_obj(top_flange_crvs[1], rg.Vector3d(0, 0, -top_flange_thickness)), # top_in_I
         ]
     else:
         web_polylines = [
             move_obj(top_flange_crvs[0], rg.Vector3d(0, 0, -top_flange_thickness)), # top_in_O
             move_obj(bottom_flange_crvs[0], rg.Vector3d(0, 0, bottom_flange_thickness)), # bottom_in_O
-            move_obj(bottom_flange_crvs[1], rg.Vector3d(0, 0, bottom_flange_thickness)), # bottom_in_I
+            bottom_web_crv_I, # bottom_in_I
             MG_polyline_side_dict["web_top"],
             MG_polyline_side_dict["top_in"],
             move_obj(top_flange_crvs[1], rg.Vector3d(0, 0, -top_flange_thickness)), # top_in_I
@@ -412,6 +436,8 @@ def get_haridashi_H_breps(slab_bottom_polyline, MG_point_side, MG_polyline_side_
         target_crvs = web_polylines,
         shared_offset= info.web.thickness
     )
+    if debug_crvs is not None:
+        debug_crvs.extend(web_crvs)
     top_brep, bottom_brep, web_brep = get_H_breps(
         top_flange_crvs=top_flange_crvs,
         bottom_flange_crvs=bottom_flange_crvs,
@@ -426,6 +452,7 @@ def get_mid_H_breps(
     offset_z_top: Optional[float] = None,
     offset_z_bottom: Optional[float] = None,
     tol: float = 1e-1, # 0.1mmくらいの誤差は許容する
+    debug_crvs: Optional[list] = None,
 ):
     base_point_O = MG_point_side_O.top_out
     base_crv_O = MG_polyline_side_dict_O["top_out"]
@@ -434,6 +461,11 @@ def get_mid_H_breps(
 
     top_flange_thickness = float(info.top_flange.thickness)
     bottom_flange_thickness = float(info.bottom_flange.thickness)
+    web_height = float(info.web.height)
+    bottom_out_point_O = MG_point_side_O.bottom_out
+    bottom_out_crv_O = MG_polyline_side_dict_O["bottom_out"]
+    bottom_out_point_I = MG_point_side_I.bottom_out
+    bottom_out_crv_I = MG_polyline_side_dict_I["bottom_out"]
 
     if offset_z_top is not None: #上からの落ちを見るタイプのH鋼
         offset_z_top = float(offset_z_top)
@@ -447,37 +479,46 @@ def get_mid_H_breps(
         web_top_crv_I = MG_polyline_side_dict_I["web_top"]
         z_top_gap_O = top_out_point_O.z - top_in_point_O.z
         z_top_gap_I = top_out_point_I.z - top_in_point_I.z
-        bottom_gap_z = offset_z_top + info.web.height
-        bottom_crvs = [
-            move_obj(web_top_crv_O, rg.Vector3d(0, 0, -(bottom_gap_z - z_top_gap_O))),
-            move_obj(web_top_crv_I, rg.Vector3d(0, 0, -(bottom_gap_z - z_top_gap_I))),
-        ]
-        if offset_z_top == 0: # 落ちが0の場合、上フランジ脇から
-            top_crv_O = top_out_crv_O
-            top_crv_I = top_out_crv_I
+        z_bottom_out_gap_O = top_out_point_O.z - bottom_out_point_O.z
+        z_bottom_out_gap_I = top_out_point_I.z - bottom_out_point_I.z
+        bottom_gap_z = offset_z_top + web_height
+        bottom_based_O = bottom_gap_z >= z_bottom_out_gap_O - tol
+        bottom_based_I = bottom_gap_z >= z_bottom_out_gap_I - tol
+
+        def get_top_crv_from_drop(top_out_crv, web_top_crv, drop_z, z_top_gap):
+            if drop_z <= 0:
+                return top_out_crv
+            if drop_z < z_top_gap:
+                return move_obj(top_out_crv, rg.Vector3d(0, 0, -drop_z))
+            return move_obj(web_top_crv, rg.Vector3d(0, 0, -(drop_z - z_top_gap)))
+
+        if bottom_based_O:
+            bottom_crv_O = bottom_out_crv_O
+            top_drop_O = max(0, top_out_point_O.z - (bottom_out_point_O.z + web_height))
+            top_crv_O = get_top_crv_from_drop(top_out_crv_O, web_top_crv_O, top_drop_O, z_top_gap_O)
         else:
-            if offset_z_top < z_top_gap_O: # 落ちがフランジ厚より小さい場合、上フランジ脇から
-                top_crv_O = move_obj(top_out_crv_O, rg.Vector3d(0, 0, -offset_z_top))
-            else:
-                top_crv_O = move_obj(web_top_crv_O, rg.Vector3d(0, 0, -(offset_z_top - z_top_gap_O)))
-            if offset_z_top < z_top_gap_I: # 落ちがフランジ厚より小さい場合、上フランジ脇から
-                top_crv_I = move_obj(top_out_crv_I, rg.Vector3d(0, 0, -offset_z_top))
-            else:
-                top_crv_I = move_obj(web_top_crv_I, rg.Vector3d(0, 0, -(offset_z_top - z_top_gap_I)))
+            top_drop_O = offset_z_top
+            bottom_crv_O = move_obj(web_top_crv_O, rg.Vector3d(0, 0, -(bottom_gap_z - z_top_gap_O)))
+            top_crv_O = get_top_crv_from_drop(top_out_crv_O, web_top_crv_O, top_drop_O, z_top_gap_O)
+        if bottom_based_I:
+            bottom_crv_I = bottom_out_crv_I
+            top_drop_I = max(0, top_out_point_I.z - (bottom_out_point_I.z + web_height))
+            top_crv_I = get_top_crv_from_drop(top_out_crv_I, web_top_crv_I, top_drop_I, z_top_gap_I)
+        else:
+            top_drop_I = offset_z_top
+            bottom_crv_I = move_obj(web_top_crv_I, rg.Vector3d(0, 0, -(bottom_gap_z - z_top_gap_I)))
+            top_crv_I = get_top_crv_from_drop(top_out_crv_I, web_top_crv_I, top_drop_I, z_top_gap_I)
+        bottom_crvs = [bottom_crv_O, bottom_crv_I]
         top_crvs = [top_crv_O, top_crv_I]
     elif offset_z_bottom is not None: #下からの上がりを見るタイプのH鋼
         offset_z_bottom = float(offset_z_bottom)
-        bottom_out_point_O = MG_point_side_O.bottom_out
-        bottom_out_crv_O = MG_polyline_side_dict_O["bottom_out"]
-        bottom_out_point_I = MG_point_side_I.bottom_out
-        bottom_out_crv_I = MG_polyline_side_dict_I["bottom_out"]
-        bottom_in_point_O = MG_point_side_O.bottom_in
+        web_bottom_point_O = MG_point_side_O.web_bottom
         web_bottom_crv_O = MG_polyline_side_dict_O["web_bottom"]
-        bottom_in_point_I = MG_point_side_I.bottom_in
+        web_bottom_point_I = MG_point_side_I.web_bottom
         web_bottom_crv_I = MG_polyline_side_dict_I["web_bottom"]
-        z_bottom_gap_O = bottom_in_point_O.z - bottom_out_point_O.z
-        z_bottom_gap_I = bottom_in_point_I.z - bottom_out_point_I.z
-        top_gap_z = offset_z_bottom + info.web.height
+        z_bottom_gap_O = web_bottom_point_O.z - bottom_out_point_O.z
+        z_bottom_gap_I = web_bottom_point_I.z - bottom_out_point_I.z
+        top_gap_z = offset_z_bottom + web_height
         top_crvs = [
             move_obj(web_bottom_crv_O, rg.Vector3d(0, 0, top_gap_z - z_bottom_gap_O)),
             move_obj(web_bottom_crv_I, rg.Vector3d(0, 0, top_gap_z - z_bottom_gap_I)),
@@ -537,15 +578,28 @@ def get_mid_H_breps(
             target_crvs = bottom_crvs,
             shared_offset= info.bottom_flange.width,
         )
+    if debug_crvs is not None:
+        debug_crvs.extend(top_flange_crvs)
+        debug_crvs.extend(bottom_flange_crvs)
+        debug_curve_on_base(
+            bottom_flange_crvs[0],
+            bottom_out_crv_O,
+            "mid bottom_flange O cut vs MG bottom_out",
+        )
+        debug_curve_on_base(
+            bottom_flange_crvs[1],
+            bottom_out_crv_I,
+            "mid bottom_flange I cut vs MG bottom_out",
+        )
 
     # ウェブ
     if offset_z_top is not None:
-        if offset_z_top > z_top_gap_O:
+        if top_drop_O > z_top_gap_O:
             O_polylines = [
                 move_obj(top_flange_crvs[0], rg.Vector3d(0, 0, -top_flange_thickness)), # top_in_O
                 move_obj(bottom_flange_crvs[0], rg.Vector3d(0, 0, bottom_flange_thickness)), # bottom_in_O
             ]
-        elif abs(offset_z_top + top_flange_thickness - z_top_gap_O) < tol:
+        elif abs(top_drop_O + top_flange_thickness - z_top_gap_O) < tol:
             O_polylines = [
                 MG_polyline_side_dict_O["web_top"],
                 move_obj(bottom_flange_crvs[0], rg.Vector3d(0, 0, bottom_flange_thickness)), # bottom_in_O
@@ -557,15 +611,15 @@ def get_mid_H_breps(
                 MG_polyline_side_dict_O["web_top"],
                 move_obj(bottom_flange_crvs[0], rg.Vector3d(0, 0, bottom_flange_thickness)), # bottom_in_O
             ]
-        if offset_z_top > z_top_gap_I:
+        if top_drop_I > z_top_gap_I:
             I_polylines = [
                 move_obj(bottom_flange_crvs[1], rg.Vector3d(0, 0, bottom_flange_thickness)), # bottom_in_I
                 move_obj(top_flange_crvs[1], rg.Vector3d(0, 0, -top_flange_thickness)), # top_in_I
             ]
-        elif abs(offset_z_top + top_flange_thickness - z_top_gap_I) < tol:
+        elif abs(top_drop_I + top_flange_thickness - z_top_gap_I) < tol:
             I_polylines = [
-                MG_polyline_side_dict_I["web_top"],
                 move_obj(bottom_flange_crvs[1], rg.Vector3d(0, 0, bottom_flange_thickness)), # bottom_in_I
+                MG_polyline_side_dict_I["web_top"],
             ]
         else:
             I_polylines = [
@@ -619,6 +673,8 @@ def get_mid_H_breps(
         target_crvs = web_polylines,
         shared_offset= info.web.thickness,
     )
+    if debug_crvs is not None:
+        debug_crvs.extend(web_crvs)
     top_brep, bottom_brep, web_brep = get_H_breps(
         top_flange_crvs=top_flange_crvs,
         bottom_flange_crvs=bottom_flange_crvs,
@@ -634,6 +690,7 @@ def get_yokobari_breps(
     MG_point_infos: list[MainGirderPointInfo_IO],
     MG_polyline_dict_for_bridge: dict[str, dict[str, rg.Polyline]],
     slab_bottom_polyline_dict_for_bridge: list[dict[str, rg.Polyline]],
+    debug_crvs: Optional[list] = None,
 ) -> dict[str, rg.Brep]:
     CG_breps = {}
     for i in range(len(MG_point_infos) - 1):
@@ -687,6 +744,9 @@ def get_yokobari_breps(
             base_I_crv= bottom_flange_bottom_I_crv,
             base_O_crv= bottom_flange_bottom_O_crv,
         )
+        if debug_crvs is not None:
+            debug_crvs.extend([top_flange_top_O_crv, top_flange_top_I_crv])
+            debug_crvs.extend([bottom_flange_bottom_O_crv, bottom_flange_bottom_I_crv])
         bottom_flange_brep = const_brep_from_all_crvs(list(bottom_flange_crvs))
         CG_breps[f"top_flange_{i}"] = top_flange_brep
         CG_breps[f"bottom_flange_{i}"] = bottom_flange_brep
@@ -726,6 +786,9 @@ def get_yokobari_breps(
             prev_offset= -(web_offset - CG_info.center_info.web.thickness / 2), # next側に行くのでマイナス
             next_offset= web_offset + CG_info.center_info.web.thickness / 2,
         )
+        if debug_crvs is not None:
+            debug_crvs.extend(prev_crvs)
+            debug_crvs.extend(next_crvs)
         CG_breps[f"web_prev_{i}"] = const_brep_from_all_crvs(prev_crvs)
         CG_breps[f"web_next_{i}"] = const_brep_from_all_crvs(next_crvs)
     
@@ -809,6 +872,9 @@ def get_yokobari_breps(
             prev_offset= -(web_offset - CG_info.center_info.web.thickness / 2), # next側に行くのでマイナス
             next_offset= web_offset + CG_info.center_info.web.thickness / 2,
         )
+        if debug_crvs is not None:
+            debug_crvs.extend(prev_crvs)
+            debug_crvs.extend(next_crvs)
         prev_web_brep = const_brep_from_all_crvs(prev_crvs)
         next_web_brep = const_brep_from_all_crvs(next_crvs)
         # 端っこのウェブ
@@ -844,6 +910,9 @@ def get_yokobari_breps(
             prev_offset= -(edge_offset - edge_thickness / 2), # I側に行くのでマイナス
             next_offset= edge_offset + edge_thickness / 2,
         )
+        if debug_crvs is not None:
+            debug_crvs.extend(top_crvs)
+            debug_crvs.extend(bottom_crvs)
         edge_web_brep = const_brep_from_all_crvs([
             top_crvs[0],
             top_crvs[1],
@@ -868,12 +937,12 @@ def get_yokobari_breps(
         CG_breps["I_edge_edge_web"] = I_edge_edge_web_brep
     
     if CG_info.outer_existence:
-        O_edge_top_brep, O_edge_bottom_brep, O_edge_web_brep = get_haridashi_H_breps(O_slab_bottom_polyline, MG_point_O_side, MG_polyline_O_side_dict, CG_info.outer_info)
+        O_edge_top_brep, O_edge_bottom_brep, O_edge_web_brep = get_haridashi_H_breps(O_slab_bottom_polyline, MG_point_O_side, MG_polyline_O_side_dict, CG_info.outer_info, debug_crvs=debug_crvs)
         CG_breps["O_edge_top_flange"] = O_edge_top_brep
         CG_breps["O_edge_bottom_flange"] = O_edge_bottom_brep
         CG_breps["O_edge_web"] = O_edge_web_brep
     if CG_info.inner_existence:
-        I_edge_top_brep, I_edge_bottom_brep, I_edge_web_brep = get_haridashi_H_breps(I_slab_bottom_polyline, MG_point_I_side, MG_polyline_I_side_dict, CG_info.inner_info)
+        I_edge_top_brep, I_edge_bottom_brep, I_edge_web_brep = get_haridashi_H_breps(I_slab_bottom_polyline, MG_point_I_side, MG_polyline_I_side_dict, CG_info.inner_info, debug_crvs=debug_crvs)
         CG_breps["I_edge_top_flange"] = I_edge_top_brep
         CG_breps["I_edge_bottom_flange"] = I_edge_bottom_brep
         CG_breps["I_edge_web"] = I_edge_web_brep
@@ -885,6 +954,7 @@ def get_taikeikou_breps(
     MG_point_infos: list[MainGirderPointInfo_IO],
     MG_polyline_dict_for_bridge: dict[str, dict[str, rg.Polyline]],
     slab_bottom_polyline_dict_for_bridge: dict[str, rg.Polyline],
+    debug_crvs: Optional[list] = None,
 ) -> list[rg.Brep]:
     CG_breps = {}
     for i in range(len(MG_point_infos) - 1):
@@ -904,6 +974,7 @@ def get_taikeikou_breps(
             MG_polyline_side_dict_I=MG_polyline_I_side_dict,
             info=CG_info.center_top_H_info,
             offset_z_top= CG_info.center_top_H_offset_z,
+            debug_crvs=debug_crvs,
         )
         # 下H鋼
         bottom_top_brep, bottom_bottom_brep, bottom_web_brep = get_mid_H_breps(
@@ -913,6 +984,7 @@ def get_taikeikou_breps(
             MG_polyline_side_dict_I=MG_polyline_I_side_dict,
             info=CG_info.center_bottom_H_info,
             offset_z_bottom= CG_info.center_bottom_H_offset_z,
+            debug_crvs=debug_crvs,
         )
         CG_breps[f"top_H_top_flange_{i}"] = top_top_brep
         CG_breps[f"top_H_bottom_flange_{i}"] = top_bottom_brep
@@ -1127,12 +1199,12 @@ def get_taikeikou_breps(
     MG_polyline_O_side_dict = get_MG_polyline_side_dict(MG_polyline_dict_O, "O")
 
     if CG_info.outer_existence:
-        O_edge_top_brep, O_edge_bottom_brep, O_edge_web_brep = get_haridashi_H_breps(O_slab_bottom_polyline, MG_point_O_side, MG_polyline_O_side_dict, CG_info.outer_info)
+        O_edge_top_brep, O_edge_bottom_brep, O_edge_web_brep = get_haridashi_H_breps(O_slab_bottom_polyline, MG_point_O_side, MG_polyline_O_side_dict, CG_info.outer_info, debug_crvs=debug_crvs)
         CG_breps["O_edge_top_flange"] = O_edge_top_brep
         CG_breps["O_edge_bottom_flange"] = O_edge_bottom_brep
         CG_breps["O_edge_web"] = O_edge_web_brep
     if CG_info.inner_existence:
-        I_edge_top_brep, I_edge_bottom_brep, I_edge_web_brep = get_haridashi_H_breps(I_slab_bottom_polyline, MG_point_I_side, MG_polyline_I_side_dict, CG_info.inner_info)
+        I_edge_top_brep, I_edge_bottom_brep, I_edge_web_brep = get_haridashi_H_breps(I_slab_bottom_polyline, MG_point_I_side, MG_polyline_I_side_dict, CG_info.inner_info, debug_crvs=debug_crvs)
         CG_breps["I_edge_top_flange"] = I_edge_top_brep
         CG_breps["I_edge_bottom_flange"] = I_edge_bottom_brep
         CG_breps["I_edge_web"] = I_edge_web_brep
@@ -1144,6 +1216,7 @@ def get_yokogeta_breps(
     MG_point_infos: list[MainGirderPointInfo_IO],
     MG_polyline_dict_for_bridge: dict[str, dict[str, rg.Polyline]],
     slab_bottom_polyline_dict_for_bridge: list[dict[str, rg.Polyline]],
+    debug_crvs: Optional[list] = None,
 ) -> dict[str, rg.Brep]:
     CG_breps = {}
     for i in range(len(MG_point_infos) - 1):
@@ -1163,6 +1236,7 @@ def get_yokogeta_breps(
             MG_polyline_side_dict_I=MG_polyline_I_side_dict,
             info=CG_info.center_info,
             offset_z_top= CG_info.center_top_offset_z,
+            debug_crvs=debug_crvs,
         )
         CG_breps[f"H_top_flange_{i}"] = top_brep
         CG_breps[f"H_bottom_flange_{i}"] = bottom_brep
@@ -1181,12 +1255,12 @@ def get_yokogeta_breps(
     MG_polyline_O_side_dict = get_MG_polyline_side_dict(MG_polyline_dict_O, "O")
 
     if CG_info.outer_existence:
-        O_edge_top_brep, O_edge_bottom_brep, O_edge_web_brep = get_haridashi_H_breps(O_slab_bottom_polyline, MG_point_O_side, MG_polyline_O_side_dict, CG_info.outer_info)
+        O_edge_top_brep, O_edge_bottom_brep, O_edge_web_brep = get_haridashi_H_breps(O_slab_bottom_polyline, MG_point_O_side, MG_polyline_O_side_dict, CG_info.outer_info, debug_crvs=debug_crvs)
         CG_breps["O_edge_top_flange"] = O_edge_top_brep
         CG_breps["O_edge_bottom_flange"] = O_edge_bottom_brep
         CG_breps["O_edge_web"] = O_edge_web_brep
     if CG_info.inner_existence:
-        I_edge_top_brep, I_edge_bottom_brep, I_edge_web_brep = get_haridashi_H_breps(I_slab_bottom_polyline, MG_point_I_side, MG_polyline_I_side_dict, CG_info.inner_info)
+        I_edge_top_brep, I_edge_bottom_brep, I_edge_web_brep = get_haridashi_H_breps(I_slab_bottom_polyline, MG_point_I_side, MG_polyline_I_side_dict, CG_info.inner_info, debug_crvs=debug_crvs)
         CG_breps["I_edge_top_flange"] = I_edge_top_brep
         CG_breps["I_edge_bottom_flange"] = I_edge_bottom_brep
         CG_breps["I_edge_web"] = I_edge_web_brep
@@ -1200,27 +1274,33 @@ def get_each_CG(
     MG_point_info: list[MainGirderPointInfo_IO],
     MG_polyline_dict_for_bridge: dict[str, dict[str, rg.Polyline]],
     slab_bottom_polyline_dict_for_bridge: dict[str, rg.Polyline],
+    debug_crvs: Optional[list] = None,
 ) -> list[rg.Brep]:
     bridge_name = CG_info.bridge_name
     CG_name = CG_info.CG_name
     if CG_info.CG_type == "横梁":
         print(bridge_name, CG_name, "横梁")
         CG_info = CG_info.yokobari_info
-        brep_dict = get_yokobari_breps(CG_info, MG_point_info, MG_polyline_dict_for_bridge, slab_bottom_polyline_dict_for_bridge)
+        brep_dict = get_yokobari_breps(CG_info, MG_point_info, MG_polyline_dict_for_bridge, slab_bottom_polyline_dict_for_bridge, debug_crvs=debug_crvs)
     elif CG_info.CG_type == "対傾構":
         print(bridge_name, CG_name, "対傾構")
         CG_info = CG_info.taikeikou_info
-        brep_dict = get_taikeikou_breps(CG_info, MG_point_info, MG_polyline_dict_for_bridge, slab_bottom_polyline_dict_for_bridge)
+        brep_dict = get_taikeikou_breps(CG_info, MG_point_info, MG_polyline_dict_for_bridge, slab_bottom_polyline_dict_for_bridge, debug_crvs=debug_crvs)
     elif CG_info.CG_type == "横桁":
         print(bridge_name, CG_name, "横桁")
         CG_info = CG_info.yokogeta_info
-        brep_dict = get_yokogeta_breps(CG_info, MG_point_info, MG_polyline_dict_for_bridge, slab_bottom_polyline_dict_for_bridge)
+        brep_dict = get_yokogeta_breps(CG_info, MG_point_info, MG_polyline_dict_for_bridge, slab_bottom_polyline_dict_for_bridge, debug_crvs=debug_crvs)
     else:
         raise ValueError(f"Invalid CG type: {CG_info.CG_type}")
     return brep_dict
 
 
-def main(initial_or_final: str, debug: bool = False):
+def main(
+    initial_or_final: str,
+    debug: bool = False,
+    target_bridge_name: Optional[str] = None,
+    target_CG_name: Optional[str] = None,
+):
     if initial_or_final == "initial":
         DIR = INITIAL_OUTPUT_DIR
     elif initial_or_final == "final":
@@ -1241,8 +1321,18 @@ def main(initial_or_final: str, debug: bool = False):
 
     world_items_dict_for_bake = {}
     world_items_dict_for_bake_2 = {}
+    crvs = []
 
-    for bridge_name, CG_infos in CG_infos.items():
+    for bridge_name, bridge_CG_infos in CG_infos.items():
+        if target_bridge_name is not None and bridge_name != target_bridge_name:
+            continue
+        target_CG_infos = [
+            CG_info for CG_info in bridge_CG_infos
+            if target_CG_name is None or CG_info.CG_name == target_CG_name
+        ]
+        if not target_CG_infos:
+            continue
+
         MG_point_dict_for_CG_for_bridge = MG_point_dict_for_CG[bridge_name]
         slab_bottom_points_for_bridge = slab_bottom_points[bridge_name]
         MG_point_dict_for_bridge = MG_point_IO_dict[bridge_name]
@@ -1253,21 +1343,31 @@ def main(initial_or_final: str, debug: bool = False):
         slab_bottom_polyline_for_bridge_dict_list, CG_name_for_bridge_list = get_slab_bottom_polylines(slab_bottom_points_for_bridge)
         if bridge_name not in world_items_dict_for_bake:
             world_items_dict_for_bake[bridge_name] = {}
-        for CG_info in CG_infos:
+        for CG_info in target_CG_infos:
             CG_name = CG_info.CG_name
             MG_point_infos = MG_point_dict_for_CG_for_bridge[CG_name]
+            if debug:
+                for MG_name in dict.fromkeys(info.MG_name for info in MG_point_infos):
+                    MG_polyline_dict = MG_polyline_dict_for_bridge[MG_name]
+                    crvs.append(get_MG_point_or_polyline(point_name="bottom_out_O_point", MG_polyline_dict=MG_polyline_dict))
+                    crvs.append(get_MG_point_or_polyline(point_name="bottom_out_I_point", MG_polyline_dict=MG_polyline_dict))
             slab_bottom_idx = next(
                 (i for i, names in enumerate(CG_name_for_bridge_list) if CG_name in names),
                 None
             )
             slab_bottom_polyline_dict_for_bridge = slab_bottom_polyline_for_bridge_dict_list[slab_bottom_idx]
-            CG_brep_dict = get_each_CG(CG_info, MG_point_infos, MG_polyline_dict_for_bridge, slab_bottom_polyline_dict_for_bridge)
+            CG_brep_dict = get_each_CG(
+                CG_info,
+                MG_point_infos,
+                MG_polyline_dict_for_bridge,
+                slab_bottom_polyline_dict_for_bridge,
+                debug_crvs=crvs if debug else None,
+            )
             world_items_dict_for_bake[bridge_name][CG_name] = CG_brep_dict
     if not debug:
         return get_keys_and_values_for_bake(world_items_dict_for_bake)
 
     else:
-        crvs = []
         return crvs
 
 

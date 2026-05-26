@@ -5,6 +5,10 @@ from collections.abc import Mapping
 from dataclasses import asdict, is_dataclass
 from typing import Any
 
+from my_project.config.locale_compat import normalize_lc_time
+
+normalize_lc_time()
+
 import pandas as pd
 
 
