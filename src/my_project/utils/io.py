@@ -35,10 +35,10 @@ def read_file_to_df(
 ) -> pd.DataFrame:
     path = Path(file_path)
     suffix = path.suffix.lower()
-    if sheet_name is None and suffix in {".xlsx", ".xls"}:
+    if sheet_name is None and suffix in {".xlsx", ".xls", ".xlsm"}:
         sheet_name = 0  # デフォルトで最初のシートを読む
 
-    if suffix in {".xlsx", ".xls"}:
+    if suffix in {".xlsx", ".xls", ".xlsm"}:
         df = pd.read_excel(path, sheet_name=sheet_name, header=header, index_col=index_col)
 
     elif suffix == ".csv":

@@ -31,7 +31,7 @@ from my_project.config.util_schemas import (
     Point3D,
 )
 from my_project.utils.io import read_file_to_df, save_json_and_pickle
-from my_project.utils.proprocess import get_coord_data, get_four_corners
+from my_project.utils.preprocess import get_coord_data, get_four_corners
 
 
 def get_indiv_abut_info(

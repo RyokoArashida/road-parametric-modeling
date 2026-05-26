@@ -58,7 +58,7 @@ road-parametric-modeling/
             ├── geometry/
             ├── geometry_gh/
             ├── io.py
-            └── proprocess.py
+            └── preprocess.py
 ```
 
 - `all.gh`: Grasshopper ファイルです。`scripts_gh/` 内のスクリプトを実行し、実際に bake するために使います。

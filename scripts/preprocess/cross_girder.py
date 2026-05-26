@@ -27,7 +27,7 @@ from my_project.config.schemas.cross_girder_schemas import (
 )
 from my_project.config.schemas.main_girder_schemas import MainGirderPointInfo
 from my_project.utils.io import load_from_pickle, read_file_to_df, save_json_and_pickle
-from my_project.utils.proprocess import get_single
+from my_project.utils.preprocess import get_single
 
 
 def get_all_mapping_dict(
