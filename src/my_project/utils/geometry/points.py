@@ -37,10 +37,14 @@ def interpolate_point_3d(p0: Point3D, p1: Point3D, ratio: float) -> Point3D:
     )
 
 def get_point_by_xy_offset(
-    point1: Point3D,
-    point2: Point3D,
+    point1: Union[Point3D, Point2D],
+    point2: Union[Point3D, Point2D],
     offset: float, # 正の値のときpoint1から見てpoint2の方向にオフセットする
 ) -> Point3D:
+    if isinstance(point1, Point2D):
+        point1 = Point3D(x=point1.x, y=point1.y, z=0)
+    if isinstance(point2, Point2D):
+        point2 = Point3D(x=point2.x, y=point2.y, z=0)
     dx = point2.x - point1.x
     dy = point2.y - point1.y
     xy_distance = math.hypot(dx, dy)

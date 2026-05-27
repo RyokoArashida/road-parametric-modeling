@@ -9,10 +9,7 @@ normalize_lc_time()
 import pandas as pd
 
 from my_project.config.file_names import Filenames
-from my_project.config.paths import (
-    FINAL_OUTPUT_DIR,
-    INITIAL_OUTPUT_DIR,
-)
+from my_project.config.paths import get_output_dir
 from my_project.config.schemas.main_girder_schemas import (
     BottomFlangePointInfo,
     BoxGirderInfo,
@@ -36,6 +33,7 @@ from my_project.utils.geometry_gh.const import (
     const_point_obj,
     const_polycurve_obj,
     const_srf_from_2crvs,
+    join_breps_or_raise,
 )
 from my_project.utils.io import load_from_pickle, save_json_and_pickle
 
@@ -487,6 +485,8 @@ def get_individual_MG_breps(
     MG_info: MainGirderInfo,
 ):
     MG_type = MG_info.MG_type
+    bridge_name = MG_info.bridge_name
+    MG_name = MG_info.MG_name
     web_offset = MG_info.web_offset
     MG_points_list = {}
 
@@ -697,7 +697,7 @@ def get_individual_MG_breps(
                 this_R_MG_crv = const_polycurve_obj(this_R_MG_points)
                 next_R_MG_crv = const_polycurve_obj(next_R_MG_points)
                 right_brep = const_srf_from_2crvs([this_R_MG_crv, next_R_MG_crv])
-                brep = rg.Brep.JoinBreps([left_brep, right_brep], 0.01)[0]
+                brep = join_breps_or_raise([left_brep, right_brep], context=f"{bridge_name} {MG_name} box girder block")
                 breps.append(brep)
             
             # MG_points_dictを作成
@@ -706,7 +706,7 @@ def get_individual_MG_breps(
             if idx == end_idx - 1: # ブロックの終点に対応するMGポイント情報も保存
                 MG_points_list.append(get_MG_point_info(next_MG_points, next_L_MG_points, next_R_MG_points, MG_type, thickness_info, next_MG_outer_point.CG))
                 
-        brep = rg.Brep.JoinBreps(breps, 0.01)[0]
+        brep = join_breps_or_raise(breps, context=f"{bridge_name} {MG_name} girder")
         brep = brep.CapPlanarHoles(0.01)
         MG_dict[block_num] = brep
     
@@ -749,10 +749,7 @@ def get_each_MG(
 
 
 def main(initial_or_final: str, debug: bool = False):
-    if initial_or_final == "initial":
-        DIR = INITIAL_OUTPUT_DIR
-    elif initial_or_final == "final":
-        DIR = FINAL_OUTPUT_DIR
+    DIR = get_output_dir(initial_or_final)
 
     MG_infos = load_from_pickle(
         file_path = DIR / f"{Filenames.INPUT}_{Filenames.MG}.pickle",

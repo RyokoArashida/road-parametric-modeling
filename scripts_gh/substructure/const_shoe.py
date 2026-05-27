@@ -4,10 +4,7 @@ from typing import Any, TypeVar, Union
 import Rhino.Geometry as rg
 
 from my_project.config.file_names import Filenames
-from my_project.config.paths import (
-    FINAL_OUTPUT_DIR,
-    INITIAL_OUTPUT_DIR,
-)
+from my_project.config.paths import get_output_dir
 from my_project.config.schemas.cross_girder_schemas import (
     MainGirderPointInfo_IO,
 )
@@ -41,6 +38,7 @@ from my_project.utils.geometry_gh.const import (
     const_point_obj,
     const_polycurve_obj,
     const_srf_from_2crvs,
+    join_breps_or_raise,
 )
 from my_project.utils.geometry_gh.intersect import (
     get_closest_point_on_srf_with_point,
@@ -288,7 +286,7 @@ def get_box_on_unflat_srf(
     DN_polyline = const_line_obj(bottom_points.DN, top_points.DN)
     side_srfs = [const_srf_from_2crvs([UT_polyline, DT_polyline]), const_srf_from_2crvs([UN_polyline, DN_polyline])]
     srfs = bottom_srfs + [top_srf] + side_srfs
-    return rg.Brep.JoinBreps(srfs, 0.01)[0].CapPlanarHoles(0.01), center_top_z, top_srf, bottom_points, top_points
+    return join_breps_or_raise(srfs, context="shoe sole plate").CapPlanarHoles(0.01), center_top_z, top_srf, bottom_points, top_points
 
 def get_box_on_flat_srf(
     brep_info: PlateInfo,
@@ -560,7 +558,7 @@ def get_cuboid(
     DN_polyline = const_line_obj(bottom_points.DN, top_points.DN)
     side_srfs = [const_srf_from_2crvs([UT_polyline, DT_polyline]), const_srf_from_2crvs([UN_polyline, DN_polyline])]
     srfs = bottom_srfs + [top_srf] + side_srfs
-    return rg.Brep.JoinBreps(srfs, 0.01)[0].CapPlanarHoles(0.01)
+    return join_breps_or_raise(srfs, context="shoe anker bolt").CapPlanarHoles(0.01)
 
 def get_double_cuboid(
     brep_info: CuboidInfo,
@@ -588,7 +586,7 @@ def get_double_cuboid(
     top_srf1 = const_planer_srf_from_points([top_UT, top_CT1, top_CN1, top_UN])
     top_srf2 = const_planer_srf_from_points([top_DT, top_CT2, top_CN2, top_DN])
     srfs = bottom_srfs + [T_srf, N_srf, top_srf1, top_srf2]
-    return rg.Brep.JoinBreps(srfs, 0.01)[0].CapPlanarHoles(0.01)
+    return join_breps_or_raise(srfs, context="fall protection base plate").CapPlanarHoles(0.01)
 
 
 def get_stepped_shape(
@@ -621,7 +619,7 @@ def get_stepped_shape(
     srfs = bottom_srfs
     for i in range(len(polylines) - 1):
         srfs.append(const_srf_from_2crvs([polylines[i], polylines[i + 1]]))
-    return rg.Brep.JoinBreps(srfs, 0.01)[0].CapPlanarHoles(0.01)
+    return join_breps_or_raise(srfs, context="fall protection wall").CapPlanarHoles(0.01)
     
 def get_overhanging_shape(
     brep_info: SteppedShapeInfo,
@@ -658,7 +656,7 @@ def get_overhanging_shape(
     srfs = bottom_srfs
     for i in range(len(polylines) - 1):
         srfs.append(const_srf_from_2crvs([polylines[i], polylines[i + 1]]))
-    return rg.Brep.JoinBreps(srfs, 0.01)[0].CapPlanarHoles(0.01)
+    return join_breps_or_raise(srfs, context="fall protection bracket").CapPlanarHoles(0.01)
     
 
 def get_indiv_fall_protecition_brep(
@@ -847,10 +845,7 @@ def get_indiv_shoe_and_fall_protection_brep(
     return shoe_name, shoe_breps_world, fall_protection_breps_world
 
 def main(initial_or_final: str, debug: bool = False):
-    if initial_or_final == "initial":
-        DIR = INITIAL_OUTPUT_DIR
-    elif initial_or_final == "final":
-        DIR = FINAL_OUTPUT_DIR
+    DIR = get_output_dir(initial_or_final)
 
     abut_top_point_dict = load_from_pickle(DIR /  f"{Filenames.WORLD}_{Filenames.ABUT}_{Filenames.TOP}_{Filenames.POINTS}.pickle")
     pier_top_point_dict = load_from_pickle(DIR /  f"{Filenames.WORLD}_{Filenames.PIER}_{Filenames.TOP}_{Filenames.POINTS}.pickle")

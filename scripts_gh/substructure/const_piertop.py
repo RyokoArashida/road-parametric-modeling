@@ -8,10 +8,7 @@ normalize_lc_time()
 
 import pandas as pd
 from my_project.config.file_names import Filenames
-from my_project.config.paths import (
-    FINAL_OUTPUT_DIR,
-    INITIAL_OUTPUT_DIR,
-)
+from my_project.config.paths import get_output_dir
 from my_project.config.schemas.pier_schemas import (
     CommonPierInfo,
     InputPierInfo,
@@ -406,10 +403,7 @@ def get_each_piertop(
 
 def main(initial_or_final: str, tol: float = 0.01):
     
-    if initial_or_final == "initial":
-        DIR = INITIAL_OUTPUT_DIR
-    elif initial_or_final == "final":
-        DIR = FINAL_OUTPUT_DIR
+    DIR = get_output_dir(initial_or_final)
 
     indiv_infos = load_from_pickle(DIR / f"{Filenames.INPUT}_{Filenames.PIER}_{Filenames.INDIV}.pickle")
     common_infos = load_from_pickle(DIR / f"{Filenames.INPUT}_{Filenames.PIER}_{Filenames.COMMON}.pickle")

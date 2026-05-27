@@ -21,7 +21,6 @@ class Filenames:
     BOTTOM = "bottom"
     CENTER = "center"
     POINTS = "points"
-    CENTER = "center"
     ADDITIONAL = "additional"
     BOTTOM_POINTS = "bottom_points"
     CG = "cross_girder"
@@ -30,6 +29,6 @@ class Filenames:
     SHOE = "shoe"
     FALL_PROTECTION = "fall_protection"
     I_BOX_JOINT = "I_box_joint"
-    
-
-
+    DRAINAGE = "drainage"
+    MAIN = "main"
+    ROAD = "road"

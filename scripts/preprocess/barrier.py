@@ -2,12 +2,7 @@
 import pandas as pd
 
 from my_project.config.file_names import Filenames
-from my_project.config.paths import (
-    FINAL_INPUT_DIR,
-    FINAL_OUTPUT_DIR,
-    INITIAL_INPUT_DIR,
-    INITIAL_OUTPUT_DIR,
-)
+from my_project.config.paths import get_input_output_dirs
 from my_project.config.schemas.barrier_schemas import (
     BarrierCommonInfo,
     BarrierInfo,
@@ -113,12 +108,7 @@ def get_indiv_center_barrier_info(
     return center_barrier_info
 
 def main(initial_or_final: str) -> None:
-    if initial_or_final == "initial":
-        input_dir = INITIAL_INPUT_DIR
-        output_dir = INITIAL_OUTPUT_DIR
-    elif initial_or_final == "final":
-        input_dir = FINAL_INPUT_DIR
-        output_dir = FINAL_OUTPUT_DIR
+    input_dir, output_dir = get_input_output_dirs(initial_or_final)
 
     common_df = read_file_to_df(
         file_path = input_dir / "床版諸元.xlsx",

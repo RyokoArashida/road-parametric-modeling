@@ -6,10 +6,7 @@ normalize_lc_time()
 
 import pandas as pd
 from my_project.config.file_names import Filenames
-from my_project.config.paths import (
-    FINAL_OUTPUT_DIR,
-    INITIAL_OUTPUT_DIR,
-)
+from my_project.config.paths import get_output_dir
 from my_project.config.schemas.pier_schemas import (
     ColumnInfo,
     InputPierInfo,
@@ -28,6 +25,7 @@ from my_project.utils.geometry.vectors import get_frame_2D
 from my_project.utils.geometry_gh.const import (
     const_3Dpoint,
     const_planer_srf_from_points,
+    join_breps_or_raise,
 )
 from my_project.utils.geometry_gh.transform import (
     offset_point_in_frame,
@@ -199,7 +197,7 @@ def const_columns(
         D_column_top = const_planer_srf_from_points([column_top_corners.DNN, column_top_corners.DNT, column_top_corners.DTN, column_top_corners.DTT])
         C_column_top = const_planer_srf_from_points([column_top_corners.UTT, column_top_corners.UNN, column_top_corners.DNN, column_top_corners.DTT])
         column_srfs.extend([U_column_top, D_column_top, C_column_top])
-        joined_brep = rg.Brep.JoinBreps(column_srfs, 0.01)[0]
+        joined_brep = join_breps_or_raise(column_srfs, context="pier column")
         columns.append(joined_brep)
     return columns, column_top_corners_list, column_bottom_corners_list
 
@@ -299,10 +297,7 @@ def get_each_column(
     }, world_columns_dict, world_piertop_surf_corners
 
 def main(initial_or_final: str):
-    if initial_or_final == "initial":
-        DIR = INITIAL_OUTPUT_DIR
-    elif initial_or_final == "final":
-        DIR = FINAL_OUTPUT_DIR
+    DIR = get_output_dir(initial_or_final)
 
     indiv_infos = load_from_pickle(DIR / f"{Filenames.INPUT}_{Filenames.PIER}_{Filenames.INDIV}.pickle")
 

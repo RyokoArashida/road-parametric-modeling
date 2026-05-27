@@ -1,10 +1,7 @@
 
 
 from my_project.config.file_names import Filenames
-from my_project.config.paths import (
-    FINAL_OUTPUT_DIR,
-    INITIAL_OUTPUT_DIR,
-)
+from my_project.config.paths import get_output_dir
 from my_project.config.schemas.barrier_schemas import (
     BarrierCommonInfo,
     BarrierInfo,
@@ -419,10 +416,7 @@ def get_center_barriers_and_noses(
     return center_barrier_dict, center_barrier_base_points_dict
 
 def main(initial_or_final: str):
-    if initial_or_final == "initial":
-        DIR = INITIAL_OUTPUT_DIR
-    elif initial_or_final == "final":
-        DIR = FINAL_OUTPUT_DIR
+    DIR = get_output_dir(initial_or_final)
 
     barrier_infos = load_from_pickle(
         file_path = DIR / f"{Filenames.INPUT}_{Filenames.SLAB}_{Filenames.BARRIER}.pickle",

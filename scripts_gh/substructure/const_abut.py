@@ -7,11 +7,9 @@ from my_project.config.locale_compat import normalize_lc_time
 normalize_lc_time()
 
 import pandas as pd
+
 from my_project.config.file_names import Filenames
-from my_project.config.paths import (
-    FINAL_OUTPUT_DIR,
-    INITIAL_OUTPUT_DIR,
-)
+from my_project.config.paths import get_output_dir
 from my_project.config.schemas.abut_schemas import (
     BackwallInfo,
     BarrierCommonInfo,
@@ -36,6 +34,7 @@ from my_project.utils.geometry_gh.const import (
     const_3Dpoint,
     const_closed_polycurve_obj,
     const_srf_from_2crvs,
+    join_breps_or_raise,
 )
 from my_project.utils.geometry_gh.transform import place_obj
 from my_project.utils.io import load_from_pickle, save_json_and_pickle
@@ -125,7 +124,7 @@ def get_beamseat(
             U_z = seat_info.UU_z,
             cap = False, 
         )
-        brep = rg.Brep.JoinBreps([D_brep, C_brep, U_brep], 0.01)[0]
+        brep = join_breps_or_raise([D_brep, C_brep, U_brep], context="abut beamseat")
         capped_brep = brep.CapPlanarHoles(0.01)
         return {
             "beamseat": capped_brep,
@@ -279,7 +278,7 @@ def get_backwall(
             UE_z = UUE_z,
             cap=False,
         )
-        brep = rg.Brep.JoinBreps([D_capped_brep, C_capped_brep, U_capped_brep], 0.01)[0]
+        brep = join_breps_or_raise([D_capped_brep, C_capped_brep, U_capped_brep], context="abut backwall")
         capped_brep = brep.CapPlanarHoles(0.01)
         return {
             "backwall": capped_brep,
@@ -583,8 +582,8 @@ def get_barrier(
     D_backwall_barrier = const_srf_from_2crvs([DB_backwall_crv, DE_backwall_crv])
     U_wing_barrier = const_srf_from_2crvs([UE_backwall_crv, UE_wing_crv])
     D_wing_barrier = const_srf_from_2crvs([DE_backwall_crv, DE_wing_crv]) 
-    U_barrier = rg.Brep.JoinBreps([U_backwall_barrier, U_wing_barrier], 0.01)[0].CapPlanarHoles(0.01)
-    D_barrier = rg.Brep.JoinBreps([D_backwall_barrier, D_wing_barrier], 0.01)[0].CapPlanarHoles(0.01)
+    U_barrier = join_breps_or_raise([U_backwall_barrier, U_wing_barrier], context="abut U barrier").CapPlanarHoles(0.01)
+    D_barrier = join_breps_or_raise([D_backwall_barrier, D_wing_barrier], context="abut D barrier").CapPlanarHoles(0.01)
     return {
         "U_barrier": U_barrier,
         "D_barrier": D_barrier,
@@ -764,10 +763,7 @@ def get_each_abut(
 
 
 def main(initial_or_final: str):
-    if initial_or_final == "initial":
-        DIR = INITIAL_OUTPUT_DIR
-    elif initial_or_final == "final":
-        DIR = FINAL_OUTPUT_DIR
+    DIR = get_output_dir(initial_or_final)
 
     indiv_infos = load_from_pickle(DIR / f"{Filenames.INPUT}_{Filenames.ABUT}_{Filenames.INDIV}.pickle")
     common_info_dict = load_from_pickle(DIR / f"{Filenames.INPUT}_{Filenames.ABUT}_{Filenames.COMMON}.pickle")

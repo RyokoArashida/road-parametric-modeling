@@ -3,10 +3,7 @@ from typing import Optional, Union
 import Rhino.Geometry as rg
 
 from my_project.config.file_names import Filenames
-from my_project.config.paths import (
-    FINAL_OUTPUT_DIR,
-    INITIAL_OUTPUT_DIR,
-)
+from my_project.config.paths import get_output_dir
 from my_project.config.schemas.main_girder_schemas import (
     MainGirderInfo,
     TopFlangePointInfo,
@@ -863,10 +860,7 @@ def get_all_bottom_edge_points(
     return all_bottom_edge_points
 
 def main(initial_or_final: str):
-    if initial_or_final == "initial":
-        DIR = INITIAL_OUTPUT_DIR
-    elif initial_or_final == "final":
-        DIR = FINAL_OUTPUT_DIR
+    DIR = get_output_dir(initial_or_final)
 
     slab_infos = load_from_pickle(
         file_path=DIR /  f"{Filenames.INPUT}_{Filenames.SLAB}.pickle",

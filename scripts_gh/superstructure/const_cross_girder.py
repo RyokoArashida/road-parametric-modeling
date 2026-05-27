@@ -1,14 +1,12 @@
+from __future__ import annotations
 
-from dataclasses import fields
+from dataclasses import dataclass, fields
 from typing import Optional, TypeVar
 
 import Rhino.Geometry as rg
 
 from my_project.config.file_names import Filenames
-from my_project.config.paths import (
-    FINAL_OUTPUT_DIR,
-    INITIAL_OUTPUT_DIR,
-)
+from my_project.config.paths import get_output_dir
 from my_project.config.schemas.cross_girder_schemas import (
     CrossGirderInfo,
     MainGirderPointInfo_IO,
@@ -49,6 +47,73 @@ from my_project.utils.geometry_gh.transform import (
 from my_project.utils.io import load_from_pickle
 
 T = TypeVar("T")
+
+
+@dataclass(frozen=True)
+class MGSpanContext:
+    index: int
+    point_info_I: MainGirderPointInfo_IO
+    point_info_O: MainGirderPointInfo_IO
+    point_I_side: MGPointSideInfo
+    point_O_side: MGPointSideInfo
+    polyline_I_side_dict: dict[str, rg.Polyline]
+    polyline_O_side_dict: dict[str, rg.Polyline]
+
+
+@dataclass(frozen=True)
+class MGEdgeContext:
+    point_I_side: MGPointSideInfo
+    point_O_side: MGPointSideInfo
+    polyline_I_side_dict: dict[str, rg.Polyline]
+    polyline_O_side_dict: dict[str, rg.Polyline]
+
+
+def get_MG_span_context(
+    index: int,
+    point_info_I: MainGirderPointInfo_IO,
+    point_info_O: MainGirderPointInfo_IO,
+    MG_polyline_dict_for_bridge: dict[str, dict[str, rg.Polyline]],
+) -> MGSpanContext:
+    MG_polyline_dict_I = MG_polyline_dict_for_bridge[point_info_I.MG_name]
+    MG_polyline_dict_O = MG_polyline_dict_for_bridge[point_info_O.MG_name]
+    return MGSpanContext(
+        index = index,
+        point_info_I = point_info_I,
+        point_info_O = point_info_O,
+        point_I_side = get_MG_point_side_info(point_info_I, "I"),
+        point_O_side = get_MG_point_side_info(point_info_O, "O"),
+        polyline_I_side_dict = get_MG_polyline_side_dict(MG_polyline_dict_I, "I"),
+        polyline_O_side_dict = get_MG_polyline_side_dict(MG_polyline_dict_O, "O"),
+    )
+
+
+def iter_MG_span_contexts(
+    MG_point_infos: list[MainGirderPointInfo_IO],
+    MG_polyline_dict_for_bridge: dict[str, dict[str, rg.Polyline]],
+):
+    for i in range(len(MG_point_infos) - 1):
+        yield get_MG_span_context(
+            index = i,
+            point_info_I = MG_point_infos[i],
+            point_info_O = MG_point_infos[i + 1],
+            MG_polyline_dict_for_bridge = MG_polyline_dict_for_bridge,
+        )
+
+
+def get_MG_edge_context(
+    MG_point_infos: list[MainGirderPointInfo_IO],
+    MG_polyline_dict_for_bridge: dict[str, dict[str, rg.Polyline]],
+) -> MGEdgeContext:
+    point_info_I = MG_point_infos[-1]
+    point_info_O = MG_point_infos[0]
+    MG_polyline_dict_I = MG_polyline_dict_for_bridge[point_info_I.MG_name]
+    MG_polyline_dict_O = MG_polyline_dict_for_bridge[point_info_O.MG_name]
+    return MGEdgeContext(
+        point_I_side = get_MG_point_side_info(point_info_I, "I"),
+        point_O_side = get_MG_point_side_info(point_info_O, "O"),
+        polyline_I_side_dict = get_MG_polyline_side_dict(MG_polyline_dict_I, "I"),
+        polyline_O_side_dict = get_MG_polyline_side_dict(MG_polyline_dict_O, "O"),
+    )
 
 def get_polyline_from_points(infos: list[T]) -> dict[str, rg.Polyline]:
     points = {}
@@ -447,6 +512,35 @@ def get_haridashi_H_breps(slab_bottom_polyline, MG_point_side, MG_polyline_side_
     )
     return top_brep, bottom_brep, web_brep
 
+
+def get_flange_crvs_by_width(
+    base_point_O: Point3D,
+    base_point_I: Point3D,
+    base_crv_O: rg.Polyline,
+    base_crv_I: rg.Polyline,
+    target_crvs: list[rg.Curve],
+    flange_info,
+):
+    if flange_info.width is None:
+        return get_split_crvs_with_base_points_offset(
+            base_point_O = base_point_O,
+            base_point_I = base_point_I,
+            base_point_O_crv = base_crv_O,
+            base_point_I_crv = base_crv_I,
+            target_crvs = target_crvs,
+            prev_offset= flange_info.width_minus,
+            next_offset= flange_info.width_plus,
+        )
+    return get_split_crvs_with_base_points_offset(
+        base_point_O = base_point_O,
+        base_point_I = base_point_I,
+        base_point_O_crv = base_crv_O,
+        base_point_I_crv = base_crv_I,
+        target_crvs = target_crvs,
+        shared_offset= flange_info.width,
+    )
+
+
 def get_mid_H_breps(
     MG_point_side_O, MG_polyline_side_dict_O, MG_point_side_I, MG_polyline_side_dict_I, info, 
     offset_z_top: Optional[float] = None,
@@ -540,44 +634,22 @@ def get_mid_H_breps(
         raise ValueError("Error: offset_z_topかoffset_z_bottomのどちらかはNoneであってはなりません。両方とも値がある、または両方ともNoneの場合はエラーです。")
     
     
-    if info.top_flange.width is None:
-        top_flange_crvs = get_split_crvs_with_base_points_offset(
-            base_point_O = base_point_O,
-            base_point_I = base_point_I,
-            base_point_O_crv = base_crv_O,
-            base_point_I_crv = base_crv_I,
-            target_crvs = top_crvs,
-            prev_offset= info.top_flange.width_minus,
-            next_offset= info.top_flange.width_plus,
-        )
-    else:
-        top_flange_crvs = get_split_crvs_with_base_points_offset(
-            base_point_O = base_point_O,
-            base_point_I = base_point_I,
-            base_point_O_crv = base_crv_O,
-            base_point_I_crv = base_crv_I,
-            target_crvs = top_crvs,
-            shared_offset= info.top_flange.width,
-        )
-    if info.bottom_flange.width is None:
-        bottom_flange_crvs = get_split_crvs_with_base_points_offset(
-            base_point_O = base_point_O,
-            base_point_I = base_point_I,
-            base_point_O_crv = base_crv_O,
-            base_point_I_crv = base_crv_I,
-            target_crvs = bottom_crvs,
-            prev_offset= info.bottom_flange.width_minus,
-            next_offset= info.bottom_flange.width_plus,
-        )
-    else:
-        bottom_flange_crvs = get_split_crvs_with_base_points_offset(
-            base_point_O = base_point_O,
-            base_point_I = base_point_I,
-            base_point_O_crv = base_crv_O,
-            base_point_I_crv = base_crv_I,
-            target_crvs = bottom_crvs,
-            shared_offset= info.bottom_flange.width,
-        )
+    top_flange_crvs = get_flange_crvs_by_width(
+        base_point_O,
+        base_point_I,
+        base_crv_O,
+        base_crv_I,
+        top_crvs,
+        info.top_flange,
+    )
+    bottom_flange_crvs = get_flange_crvs_by_width(
+        base_point_O,
+        base_point_I,
+        base_crv_O,
+        base_crv_I,
+        bottom_crvs,
+        info.bottom_flange,
+    )
     if debug_crvs is not None:
         debug_crvs.extend(top_flange_crvs)
         debug_crvs.extend(bottom_flange_crvs)
@@ -685,6 +757,27 @@ def get_mid_H_breps(
 
     return top_brep, bottom_brep, web_brep
 
+
+def add_haridashi_H_breps(
+    CG_breps: dict[str, rg.Brep],
+    key_prefix: str,
+    slab_bottom_polyline: rg.Polyline,
+    MG_point_side: MGPointSideInfo,
+    MG_polyline_side_dict: dict[str, rg.Polyline],
+    info,
+    debug_crvs: Optional[list] = None,
+) -> None:
+    top_brep, bottom_brep, web_brep = get_haridashi_H_breps(
+        slab_bottom_polyline,
+        MG_point_side,
+        MG_polyline_side_dict,
+        info,
+        debug_crvs=debug_crvs,
+    )
+    CG_breps[f"{key_prefix}_top_flange"] = top_brep
+    CG_breps[f"{key_prefix}_bottom_flange"] = bottom_brep
+    CG_breps[f"{key_prefix}_web"] = web_brep
+
 def get_yokobari_breps(
     CG_info: YokobariInfo,
     MG_point_infos: list[MainGirderPointInfo_IO],
@@ -693,15 +786,12 @@ def get_yokobari_breps(
     debug_crvs: Optional[list] = None,
 ) -> dict[str, rg.Brep]:
     CG_breps = {}
-    for i in range(len(MG_point_infos) - 1):
-        MG_point_info_I = MG_point_infos[i]
-        MG_point_info_O = MG_point_infos[i+1]
-        MG_polyline_dict_I = MG_polyline_dict_for_bridge[MG_point_info_I.MG_name]
-        MG_polyline_dict_O = MG_polyline_dict_for_bridge[MG_point_info_O.MG_name]
-        MG_point_I_side = get_MG_point_side_info(MG_point_info_I, "I")
-        MG_point_O_side = get_MG_point_side_info(MG_point_info_O, "O")
-        MG_polyline_I_side_dict = get_MG_polyline_side_dict(MG_polyline_dict_I, "I")
-        MG_polyline_O_side_dict = get_MG_polyline_side_dict(MG_polyline_dict_O, "O")
+    for span in iter_MG_span_contexts(MG_point_infos, MG_polyline_dict_for_bridge):
+        i = span.index
+        MG_point_I_side = span.point_I_side
+        MG_point_O_side = span.point_O_side
+        MG_polyline_I_side_dict = span.polyline_I_side_dict
+        MG_polyline_O_side_dict = span.polyline_O_side_dict
         # まずフランジ
         top_base_point_O = MG_point_O_side.top_out
         top_base_point_I = MG_point_I_side.top_out
@@ -795,14 +885,11 @@ def get_yokobari_breps(
     # 左右の張出
     I_slab_bottom_polyline = slab_bottom_polyline_dict_for_bridge["I"]
     O_slab_bottom_polyline = slab_bottom_polyline_dict_for_bridge["O"]
-    MG_point_info_I = MG_point_infos[-1] 
-    MG_point_info_O = MG_point_infos[0]
-    MG_polyline_dict_I = MG_polyline_dict_for_bridge[MG_point_info_I.MG_name]
-    MG_polyline_dict_O = MG_polyline_dict_for_bridge[MG_point_info_O.MG_name]
-    MG_point_I_side = get_MG_point_side_info(MG_point_info_I, "I")
-    MG_point_O_side = get_MG_point_side_info(MG_point_info_O, "O")
-    MG_polyline_I_side_dict = get_MG_polyline_side_dict(MG_polyline_dict_I, "I")
-    MG_polyline_O_side_dict = get_MG_polyline_side_dict(MG_polyline_dict_O, "O")
+    edge = get_MG_edge_context(MG_point_infos, MG_polyline_dict_for_bridge)
+    MG_point_I_side = edge.point_I_side
+    MG_point_O_side = edge.point_O_side
+    MG_polyline_I_side_dict = edge.polyline_I_side_dict
+    MG_polyline_O_side_dict = edge.polyline_O_side_dict
 
     def get_extended_haridashi_breps(slab_bottom_polyline, MG_point_side, MG_polyline_side_dict, edge_info):
         top_base_point = MG_point_side.top_out
@@ -957,15 +1044,12 @@ def get_taikeikou_breps(
     debug_crvs: Optional[list] = None,
 ) -> list[rg.Brep]:
     CG_breps = {}
-    for i in range(len(MG_point_infos) - 1):
-        MG_point_info_I = MG_point_infos[i]
-        MG_point_info_O = MG_point_infos[i+1]
-        MG_polyline_dict_I = MG_polyline_dict_for_bridge[MG_point_info_I.MG_name]
-        MG_polyline_dict_O = MG_polyline_dict_for_bridge[MG_point_info_O.MG_name]
-        MG_point_I_side = get_MG_point_side_info(MG_point_info_I, "I")
-        MG_point_O_side = get_MG_point_side_info(MG_point_info_O, "O")
-        MG_polyline_I_side_dict = get_MG_polyline_side_dict(MG_polyline_dict_I, "I")
-        MG_polyline_O_side_dict = get_MG_polyline_side_dict(MG_polyline_dict_O, "O")
+    for span in iter_MG_span_contexts(MG_point_infos, MG_polyline_dict_for_bridge):
+        i = span.index
+        MG_point_I_side = span.point_I_side
+        MG_point_O_side = span.point_O_side
+        MG_polyline_I_side_dict = span.polyline_I_side_dict
+        MG_polyline_O_side_dict = span.polyline_O_side_dict
         # まず上H鋼
         top_top_brep, top_bottom_brep, top_web_brep = get_mid_H_breps(
             MG_point_side_O=MG_point_O_side,
@@ -1189,25 +1273,32 @@ def get_taikeikou_breps(
     # 左右の張出
     I_slab_bottom_polyline = slab_bottom_polyline_dict_for_bridge["I"]
     O_slab_bottom_polyline = slab_bottom_polyline_dict_for_bridge["O"]
-    MG_point_info_I = MG_point_infos[-1] 
-    MG_point_info_O = MG_point_infos[0]
-    MG_polyline_dict_I = MG_polyline_dict_for_bridge[MG_point_info_I.MG_name]
-    MG_polyline_dict_O = MG_polyline_dict_for_bridge[MG_point_info_O.MG_name]
-    MG_point_I_side = get_MG_point_side_info(MG_point_info_I, "I")
-    MG_point_O_side = get_MG_point_side_info(MG_point_info_O, "O")
-    MG_polyline_I_side_dict = get_MG_polyline_side_dict(MG_polyline_dict_I, "I")
-    MG_polyline_O_side_dict = get_MG_polyline_side_dict(MG_polyline_dict_O, "O")
+    edge = get_MG_edge_context(MG_point_infos, MG_polyline_dict_for_bridge)
+    MG_point_I_side = edge.point_I_side
+    MG_point_O_side = edge.point_O_side
+    MG_polyline_I_side_dict = edge.polyline_I_side_dict
+    MG_polyline_O_side_dict = edge.polyline_O_side_dict
 
     if CG_info.outer_existence:
-        O_edge_top_brep, O_edge_bottom_brep, O_edge_web_brep = get_haridashi_H_breps(O_slab_bottom_polyline, MG_point_O_side, MG_polyline_O_side_dict, CG_info.outer_info, debug_crvs=debug_crvs)
-        CG_breps["O_edge_top_flange"] = O_edge_top_brep
-        CG_breps["O_edge_bottom_flange"] = O_edge_bottom_brep
-        CG_breps["O_edge_web"] = O_edge_web_brep
+        add_haridashi_H_breps(
+            CG_breps,
+            "O_edge",
+            O_slab_bottom_polyline,
+            MG_point_O_side,
+            MG_polyline_O_side_dict,
+            CG_info.outer_info,
+            debug_crvs=debug_crvs,
+        )
     if CG_info.inner_existence:
-        I_edge_top_brep, I_edge_bottom_brep, I_edge_web_brep = get_haridashi_H_breps(I_slab_bottom_polyline, MG_point_I_side, MG_polyline_I_side_dict, CG_info.inner_info, debug_crvs=debug_crvs)
-        CG_breps["I_edge_top_flange"] = I_edge_top_brep
-        CG_breps["I_edge_bottom_flange"] = I_edge_bottom_brep
-        CG_breps["I_edge_web"] = I_edge_web_brep
+        add_haridashi_H_breps(
+            CG_breps,
+            "I_edge",
+            I_slab_bottom_polyline,
+            MG_point_I_side,
+            MG_polyline_I_side_dict,
+            CG_info.inner_info,
+            debug_crvs=debug_crvs,
+        )
 
     return CG_breps
 
@@ -1219,15 +1310,12 @@ def get_yokogeta_breps(
     debug_crvs: Optional[list] = None,
 ) -> dict[str, rg.Brep]:
     CG_breps = {}
-    for i in range(len(MG_point_infos) - 1):
-        MG_point_info_I = MG_point_infos[i]
-        MG_point_info_O = MG_point_infos[i+1]
-        MG_polyline_dict_I = MG_polyline_dict_for_bridge[MG_point_info_I.MG_name]
-        MG_polyline_dict_O = MG_polyline_dict_for_bridge[MG_point_info_O.MG_name]
-        MG_point_I_side = get_MG_point_side_info(MG_point_info_I, "I")
-        MG_point_O_side = get_MG_point_side_info(MG_point_info_O, "O")
-        MG_polyline_I_side_dict = get_MG_polyline_side_dict(MG_polyline_dict_I, "I")
-        MG_polyline_O_side_dict = get_MG_polyline_side_dict(MG_polyline_dict_O, "O")
+    for span in iter_MG_span_contexts(MG_point_infos, MG_polyline_dict_for_bridge):
+        i = span.index
+        MG_point_I_side = span.point_I_side
+        MG_point_O_side = span.point_O_side
+        MG_polyline_I_side_dict = span.polyline_I_side_dict
+        MG_polyline_O_side_dict = span.polyline_O_side_dict
         # H鋼
         top_brep, bottom_brep, web_brep = get_mid_H_breps(
             MG_point_side_O=MG_point_O_side,
@@ -1245,25 +1333,32 @@ def get_yokogeta_breps(
     # 左右の張出
     I_slab_bottom_polyline = slab_bottom_polyline_dict_for_bridge["I"]
     O_slab_bottom_polyline = slab_bottom_polyline_dict_for_bridge["O"]
-    MG_point_info_I = MG_point_infos[-1] 
-    MG_point_info_O = MG_point_infos[0]
-    MG_polyline_dict_I = MG_polyline_dict_for_bridge[MG_point_info_I.MG_name]
-    MG_polyline_dict_O = MG_polyline_dict_for_bridge[MG_point_info_O.MG_name]
-    MG_point_I_side = get_MG_point_side_info(MG_point_info_I, "I")
-    MG_point_O_side = get_MG_point_side_info(MG_point_info_O, "O")
-    MG_polyline_I_side_dict = get_MG_polyline_side_dict(MG_polyline_dict_I, "I")
-    MG_polyline_O_side_dict = get_MG_polyline_side_dict(MG_polyline_dict_O, "O")
+    edge = get_MG_edge_context(MG_point_infos, MG_polyline_dict_for_bridge)
+    MG_point_I_side = edge.point_I_side
+    MG_point_O_side = edge.point_O_side
+    MG_polyline_I_side_dict = edge.polyline_I_side_dict
+    MG_polyline_O_side_dict = edge.polyline_O_side_dict
 
     if CG_info.outer_existence:
-        O_edge_top_brep, O_edge_bottom_brep, O_edge_web_brep = get_haridashi_H_breps(O_slab_bottom_polyline, MG_point_O_side, MG_polyline_O_side_dict, CG_info.outer_info, debug_crvs=debug_crvs)
-        CG_breps["O_edge_top_flange"] = O_edge_top_brep
-        CG_breps["O_edge_bottom_flange"] = O_edge_bottom_brep
-        CG_breps["O_edge_web"] = O_edge_web_brep
+        add_haridashi_H_breps(
+            CG_breps,
+            "O_edge",
+            O_slab_bottom_polyline,
+            MG_point_O_side,
+            MG_polyline_O_side_dict,
+            CG_info.outer_info,
+            debug_crvs=debug_crvs,
+        )
     if CG_info.inner_existence:
-        I_edge_top_brep, I_edge_bottom_brep, I_edge_web_brep = get_haridashi_H_breps(I_slab_bottom_polyline, MG_point_I_side, MG_polyline_I_side_dict, CG_info.inner_info, debug_crvs=debug_crvs)
-        CG_breps["I_edge_top_flange"] = I_edge_top_brep
-        CG_breps["I_edge_bottom_flange"] = I_edge_bottom_brep
-        CG_breps["I_edge_web"] = I_edge_web_brep
+        add_haridashi_H_breps(
+            CG_breps,
+            "I_edge",
+            I_slab_bottom_polyline,
+            MG_point_I_side,
+            MG_polyline_I_side_dict,
+            CG_info.inner_info,
+            debug_crvs=debug_crvs,
+        )
 
     return CG_breps
 
@@ -1275,19 +1370,23 @@ def get_each_CG(
     MG_polyline_dict_for_bridge: dict[str, dict[str, rg.Polyline]],
     slab_bottom_polyline_dict_for_bridge: dict[str, rg.Polyline],
     debug_crvs: Optional[list] = None,
+    verbose: bool = False,
 ) -> list[rg.Brep]:
     bridge_name = CG_info.bridge_name
     CG_name = CG_info.CG_name
     if CG_info.CG_type == "横梁":
-        print(bridge_name, CG_name, "横梁")
+        if verbose:
+            print(bridge_name, CG_name, "横梁")
         CG_info = CG_info.yokobari_info
         brep_dict = get_yokobari_breps(CG_info, MG_point_info, MG_polyline_dict_for_bridge, slab_bottom_polyline_dict_for_bridge, debug_crvs=debug_crvs)
     elif CG_info.CG_type == "対傾構":
-        print(bridge_name, CG_name, "対傾構")
+        if verbose:
+            print(bridge_name, CG_name, "対傾構")
         CG_info = CG_info.taikeikou_info
         brep_dict = get_taikeikou_breps(CG_info, MG_point_info, MG_polyline_dict_for_bridge, slab_bottom_polyline_dict_for_bridge, debug_crvs=debug_crvs)
     elif CG_info.CG_type == "横桁":
-        print(bridge_name, CG_name, "横桁")
+        if verbose:
+            print(bridge_name, CG_name, "横桁")
         CG_info = CG_info.yokogeta_info
         brep_dict = get_yokogeta_breps(CG_info, MG_point_info, MG_polyline_dict_for_bridge, slab_bottom_polyline_dict_for_bridge, debug_crvs=debug_crvs)
     else:
@@ -1301,10 +1400,7 @@ def main(
     target_bridge_name: Optional[str] = None,
     target_CG_name: Optional[str] = None,
 ):
-    if initial_or_final == "initial":
-        DIR = INITIAL_OUTPUT_DIR
-    elif initial_or_final == "final":
-        DIR = FINAL_OUTPUT_DIR
+    DIR = get_output_dir(initial_or_final)
 
     CG_infos = load_from_pickle(
         file_path = DIR / f"{Filenames.INPUT}_{Filenames.CG}.pickle",
@@ -1355,6 +1451,11 @@ def main(
                 (i for i, names in enumerate(CG_name_for_bridge_list) if CG_name in names),
                 None
             )
+            if slab_bottom_idx is None:
+                raise ValueError(
+                    f"{bridge_name} {CG_name} に対応する床版下面点が見つかりません。"
+                    f"候補: {CG_name_for_bridge_list}"
+                )
             slab_bottom_polyline_dict_for_bridge = slab_bottom_polyline_for_bridge_dict_list[slab_bottom_idx]
             CG_brep_dict = get_each_CG(
                 CG_info,
@@ -1362,6 +1463,7 @@ def main(
                 MG_polyline_dict_for_bridge,
                 slab_bottom_polyline_dict_for_bridge,
                 debug_crvs=crvs if debug else None,
+                verbose=debug,
             )
             world_items_dict_for_bake[bridge_name][CG_name] = CG_brep_dict
     if not debug:

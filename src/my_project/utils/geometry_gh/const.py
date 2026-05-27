@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from typing import Any, Optional, Union
 
 from Rhino import Geometry as rg
@@ -145,6 +147,18 @@ def const_srf_from_2crvs(curves: list[Union[rg.Curve, rg.Line, rg.PolylineCurve]
         raise ValueError("Failed to create ruled or loft surface")
     return lofts[0]
 
+
+def join_breps_or_raise(
+    breps: list[rg.Brep],
+    tol: float = 0.01,
+    context: str = "",
+) -> rg.Brep:
+    joined = rg.Brep.JoinBreps(breps, tol)
+    if not joined or len(joined) == 0:
+        suffix = f" ({context})" if context else ""
+        raise ValueError(f"Failed to join breps{suffix}. count={len(breps)}, tol={tol}")
+    return joined[0]
+
 def const_arc_half_from_center_edge_points(
     center: Union[Point3D, Point2D, rg.Point3d],
     edge: Union[Point3D, Point2D, rg.Point3d],
@@ -215,8 +229,8 @@ def const_vertical_srf_from_point_and_axis(
 
 # 2つの点を通る長い直線をつくる
 def const_extended_line_from_two_points(
-    point1: Union[Point3D, rg.Point3d],
-    point2: Union[Point3D, rg.Point3d],
+    point1: Union[Point2D, Point3D, rg.Point3d],
+    point2: Union[Point2D, Point3D, rg.Point3d],
     length: float = 100000, # 100m
 ) -> rg.LineCurve:
     point1 = const_point_obj(point1)
@@ -343,8 +357,279 @@ def const_brep_from_all_crvs(crvs, cap=True, tol=0.01):
         crv2 = crvs[i+1]
         srf = const_srf_from_2crvs([crv1, crv2])
         breps.append(srf)
-    brep = rg.Brep.JoinBreps(breps, 0.01)[0]
+    brep = join_breps_or_raise(breps, tol, context="const_brep_from_all_crvs")
     if cap:
         brep = brep.CapPlanarHoles(0.01)
     return brep
 
+def flip_breps(breps: list[rg.Brep]) -> list[rg.Brep]:
+    flipped = []
+    for b in breps:
+        b2 = b.DuplicateBrep()
+        b2.Flip()
+        flipped.append(b2)
+    return flipped
+
+
+def create_planar_ring_face(
+    outer_crv: rg.Curve,
+    inner_crv: rg.Curve,
+    tol: float,
+    context: str,
+) -> rg.Brep:
+    ring_breps = rg.Brep.CreatePlanarBreps(
+        [outer_crv, inner_crv],
+        tol,
+    )
+    if not ring_breps:
+        raise ValueError(f"Failed to create ring face: {context}")
+    return ring_breps[0]
+
+
+def const_circular_ring_face(
+    center: rg.Point3d,
+    tangent: rg.Vector3d,
+    outer_radius: float,
+    inner_radius: float,
+    tol: float,
+) -> rg.Brep:
+    if inner_radius <= 0:
+        raise ValueError(f"inner_radius must be positive: {inner_radius}")
+    if outer_radius <= inner_radius:
+        raise ValueError(
+            f"outer_radius must be larger than inner_radius: "
+            f"outer={outer_radius}, inner={inner_radius}"
+        )
+
+    plane = rg.Plane(center, tangent)
+
+    outer_crv = rg.Circle(plane, outer_radius).ToNurbsCurve()
+    inner_crv = rg.Circle(plane, inner_radius).ToNurbsCurve()
+
+    return create_planar_ring_face(
+        outer_crv,
+        inner_crv,
+        tol,
+        context="const_circular_ring_face",
+    )
+
+
+def const_pipe_brep_from_curve(
+    curve: Union[rg.Curve, rg.Line, rg.PolylineCurve, rg.Circle],
+    outer_radius: float,
+    inner_radius: float,
+    tol: float = 0.01,
+    angle_tol: float = 0.01,
+) -> rg.Brep:
+    curve = const_curve_obj(curve)
+
+    outer_pipe = rg.Brep.CreatePipe(
+        rail=curve,
+        radius=outer_radius,
+        localBlending=False,
+        cap=0, 
+        fitRail=True,
+        absoluteTolerance=tol,
+        angleToleranceRadians=angle_tol,
+    )
+
+    inner_pipe = rg.Brep.CreatePipe(
+        rail=curve,
+        radius=inner_radius,
+        localBlending=False,
+        cap=0,
+        fitRail=True,
+        absoluteTolerance=tol,
+        angleToleranceRadians=angle_tol,
+    )
+
+    if not outer_pipe:
+        raise ValueError("Failed to create outer circular pipe surface.")
+    if not inner_pipe:
+        raise ValueError("Failed to create inner circular pipe surface.")
+
+    t0 = curve.Domain.T0
+    t1 = curve.Domain.T1
+
+    p0 = curve.PointAt(t0)
+    p1 = curve.PointAt(t1)
+
+    tangent0 = curve.TangentAt(t0)
+    tangent1 = curve.TangentAt(t1)
+
+    ring0 = const_circular_ring_face(
+        p0,
+        tangent0,
+        outer_radius,
+        inner_radius,
+        tol,
+    )
+
+    ring1 = const_circular_ring_face(
+        p1,
+        tangent1,
+        outer_radius,
+        inner_radius,
+        tol,
+    )
+
+    breps = []
+    breps.extend(outer_pipe)
+    breps.extend(flip_breps(inner_pipe))
+    breps.extend([ring0, ring1])
+
+    return join_breps_or_raise(
+        breps,
+        tol=tol,
+        context="const_pipe_brep_from_curve",
+    )
+
+
+def const_rectangle_curve_on_plane(
+    plane: rg.Plane,
+    width: float,
+    height: float,
+) -> rg.PolylineCurve:
+    if width <= 0 or height <= 0:
+        raise ValueError(f"Invalid rectangle size: width={width}, height={height}")
+
+    half_w = width / 2.0
+    half_h = height / 2.0
+
+    pts = [
+        plane.PointAt(-half_w, -half_h),
+        plane.PointAt( half_w, -half_h),
+        plane.PointAt( half_w,  half_h),
+        plane.PointAt(-half_w,  half_h),
+        plane.PointAt(-half_w, -half_h),
+    ]
+
+    return rg.Polyline(pts).ToPolylineCurve()
+
+
+def const_rectangular_ring_face(
+    center: rg.Point3d,
+    tangent: rg.Vector3d,
+    width: float,
+    height: float,
+    thickness: float,
+    tol: float,
+) -> rg.Brep:
+    inner_width = width - 2.0 * thickness
+    inner_height = height - 2.0 * thickness
+
+    if thickness <= 0:
+        raise ValueError(f"thickness must be positive: {thickness}")
+    if inner_width <= 0 or inner_height <= 0:
+        raise ValueError(
+            f"Invalid rectangular pipe size: "
+            f"width={width}, height={height}, thickness={thickness}"
+        )
+
+    plane = rg.Plane(center, tangent)
+
+    outer_crv = const_rectangle_curve_on_plane(
+        plane,
+        width,
+        height,
+    )
+
+    inner_crv = const_rectangle_curve_on_plane(
+        plane,
+        inner_width,
+        inner_height,
+    )
+
+    return create_planar_ring_face(
+        outer_crv,
+        inner_crv,
+        tol,
+        context="const_rectangular_ring_face",
+    )
+
+
+def const_rectangular_pipe_brep_from_curve(
+    curve: Union[rg.Curve, rg.Line, rg.PolylineCurve],
+    width: float,
+    height: float,
+    thickness: float,
+    tol: float = 0.01,
+    angle_tol: float = 0.01,
+) -> rg.Brep:
+    curve = const_curve_obj(curve)
+
+    inner_width = width - 2.0 * thickness
+    inner_height = height - 2.0 * thickness
+
+    if thickness <= 0:
+        raise ValueError(f"thickness must be positive: {thickness}")
+    if inner_width <= 0 or inner_height <= 0:
+        raise ValueError(
+            f"Invalid rectangular pipe size: "
+            f"width={width}, height={height}, thickness={thickness}"
+        )
+
+    t0 = curve.Domain.T0
+    t1 = curve.Domain.T1
+
+    p0 = curve.PointAt(t0)
+    p1 = curve.PointAt(t1)
+
+    tangent0 = curve.TangentAt(t0)
+    tangent1 = curve.TangentAt(t1)
+
+    start_plane = rg.Plane(p0, tangent0)
+
+    outer_section = const_rectangle_curve_on_plane(
+        start_plane,
+        width,
+        height,
+    )
+
+    inner_section = const_rectangle_curve_on_plane(
+        start_plane,
+        inner_width,
+        inner_height,
+    )
+
+    sweep = rg.SweepOneRail()
+    sweep.SweepTolerance = tol
+    sweep.AngleToleranceRadians = angle_tol
+    sweep.ClosedSweep = False
+
+    outer_breps = sweep.PerformSweep(curve, outer_section)
+    inner_breps = sweep.PerformSweep(curve, inner_section)
+
+    if not outer_breps:
+        raise ValueError("Failed to sweep outer rectangular pipe surface.")
+    if not inner_breps:
+        raise ValueError("Failed to sweep inner rectangular pipe surface.")
+
+    ring0 = const_rectangular_ring_face(
+        p0,
+        tangent0,
+        width,
+        height,
+        thickness,
+        tol,
+    )
+
+    ring1 = const_rectangular_ring_face(
+        p1,
+        tangent1,
+        width,
+        height,
+        thickness,
+        tol,
+    )
+
+    breps = []
+    breps.extend(outer_breps)
+    breps.extend(flip_breps(inner_breps))
+    breps.extend([ring0, ring1])
+
+    return join_breps_or_raise(
+        breps,
+        tol=tol,
+        context="const_rectangular_pipe_brep_from_curve",
+    )

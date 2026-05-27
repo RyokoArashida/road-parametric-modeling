@@ -41,3 +41,19 @@ FINAL_OUTPUT_DIR = _path_from_env(
     "ROAD_PARAMETRIC_FINAL_OUTPUT_DIR",
     FINAL_DIR / "出力",
 )
+
+
+def get_input_output_dirs(initial_or_final: str) -> tuple[Path, Path]:
+    if initial_or_final == "initial":
+        return INITIAL_INPUT_DIR, INITIAL_OUTPUT_DIR
+    if initial_or_final == "final":
+        return FINAL_INPUT_DIR, FINAL_OUTPUT_DIR
+    raise ValueError(f"initial_or_final must be 'initial' or 'final', got {initial_or_final}")
+
+
+def get_output_dir(initial_or_final: str) -> Path:
+    if initial_or_final == "initial":
+        return INITIAL_OUTPUT_DIR
+    if initial_or_final == "final":
+        return FINAL_OUTPUT_DIR
+    raise ValueError(f"initial_or_final must be 'initial' or 'final', got {initial_or_final}")

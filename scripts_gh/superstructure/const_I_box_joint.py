@@ -3,10 +3,7 @@ from typing import Optional
 import Rhino.Geometry as rg
 
 from my_project.config.file_names import Filenames
-from my_project.config.paths import (
-    FINAL_OUTPUT_DIR,
-    INITIAL_OUTPUT_DIR,
-)
+from my_project.config.paths import get_output_dir
 from my_project.config.schemas.I_Box_joint_schemas import (
     BoxPointsInfo,
     IBoxJointFlangeInfo,
@@ -26,6 +23,7 @@ from my_project.utils.geometry_gh.const import (
     const_line_obj,
     const_polycurve_obj,
     const_srf_from_2crvs,
+    join_breps_or_raise,
 )
 from my_project.utils.geometry_gh.transform import (
     move_obj,
@@ -200,7 +198,7 @@ def get_flange(
         const_srf_from_2crvs([O_mid_polyline, I_mid_polyline]),
         const_srf_from_2crvs([I_in_polyline, I_polyline]),
     ]
-    srf = rg.Brep.JoinBreps(srfs, 0.01)[0]
+    srf = join_breps_or_raise(srfs, context="I box joint web")
     
     if top_or_bottom == "top":
         move_vector = rg.Vector3d(0, 0, -thickness)
@@ -219,7 +217,7 @@ def get_flange(
         cap=False,
     )
     srfs = [srf, moved_srf, side_srf]
-    flange_brep = rg.Brep.JoinBreps(srfs, 0.01)[0]
+    flange_brep = join_breps_or_raise(srfs, context="I box joint flange")
 
     O_out_crv = const_line_obj(MG_Plate_O_web_O, MG_Box_O_webO_out)
     O_in_crv = const_line_obj(MG_Plate_O_web_I, MG_Box_O_webO_in)
@@ -340,10 +338,7 @@ def get_each_joint(
     return joint_brep_dict
 
 def main(initial_or_final: str, debug=False):
-    if initial_or_final == "initial":
-        DIR = INITIAL_OUTPUT_DIR
-    elif initial_or_final == "final":
-        DIR = FINAL_OUTPUT_DIR
+    DIR = get_output_dir(initial_or_final)
 
     infos = load_from_pickle(
         file_path=DIR /  f"{Filenames.INPUT}_{Filenames.I_BOX_JOINT}.pickle",

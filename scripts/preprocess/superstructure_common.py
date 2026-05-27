@@ -5,10 +5,7 @@ from typing import Optional, Union
 import pandas as pd
 
 from my_project.config.file_names import Filenames
-from my_project.config.paths import (
-    FINAL_OUTPUT_DIR,
-    INITIAL_OUTPUT_DIR,
-)
+from my_project.config.paths import get_output_dir
 from my_project.config.schemas.superstructure_schemas import (
     CoordInfo,
 )
@@ -65,10 +62,7 @@ def get_indiv_superstructure_coord_info(
     )
     
 def main(initial_or_final: str) -> None:
-    if initial_or_final == "initial":
-        this_dir = INITIAL_OUTPUT_DIR
-    elif initial_or_final == "final":
-        this_dir = FINAL_OUTPUT_DIR
+    this_dir = get_output_dir(initial_or_final)
     coord_df = read_file_to_df(
         file_path = this_dir / f"{Filenames.SUPERSTRUCTURE}_{Filenames.COORDS}.xlsx",
     )

@@ -6,10 +6,7 @@ normalize_lc_time()
 
 import pandas as pd
 from my_project.config.file_names import Filenames
-from my_project.config.paths import (
-    FINAL_OUTPUT_DIR,
-    INITIAL_OUTPUT_DIR,
-)
+from my_project.config.paths import get_output_dir
 from my_project.config.util_schemas import LocalOffset, Point2D, Point3D, Vector2D
 from my_project.utils.geometry.vectors import normalize
 from my_project.utils.geometry_gh.attributes import (
@@ -111,10 +108,7 @@ def get_caisson(
     return caissons
     
 def main(initial_or_final: str):
-    if initial_or_final == "initial":
-        DIR = INITIAL_OUTPUT_DIR
-    elif initial_or_final == "final":
-        DIR = FINAL_OUTPUT_DIR
+    DIR = get_output_dir(initial_or_final)
 
     pier_indiv_infos = load_from_pickle(DIR / f"{Filenames.INPUT}_{Filenames.PIER}_{Filenames.INDIV}.pickle")
     abut_indiv_infos = load_from_pickle(DIR / f"{Filenames.INPUT}_{Filenames.ABUT}_{Filenames.INDIV}.pickle")

@@ -1,12 +1,7 @@
 import pandas as pd
 
 from my_project.config.file_names import Filenames
-from my_project.config.paths import (
-    FINAL_INPUT_DIR,
-    FINAL_OUTPUT_DIR,
-    INITIAL_INPUT_DIR,
-    INITIAL_OUTPUT_DIR,
-)
+from my_project.config.paths import get_input_output_dirs
 from my_project.config.schemas.cross_girder_schemas import MainGirderPointInfo_IO
 from my_project.config.schemas.I_Box_joint_schemas import (
     BoxPointsInfo,
@@ -164,12 +159,7 @@ def get_indiv_joint_info(
 
     
 def main(initial_or_final: str) -> None:
-    if initial_or_final == "initial":
-        input_dir = INITIAL_INPUT_DIR
-        output_dir = INITIAL_OUTPUT_DIR
-    elif initial_or_final == "final":
-        input_dir = FINAL_INPUT_DIR
-        output_dir = FINAL_OUTPUT_DIR
+    input_dir, output_dir = get_input_output_dirs(initial_or_final)
 
     joint_df = read_file_to_df(
         file_path = input_dir / "鈑桁箱桁接続部諸元.xlsx",

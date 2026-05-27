@@ -177,6 +177,16 @@ def get_intersect_point_on_crvs_in_the_same_plane(
     intersect_pt = intersection_events[0].PointA
     return Point3D(x=intersect_pt.X, y=intersect_pt.Y, z=intersect_pt.Z)
 
+def get_intersect_point_on_crv_and_points_in_the_same_plane(
+    target_crv: Union[rg.Curve, rg.Line, rg.PolylineCurve],
+    cutter_points: list[Union[Point3D, Point2D, rg.Point3d]],
+) -> Optional[Point3D]:
+    cutter_crv = const_extended_line_from_two_points(
+        cutter_points[0],
+        cutter_points[1],
+    )
+    return get_intersect_point_on_crvs_in_the_same_plane(target_crv, cutter_crv)
+
 def get_intersect_crv_on_srfs(
     srf_a: Union[rg.Surface, rg.Brep],
     srf_b: Union[rg.Surface, rg.Brep],
@@ -293,3 +303,5 @@ def trim_srf_by_closed_curve(
     if len(kept) == 0:
         raise ValueError("分割後のサーフェスのうち、切り取るべき部分が見つかりませんでした")
     return kept
+
+
