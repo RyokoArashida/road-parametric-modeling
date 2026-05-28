@@ -1,7 +1,5 @@
 from dataclasses import fields
 
-import Rhino.Geometry as rg
-
 from my_project.config.locale_compat import normalize_lc_time
 
 normalize_lc_time()

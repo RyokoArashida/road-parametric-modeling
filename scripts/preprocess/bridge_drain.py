@@ -27,7 +27,7 @@ def get_plan_offset_and_z_delta(raw_offset: float, z_slope: Optional[float], z_a
     if z_slope is not None:
         slope_factor = math.sqrt(10000 + z_slope**2)
         plan_offset = raw_offset * 100 / slope_factor
-        z_delta = -raw_offset * z_slope / slope_factor # 正の時落ちる
+        z_delta = -abs(raw_offset) * z_slope / slope_factor # 傾きが正なら落ち、負なら上がる
         return plan_offset, z_delta
     if z_abs is not None:
         return raw_offset, -z_abs
@@ -53,6 +53,8 @@ def get_polyline_from_coord_info(
         CG_name = coord_info.name
         points = coord_info.Points
         for point_name, point in points.items():
+            if point is None:
+                continue
             if point_name in target_point_name_list:
                 output_name = output_name_by_point_name.get(point_name, point_name)
                 if output_name not in polyline_dict:
@@ -224,6 +226,7 @@ def get_none_point_info():
         y_offset = None,
         y_adj_ratio = None,
         x_base_polyline = None,
+        x_zero_base_polyline = None,
         x_offset = None,
         z = None,
     )
@@ -451,6 +454,7 @@ def get_main_drainage_info(
         y_offset = start_y_offset,
         y_adj_ratio = None,
         x_base_polyline = x0_base,
+        x_zero_base_polyline = None,
         x_offset = start_x0_offset,
         z = start_z,
     )
@@ -466,6 +470,7 @@ def get_main_drainage_info(
         y_offset = end_y_offset,
         y_adj_ratio = None,
         x_base_polyline = x0_base,
+        x_zero_base_polyline = None,
         x_offset = end_x0_offset,
         z = end_z,
     )
@@ -516,6 +521,7 @@ def get_main_drainage_info(
             y_offset = y_offset,
             y_adj_ratio = y_adj_ratio,
             x_base_polyline = x0_base,
+            x_zero_base_polyline = None,
             x_offset = x_offset,
             z = solved_zs[i],
         ))
@@ -537,6 +543,7 @@ def get_road_drainage_info(
 ) -> DrainageInfo:
     bridge_name = row["全体_橋梁名"]
     drainage_name = row["全体_排水名称"]
+    is_connection = False
     if not pd.isna(row["終点_本管名称"]):
         start_y_name = get_road_start_y_name(row, drainage_name)
         start_y_base_polyline, start_y_base_CG_name, start_y_offset = get_y_location(
@@ -550,6 +557,7 @@ def get_road_drainage_info(
             y_offset=start_y_offset,
             y_adj_ratio=None,
             x_base_polyline=None,
+            x_zero_base_polyline=None,
             x_offset=None,
             z=None,
         )
@@ -587,6 +595,7 @@ def get_road_drainage_info(
             y_offset=start_y_offset,
             y_adj_ratio=None,
             x_base_polyline=x0_base,
+            x_zero_base_polyline=None,
             x_offset=None,
             z=None,
         )
@@ -603,10 +612,12 @@ def get_road_drainage_info(
             y_offset = end_y_offset,
             y_adj_ratio = None,
             x_base_polyline = x0_base,
+            x_zero_base_polyline = None,
             x_offset = end_x0_offset,
             z = end_z,
         )
     elif not pd.isna(row["つなぎ_始点"]):
+        is_connection = True
         start_point_road_drainage_name = row["つなぎ_始点"]
         end_point_road_drainage_name = row["つなぎ_終点"]
         if road_drainage_info_dict is None:
@@ -632,6 +643,7 @@ def get_road_drainage_info(
     raw_points = forward_point_raw + backward_points_raw
     if not raw_points:
         raise ValueError(f"路面排水詳細に折れ点がありません: {bridge_name}/{drainage_name}")
+    connection_split_index = get_special_split_index(raw_points) if is_connection else None
 
     if start_point.x_offset is None:
         solved_x_offsets, solved_zs, is_vector, ratios, start_x_offset, start_z = solve_offsets_from_end(
@@ -645,6 +657,7 @@ def get_road_drainage_info(
             y_offset=start_point.y_offset,
             y_adj_ratio=start_point.y_adj_ratio,
             x_base_polyline=x_base_polyline,
+            x_zero_base_polyline=start_point.x_zero_base_polyline,
             x_offset=start_x_offset,
             z=start_z,
         )
@@ -660,6 +673,12 @@ def get_road_drainage_info(
     points = [start_point]
     for i, (y, _, _, _, _) in enumerate(raw_points):
         y_base_polyline, y_base_CG_name, y_offset = get_y(y, start_point, end_point, y_location_df, bridge_name)
+        if is_connection and connection_split_index is not None and i < connection_split_index:
+            point_x_base_polyline = start_point.x_base_polyline
+        elif is_connection:
+            point_x_base_polyline = end_point.x_base_polyline
+        else:
+            point_x_base_polyline = x_base_polyline
         if is_vector[i] and not math.isclose(ratios[i], 1.0):
             x_offset = "adjustment"
             y_adj_ratio = ratios[i]
@@ -671,7 +690,8 @@ def get_road_drainage_info(
             y_base_CG_name = y_base_CG_name,
             y_offset = y_offset,
             y_adj_ratio = y_adj_ratio,
-            x_base_polyline = x_base_polyline,
+            x_base_polyline = point_x_base_polyline,
+            x_zero_base_polyline = None,
             x_offset = x_offset,
             z = solved_zs[i],
         ))
@@ -680,6 +700,7 @@ def get_road_drainage_info(
         drainage_name = drainage_name,
         points = points,
         pipes = pipe_infos,
+        is_connection = is_connection,
     )
     return drainage_info
 
@@ -759,8 +780,10 @@ def get_substructure_drainage_info(
     points = [start_point]
     for x, y, z, in point_raw:
         x_base_polyline, x_offset = get_x(x, start_point, end_point)
+        x_zero_base_polyline = None
         if x_base_polyline is None:
-            x_base_polyline = x0_base
+            x_base_polyline = start_point.x_base_polyline
+            x_zero_base_polyline = x0_base
             x_offset = x + x0_offset
         y_base_polyline, y_base_CG_name, y_offset = get_y(y, start_point, end_point, y_location_df, bridge_name)
         start_z -= z
@@ -770,6 +793,7 @@ def get_substructure_drainage_info(
             y_offset = y_offset,
             y_adj_ratio = None,
             x_base_polyline = x_base_polyline,
+            x_zero_base_polyline = x_zero_base_polyline,
             x_offset = x_offset,
             z = start_z,
         )

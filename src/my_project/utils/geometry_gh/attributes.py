@@ -7,9 +7,7 @@ from my_project.config.util_schemas import (
     Point2D,
     Point3D,
 )
-from my_project.utils.geometry_gh.const import (
-    const_point_obj,
-)
+from my_project.utils.geometry_gh.const import const_curve_obj, const_point_obj
 
 
 def sort_points_clockwise_from_upper_right(
@@ -119,3 +117,22 @@ def add_brep_with_boolean_union_or_numbering(
         # BooleanUnion自体が失敗した場合
         print(f"BooleanUnion failed for {key}, saving with numbering.")
         save_with_numbering(key, breps)
+
+def get_point_on_crv_at_distance(
+    curve: Union[rg.Curve, rg.Line, rg.PolylineCurve, rg.Circle],
+    distance: float,
+) -> rg.Point3d:
+    crv = const_curve_obj(curve)
+
+    if distance <= 0:
+        return crv.PointAtStart
+
+    length = crv.GetLength()
+    if distance >= length:
+        return crv.PointAtEnd
+
+    ok, t = crv.LengthParameter(distance)
+    if not ok:
+        raise ValueError(f"Failed to get parameter at distance: {distance}")
+
+    return crv.PointAt(t)

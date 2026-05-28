@@ -11,6 +11,7 @@ class DrainagePoint:
     y_offset: Optional[Union[float, str]] # adjustmentが入ることがある
     y_adj_ratio: Optional[float] # y_offsetがadjustmentのとき、どれくらい調整するか。0~1で表す
     x_base_polyline: Optional[str]
+    x_zero_base_polyline: Optional[str]
     x_offset: Optional[Union[float, str]]
     z: Optional[Union[float, str]] # adjustmentが入ることがある
 
@@ -29,3 +30,4 @@ class DrainageInfo:
     drainage_name: str
     points: List[DrainagePoint]
     pipes: List[Tuple[int, int, PipeInfo]] #始点終点のインデックス
+    is_connection: bool = False
