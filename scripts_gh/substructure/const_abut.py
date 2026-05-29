@@ -1,12 +1,7 @@
 from typing import Union
 
-import Rhino.Geometry as rg
-
-from my_project.config.locale_compat import normalize_lc_time
-
-normalize_lc_time()
-
 import pandas as pd
+import Rhino.Geometry as rg
 
 from my_project.config.file_names import Filenames
 from my_project.config.paths import get_output_dir

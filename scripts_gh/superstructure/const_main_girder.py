@@ -1,12 +1,9 @@
 from dataclasses import fields
 
-from my_project.config.locale_compat import normalize_lc_time
-
-normalize_lc_time()
-
 import pandas as pd
 
 from my_project.config.file_names import Filenames
+from my_project.config.locale_compat import normalize_lc_time
 from my_project.config.paths import get_output_dir
 from my_project.config.schemas.main_girder_schemas import (
     BottomFlangePointInfo,
@@ -34,6 +31,8 @@ from my_project.utils.geometry_gh.const import (
     join_breps_or_raise,
 )
 from my_project.utils.io import load_from_pickle, save_json_and_pickle
+
+normalize_lc_time()
 
 
 def get_LCR_points_offset(next_MG_point, prev_MG_point, next_distance, prev_distance, this_distance, name):

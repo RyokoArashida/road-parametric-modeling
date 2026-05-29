@@ -1,15 +1,10 @@
+from numbers import Number
 from typing import Union
 
 import Rhino.Geometry as rg
 
-from my_project.config.locale_compat import normalize_lc_time
-
-normalize_lc_time()
-
-
-from numbers import Number
-
 from my_project.config.file_names import Filenames
+from my_project.config.locale_compat import normalize_lc_time
 from my_project.config.paths import (
     FINAL_OUTPUT_DIR,
     INITIAL_OUTPUT_DIR,
@@ -38,6 +33,8 @@ from my_project.utils.geometry_gh.intersect import (
     get_intersect_point_on_crv_and_points_in_the_same_plane,
 )
 from my_project.utils.io import load_from_pickle
+
+normalize_lc_time()
 
 DISTANCE_TOL = 0.01
 

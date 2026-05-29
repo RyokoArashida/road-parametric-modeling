@@ -1,13 +1,10 @@
 from typing import Any
 
+import pandas as pd
 import Rhino.Geometry as rg
 
-from my_project.config.locale_compat import normalize_lc_time
-
-normalize_lc_time()
-
-import pandas as pd
 from my_project.config.file_names import Filenames
+from my_project.config.locale_compat import normalize_lc_time
 from my_project.config.paths import get_output_dir
 from my_project.config.schemas.pier_schemas import (
     CommonPierInfo,
@@ -26,6 +23,8 @@ from my_project.utils.geometry_gh.const import (
 from my_project.utils.geometry_gh.intersect import split_two_surfaces
 from my_project.utils.geometry_gh.transform import place_obj
 from my_project.utils.io import load_from_pickle
+
+normalize_lc_time()
 
 
 def get_column_top_srfs(
