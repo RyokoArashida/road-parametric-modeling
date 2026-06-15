@@ -7,7 +7,7 @@ from my_project.config.paths import (
     FINAL_OUTPUT_DIR,
     INITIAL_OUTPUT_DIR,
 )
-from my_project.config.schemas.bridge_investigate_route_schemas import (
+from my_project.config.schemas.bridge_inspection_walkway_schemas import (
     MainInfo,
 )
 from my_project.config.util_schemas import (
@@ -524,10 +524,10 @@ def main(initial_or_final: str, debug=False):
         slab_top_points_UP=slab_top_points_UP,
         slab_top_points_DOWN=slab_top_points_DOWN,
     )
-    point_infos = load_from_pickle(DIR / f"{Filenames.INPUT}_{Filenames.INVESTIGATE_ROUTE}_{Filenames.POINTS}.pickle")
+    point_infos = load_from_pickle(DIR / f"{Filenames.INPUT}_{Filenames.INSPECTION_WALKWAY}_{Filenames.POINTS}.pickle")
     polyline_dict = get_polylines_2D(point_infos)
 
-    main_route_infos = load_from_pickle(DIR / f"{Filenames.INPUT}_{Filenames.INVESTIGATE_ROUTE}_{Filenames.MAIN}.pickle")
+    main_route_infos = load_from_pickle(DIR / f"{Filenames.INPUT}_{Filenames.INSPECTION_WALKWAY}_{Filenames.MAIN}.pickle")
 
     world_items_dict_for_bake = {}
     world_items_dict_for_bake_2 = {}

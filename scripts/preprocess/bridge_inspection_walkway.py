@@ -9,7 +9,7 @@ from my_project.config.paths import (
     INITIAL_INPUT_DIR,
     INITIAL_OUTPUT_DIR,
 )
-from my_project.config.schemas.bridge_investigate_route_schemas import (
+from my_project.config.schemas.bridge_inspection_walkway_schemas import (
     CrossingInfo,
     MainInfo,
     RoutePoint,
@@ -238,13 +238,13 @@ def main(initial_or_final: str) -> None:
     save_json_and_pickle(
         data = main_route_info_dict,
         folder_path = output_dir,
-        name = f"{Filenames.INPUT}_{Filenames.INVESTIGATE_ROUTE}_{Filenames.MAIN}",
+        name = f"{Filenames.INPUT}_{Filenames.INSPECTION_WALKWAY}_{Filenames.MAIN}",
     )
 
     save_json_and_pickle(
         data = target_point_name_dict,
         folder_path = output_dir,
-        name = f"{Filenames.INPUT}_{Filenames.INVESTIGATE_ROUTE}_{Filenames.POINTS}",
+        name = f"{Filenames.INPUT}_{Filenames.INSPECTION_WALKWAY}_{Filenames.POINTS}",
     )
 
 if __name__ == "__main__":

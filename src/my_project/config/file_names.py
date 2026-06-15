@@ -32,4 +32,4 @@ class Filenames:
     DRAINAGE = "drainage"
     MAIN = "main"
     ROAD = "road"
-    INVESTIGATE_ROUTE = "investigate_route"
+    INSPECTION_WALKWAY = "inspection_walkway"
