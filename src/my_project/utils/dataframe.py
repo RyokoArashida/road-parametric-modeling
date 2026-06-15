@@ -111,3 +111,10 @@ def flatten_any(obj: Any, sep: str = "_") -> dict[str, Any]:
         return {"value": dict_obj}
 
     return flatten_dict(dict_obj, sep=sep)
+
+def get_single_value(series: pd.Series, context: str = ""):
+    if series.empty:
+        raise ValueError(f"{context} に該当する値が存在しません")
+    if len(series) > 1:
+        raise ValueError(f"{context} に該当する値が複数あります")
+    return series.iloc[0]

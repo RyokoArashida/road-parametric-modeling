@@ -21,50 +21,8 @@ from my_project.config.schemas.superstructure_schemas import (
     CoordInfo,
 )
 from my_project.utils.io import load_from_pickle, read_file_to_df, save_json_and_pickle
-
-
-def get_plan_offset_and_z_delta(raw_offset: float, z_slope: Optional[float], z_abs: Optional[float]) -> tuple[float, float]:
-    if z_slope is not None:
-        slope_factor = math.sqrt(10000 + z_slope**2)
-        plan_offset = raw_offset * 100 / slope_factor
-        z_delta = -abs(raw_offset) * z_slope / slope_factor # 傾きが正なら落ち、負なら上がる
-        return plan_offset, z_delta
-    if z_abs is not None:
-        return raw_offset, -z_abs
-    return raw_offset, 0
-
-
-def get_single_value(series: pd.Series, context: str = ""):
-    if series.empty:
-        raise ValueError(f"{context} に該当する値が存在しません")
-    if len(series) > 1:
-        raise ValueError(f"{context} に該当する値が複数あります")
-    return series.iloc[0]
-
-
-def get_polyline_from_coord_info(
-    coord_infos: list[CoordInfo],
-    target_point_name_list: set[str],
-    output_name_by_point_name: Optional[dict[str, str]] = None,
-):
-    polyline_dict = {}
-    output_name_by_point_name = output_name_by_point_name or {}
-    for coord_info in coord_infos:
-        CG_name = coord_info.name
-        points = coord_info.Points
-        for point_name, point in points.items():
-            if point is None:
-                continue
-            if point_name in target_point_name_list:
-                output_name = output_name_by_point_name.get(point_name, point_name)
-                if output_name not in polyline_dict:
-                    polyline_dict[output_name] = {
-                        "points": [],
-                        "point_names": [],
-                    }
-                polyline_dict[output_name]["points"].append(point)
-                polyline_dict[output_name]["point_names"].append(CG_name)
-    return polyline_dict
+from my_project.utils.geometry.points import get_polyline_info_from_coord_info, get_plan_offset_and_z_delta
+from my_project.utils.dataframe import get_single_value
 
 
 def add_target_point_name(
@@ -90,15 +48,6 @@ def add_target_point_alias(
     if bridge_name not in output_name_by_point_name_dict:
         output_name_by_point_name_dict[bridge_name] = {}
     output_name_by_point_name_dict[bridge_name][point_name] = output_name
-
-
-def get_existing_sheet_name(file_path, candidates: list[str]) -> str:
-    sheet_names = pd.ExcelFile(file_path).sheet_names
-    for candidate in candidates:
-        if candidate in sheet_names:
-            return candidate
-    raise ValueError(f"シートが見つかりません: {candidates}")
-
 
 def build_target_point_polyline_dict(
     coord_dict: dict[str, list[CoordInfo]],
@@ -138,7 +87,7 @@ def build_target_point_polyline_dict(
         )
 
     return {
-        bridge_name: get_polyline_from_coord_info(
+        bridge_name: get_polyline_info_from_coord_info(
             coord_infos = coord_dict[bridge_name],
             target_point_name_list = target_point_name_list,
             output_name_by_point_name = output_name_by_point_name_dict.get(bridge_name),
@@ -817,14 +766,10 @@ def main(initial_or_final: str) -> None:
         output_dir = FINAL_OUTPUT_DIR
 
     drainage_excel_path = input_dir / "橋梁排水諸元.xlsm"
-    orthogonal_basis_sheet_name = get_existing_sheet_name(
-        drainage_excel_path,
-        ["直交面の基準", "直行面の基準"],
-    )
 
     orthogonal_basis_df = read_file_to_df(
         file_path = drainage_excel_path,
-        sheet_name = orthogonal_basis_sheet_name,
+        sheet_name = "直交面の基準",
     )
 
     y_location_df = read_file_to_df(

@@ -69,6 +69,7 @@ def get_intersect_point_on_srf_with_point(
     srf: Union[rg.Surface, rg.Brep],
     point: Union[Point3D, Point2D, rg.Point3d],
 ) -> Optional[Point3D]:
+    point = const_point_obj(point)
     linecrv = const_vertical_line_from_point(point)
     brep_srf = srf if isinstance(srf, rg.Brep) else srf.ToBrep()
     intersection_events = rg.Intersect.Intersection.CurveBrep(linecrv, brep_srf, 0.01)
@@ -81,6 +82,7 @@ def get_intersect_point_on_srf_with_point(
         raise ValueError("曲線とサーフェスの交点が複数見つかりました")
     intersect_pt = point[0]
     return Point3D(x=intersect_pt.X, y=intersect_pt.Y, z=intersect_pt.Z)
+
 
 def get_closest_point_on_srf_with_point(
     srf: Union[rg.Surface, rg.Brep],
@@ -303,5 +305,3 @@ def trim_srf_by_closed_curve(
     if len(kept) == 0:
         raise ValueError("分割後のサーフェスのうち、切り取るべき部分が見つかりませんでした")
     return kept
-
-

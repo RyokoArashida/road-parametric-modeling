@@ -1,7 +1,8 @@
 import math
-from typing import Union
+from typing import Union, Optional
 
 from my_project.config.util_schemas import Frame2D, LocalOffset, Point2D, Point3D
+from my_project.config.schemas.superstructure_schemas import CoordInfo
 
 
 def get_distance_2D(point1: Point3D, point2: Point3D) -> float:
@@ -102,4 +103,39 @@ def get_point_LR_x_z(L_point, R_point, offset_xy, offset_z): # これはｚが�
         Point3D(x=L_in_line.x, y=L_in_line.y, z=L_point.z + offset_z),
         Point3D(x=R_in_line.x, y=R_in_line.y, z=R_point.z + offset_z),
     )
+
+def get_polyline_info_from_coord_info(
+    coord_infos: list[CoordInfo],
+    target_point_name_list: set[str],
+    output_name_by_point_name: Optional[dict[str, str]] = None,
+):
+    polyline_dict = {}
+    output_name_by_point_name = output_name_by_point_name or {}
+    for coord_info in coord_infos:
+        CG_name = coord_info.name
+        points = coord_info.Points
+        for point_name, point in points.items():
+            if point is None:
+                continue
+            if point_name in target_point_name_list:
+                output_name = output_name_by_point_name.get(point_name, point_name)
+                if output_name not in polyline_dict:
+                    polyline_dict[output_name] = {
+                        "points": [],
+                        "point_names": [],
+                    }
+                polyline_dict[output_name]["points"].append(point)
+                polyline_dict[output_name]["point_names"].append(CG_name)
+    return polyline_dict
+
+
+def get_plan_offset_and_z_delta(raw_offset: float, z_slope: Optional[float], z_abs: Optional[float]) -> tuple[float, float]:
+    if z_slope is not None:
+        slope_factor = math.sqrt(10000 + z_slope**2)
+        plan_offset = raw_offset * 100 / slope_factor
+        z_delta = -abs(raw_offset) * z_slope / slope_factor # 傾きが正なら落ち、負なら上がる
+        return plan_offset, z_delta
+    if z_abs is not None:
+        return raw_offset, -z_abs
+    return raw_offset, 0
 

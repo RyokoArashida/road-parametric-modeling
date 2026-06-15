@@ -10,6 +10,7 @@ from my_project.config.util_schemas import (
     Vector2D,
 )
 
+STANDARD_BASE_Z = 420000.0
 
 def const_point_obj(point: Union[Point3D, Point2D, rg.Point3d]) -> rg.Point3d:
     if isinstance(point, Point2D):
@@ -113,6 +114,25 @@ def const_extrude_brep_from_curve(
             brep = capped
     return brep
 
+def const_z_extruded_box_from_4points(
+    points: list[Union[Point3D, Point2D, rg.Point3d]],
+    z_offset: float,
+    cap: bool = True,
+    tol: float = 0.01,
+) -> rg.Brep:
+    unique_points = remove_same_points(points, tol=tol)
+    if len(unique_points) != 4:
+        raise ValueError(f"Need 4 valid points, got {len(unique_points)}")
+    if z_offset == 0:
+        raise ValueError("z_offset must not be 0")
+    base_crv = const_closed_polycurve_obj(unique_points)
+    return const_extrude_brep_from_curve(
+        base_crv,
+        rg.Vector3d(0, 0, float(z_offset)),
+        cap=cap,
+        tol=tol,
+    )
+
 def const_planer_srf_from_points(points: list[Union[Point3D, Point2D, rg.Point3d]]) -> rg.Brep:
     unique_points = remove_same_points(points)
     if len(unique_points) < 3:
@@ -196,11 +216,13 @@ def const_arc_from_three_points(
 # そのポイントを通り、与えた軸に沿った、かつ垂直な直線を作る
 def const_vertical_line_from_point(
     point: Union[Point3D, rg.Point3d],
-    length: float = 100000, # 100m
+    height: float = 500000, # 500m
 ) -> rg.LineCurve:
     point = const_point_obj(point)
-    top = rg.Point3d(point.X, point.Y, point.Z + length / 2)
-    bottom = rg.Point3d(point.X, point.Y, point.Z - length / 2)
+    if STANDARD_BASE_Z-height/2 > point.Z or point.Z > STANDARD_BASE_Z+height/2:
+        point = rg.Point3d(point.X, point.Y, STANDARD_BASE_Z)
+    top = rg.Point3d(point.X, point.Y, point.Z + height / 2)
+    bottom = rg.Point3d(point.X, point.Y, point.Z - height / 2)
     line = rg.Line(bottom, top)
     return rg.LineCurve(line)
 
@@ -208,7 +230,7 @@ def const_vertical_line_from_point(
 def const_vertical_srf_from_point_and_axis(
     point: Union[Point3D, rg.Point3d],
     axis_vector: Vector2D,
-    height: float = 100000, # 100m
+    height: float = 500000, # 500m
     length: float = 100000, # 100m
 ) -> rg.Brep:
     point = const_point_obj(point)
