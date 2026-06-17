@@ -252,3 +252,23 @@ def rotate_point_around_center_xy(
         )
     else:
         return p
+
+def transform_local_points_with_p0_and_angle(
+    local_pt: rg.Point3d,
+    p0: rg.Point3d,
+    angle: float,  # radian
+) -> list[rg.Point3d]:
+    p0 = const_point_obj(p0)
+    rot = rg.Transform.Rotation(
+        angle,
+        rg.Vector3d.ZAxis,
+        rg.Point3d.Origin
+    )
+    trans = rg.Transform.Translation(
+        rg.Vector3d(p0.X, p0.Y, p0.Z)
+    )
+    xform = trans * rot
+    p = const_point_obj(local_pt)
+    q = rg.Point3d(p)
+    q.Transform(xform)
+    return q

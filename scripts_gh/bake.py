@@ -32,17 +32,14 @@ def ensure_list(obj: Any) -> list[Any]:
     return [obj]
 
 
-def bake_one_brep(
-    brep: Rhino.Geometry.Brep,
+def bake_one_geometry(
+    geometry: Any,
     name: str,
     layer_index: int | None = None,
     color=None,
 ) -> str | None:
-    if brep is None:
+    if geometry is None:
         return None
-
-    if not isinstance(brep, Rhino.Geometry.Brep):
-        raise TypeError(f"brep must be Rhino.Geometry.Brep, got {type(brep)}")
 
     attr = duplicate_attributes(
         name=name,
@@ -51,12 +48,50 @@ def bake_one_brep(
     )
 
     rhdoc = Rhino.RhinoDoc.ActiveDoc
-    guid = rhdoc.Objects.AddBrep(brep, attr)
+
+    if isinstance(geometry, Rhino.Geometry.Brep):
+        guid = rhdoc.Objects.AddBrep(geometry, attr)
+    elif isinstance(geometry, Rhino.Geometry.Curve):
+        guid = rhdoc.Objects.AddCurve(geometry, attr)
+    elif isinstance(geometry, Rhino.Geometry.Surface):
+        guid = rhdoc.Objects.AddSurface(geometry, attr)
+    elif isinstance(geometry, Rhino.Geometry.Mesh):
+        guid = rhdoc.Objects.AddMesh(geometry, attr)
+    elif isinstance(geometry, Rhino.Geometry.Point):
+        guid = rhdoc.Objects.AddPoint(geometry.Location, attr)
+    elif isinstance(geometry, Rhino.Geometry.Point3d):
+        guid = rhdoc.Objects.AddPoint(geometry, attr)
+    elif isinstance(geometry, Rhino.Geometry.Line):
+        guid = rhdoc.Objects.AddLine(geometry, attr)
+    elif isinstance(geometry, Rhino.Geometry.Polyline):
+        guid = rhdoc.Objects.AddPolyline(geometry, attr)
+    elif isinstance(geometry, Rhino.Geometry.Arc):
+        guid = rhdoc.Objects.AddArc(geometry, attr)
+    elif isinstance(geometry, Rhino.Geometry.Circle):
+        guid = rhdoc.Objects.AddCircle(geometry, attr)
+    elif isinstance(geometry, Rhino.Geometry.Extrusion):
+        guid = rhdoc.Objects.AddExtrusion(geometry, attr)
+    else:
+        raise TypeError(f"Unsupported bake geometry type: {type(geometry)}")
 
     if guid is None or guid == Guid.Empty:
         return None
 
     return str(guid)
+
+
+def bake_one_brep(
+    brep: Any,
+    name: str,
+    layer_index: int | None = None,
+    color=None,
+) -> str | None:
+    return bake_one_geometry(
+        geometry=brep,
+        name=name,
+        layer_index=layer_index,
+        color=color,
+    )
 
 
 def bake_flat_brep_dict(
@@ -77,15 +112,15 @@ def bake_flat_brep_dict(
             continue
         seen_names.add(name)
 
-        breps = ensure_list(value)
-        if not breps:
+        geometries = ensure_list(value)
+        if not geometries:
             continue
 
         # 最初の1個だけ使う
-        brep = breps[0]
+        geometry = geometries[0]
 
-        guid = bake_one_brep(
-            brep=brep,
+        guid = bake_one_geometry(
+            geometry=geometry,
             name=name,
             layer_index=layer_index,
             color=color,

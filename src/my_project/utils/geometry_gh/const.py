@@ -4,13 +4,12 @@ from typing import Any, Optional, Union
 
 from Rhino import Geometry as rg
 
+from my_project.config.constants import STANDARD_BASE_Z, EPS
 from my_project.config.util_schemas import (
     Point2D,
     Point3D,
     Vector2D,
 )
-
-STANDARD_BASE_Z = 420000.0
 
 def const_point_obj(point: Union[Point3D, Point2D, rg.Point3d]) -> rg.Point3d:
     if isinstance(point, Point2D):
@@ -212,6 +211,46 @@ def const_arc_from_three_points(
     arc_crv = rg.ArcCurve(arc)
     return arc_crv
 
+def side_of_point(p0, p1, p):
+    v = p1 - p0
+    w = p - p0
+    cross = rg.Vector3d.CrossProduct(v, w)
+    z = cross.Z
+    if z > EPS:
+        return "left"
+    elif z < -EPS:
+        return "right"
+    else:
+        return "on"
+
+def const_arc_from_p0_p1_radius(
+    p0: Union[Point3D, Point2D, rg.Point3d],
+    p1: Union[Point3D, Point2D, rg.Point3d],
+    R: float,
+    direction: str, # "left" or "right" p0からp1に向かうベクトルから見て、円弧の中心がどちら側にあるか
+) -> Optional[rg.ArcCurve]:
+    p0 = const_point_obj(p0)
+    p1 = const_point_obj(p1)
+    harf_distance = p0.DistanceTo(p1) / 2
+    mid_pt_R = (2*R**2 -2*R*(R**2 - harf_distance**2)**0.5)**0.5 # p0とp1から等距離で、かつ半径Rの円弧上にある点までの距離
+    p0_circle = rg.Circle(p0, mid_pt_R)
+    p1_circle = rg.Circle(p1, mid_pt_R)
+    intersect_event = rg.Intersect.Intersection.CircleCircle(p0_circle, p1_circle)
+    ip0 = intersect_event[1]
+    ip1 = intersect_event[2]
+    if ip0 is None or ip1 is None:
+        raise ValueError(f"Failed to find intersection point of circles. p0={p0}, p1={p1}, R={R}")
+    ip0_dir = side_of_point(p0, p1, ip0)
+    left_ip = ip0 if ip0_dir == "left" else ip1
+    right_ip = ip0 if ip0_dir == "right" else ip1
+    if direction == "left":
+        arc = rg.Arc(p0, left_ip, p1)
+    elif direction == "right":
+        arc = rg.Arc(p0, right_ip, p1)
+    else:
+        raise ValueError(f"Invalid direction: {direction}")
+    arc_crv = rg.ArcCurve(arc)
+    return arc_crv
 
 # そのポイントを通り、与えた軸に沿った、かつ垂直な直線を作る
 def const_vertical_line_from_point(

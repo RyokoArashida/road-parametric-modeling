@@ -139,3 +139,8 @@ def get_plan_offset_and_z_delta(raw_offset: float, z_slope: Optional[float], z_a
         return raw_offset, -z_abs
     return raw_offset, 0
 
+def const_point3D_from_point2D(point: Union[Point2D, Point3D]) -> Point3D:
+    if isinstance(point, Point3D):
+        return point
+    return Point3D(x=point.x, y=point.y, z=0)
+

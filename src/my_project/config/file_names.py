@@ -33,3 +33,4 @@ class Filenames:
     MAIN = "main"
     ROAD = "road"
     INSPECTION_WALKWAY = "inspection_walkway"
+    ROAD_CENTER = "road_center"
