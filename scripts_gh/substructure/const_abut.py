@@ -1,5 +1,9 @@
 from typing import Union
 
+from my_project.config.locale_compat import normalize_lc_time
+
+normalize_lc_time()
+
 import pandas as pd
 import Rhino.Geometry as rg
 
@@ -23,13 +27,18 @@ from my_project.config.util_schemas import (
 from my_project.utils.dataframe import flatten_any
 from my_project.utils.geometry.points import (
     get_point_by_xy_offset,
+    interpolate_point_3d,
 )
 from my_project.utils.geometry.vectors import get_frame_2D
 from my_project.utils.geometry_gh.const import (
     const_3Dpoint,
+    const_brep_from_two_closed_point_lists,
+    const_brep_to_z_from_square_corners,
     const_closed_polycurve_obj,
+    const_point_obj,
     const_srf_from_2crvs,
     join_breps_or_raise,
+    remove_same_points,
 )
 from my_project.utils.geometry_gh.transform import place_obj
 from my_project.utils.io import load_from_pickle, save_json_and_pickle
@@ -40,21 +49,11 @@ def get_box_from_SquareCorners(
     foundation_top_z: float,
     cap: bool = True,
 ) -> rg.Brep:
-    bottom_corners = Square_Corners(
-        DT = Point3D(x=top_corners.DT.x, y=top_corners.DT.y, z=foundation_top_z),
-        DN = Point3D(x=top_corners.DN.x, y=top_corners.DN.y, z=foundation_top_z),
-        UN = Point3D(x=top_corners.UN.x, y=top_corners.UN.y, z=foundation_top_z),
-        UT = Point3D(x=top_corners.UT.x, y=top_corners.UT.y, z=foundation_top_z),
+    return const_brep_to_z_from_square_corners(
+        top_corners,
+        target_z=foundation_top_z,
+        cap=cap,
     )
-    brep = const_srf_from_2crvs([
-        const_closed_polycurve_obj([top_corners.DT, top_corners.DN, bottom_corners.DN, bottom_corners.DT]),
-        const_closed_polycurve_obj([top_corners.UT, top_corners.UN, bottom_corners.UN, bottom_corners.UT]),
-    ])
-    if cap:
-        capped_brep = brep.CapPlanarHoles(0.01)
-    else:
-        capped_brep = brep
-    return capped_brep
 
 
 def get_beamseat(
@@ -352,7 +351,7 @@ def get_wings(
             in_curve = const_closed_polycurve_obj([in_B_top_point, in_E_top_point, in_E_bottom_point, in_B_bottom_point])
             brep = const_srf_from_2crvs([out_curve, in_curve])
             capped_brep = brep.CapPlanarHoles(0.01)
-            return capped_brep, top_points 
+            return capped_brep, top_points, top_points, bottom_points, bottom_points
 
         # 上面の下
         middle_wide_points = Square_Corners(
@@ -372,9 +371,9 @@ def get_wings(
         in_curve = const_closed_polycurve_obj([top_points.UT, top_points.UN, middle_wide_points.UN, middle_narrow_points.UN, bottom_points.UN, bottom_points.UT])
         brep = const_srf_from_2crvs([out_curve, in_curve])
         capped_brep = brep.CapPlanarHoles(0.01)
-        return capped_brep, top_points
+        return capped_brep, top_points, middle_wide_points, middle_narrow_points, bottom_points
     
-    D_wing_brep, D_top_points = get_wing_from_data(
+    D_wing_brep, D_top_points, D_middle_wide_points, D_middle_narrow_points, D_bottom_points = get_wing_from_data(
         out_B_top_point = DDB_top_point,
         in_B_top_point = DUB_top_point,
         out_edge_z = wing_info.D_z,
@@ -383,7 +382,7 @@ def get_wings(
         ab_height = wing_info.Dab_height,
         bl_height = wing_info.Dbl_height,
     )
-    U_wing_brep, U_top_points = get_wing_from_data(
+    U_wing_brep, U_top_points, U_middle_wide_points, U_middle_narrow_points, U_bottom_points = get_wing_from_data(
         out_B_top_point = UUB_top_point,
         in_B_top_point = UDB_top_point,
         out_edge_z = wing_info.U_z,
@@ -392,18 +391,30 @@ def get_wings(
         ab_height = wing_info.Uab_height,
         bl_height = wing_info.Ubl_height,
     )
+    def reverse_UD(corners: Square_Corners) -> Square_Corners:
+        return Square_Corners(
+            UT=corners.DT,
+            UN=corners.DN,
+            DN=corners.UN,
+            DT=corners.UT,
+        )
+
     #U側はUとDが逆になっている
-    U_top_points = Square_Corners(
-        UT=  U_top_points.DT,
-        UN = U_top_points.DN,
-        DN = U_top_points.UN,
-        DT = U_top_points.UT,
-    )
+    U_top_points = reverse_UD(U_top_points)
+    U_middle_wide_points = reverse_UD(U_middle_wide_points)
+    U_middle_narrow_points = reverse_UD(U_middle_narrow_points)
+    U_bottom_points = reverse_UD(U_bottom_points)
     return {
         "D_wing": D_wing_brep,
         "D_wing_top_points": D_top_points,
+        "D_wing_middle_wide_points": D_middle_wide_points,
+        "D_wing_middle_narrow_points": D_middle_narrow_points,
+        "D_wing_bottom_points": D_bottom_points,
         "U_wing": U_wing_brep,
         "U_wing_top_points": U_top_points,
+        "U_wing_middle_wide_points": U_middle_wide_points,
+        "U_wing_middle_narrow_points": U_middle_narrow_points,
+        "U_wing_bottom_points": U_bottom_points,
     }
 
 def get_slabseat(
@@ -687,6 +698,141 @@ def get_each_abut(
     DE_backwall_base_bottom = barrier_dict["DE_backwall_base_bottom"]
     UE_wing_base_bottom = barrier_dict["UE_wing_base_bottom"]
     DE_wing_base_bottom = barrier_dict["DE_wing_base_bottom"]
+    U_wing_inside_bridge_point = wing_dict["U_wing_top_points"].DT
+    U_wing_inside_soil_point = wing_dict["U_wing_top_points"].DN
+    D_wing_inside_soil_point = wing_dict["D_wing_top_points"].UN
+    D_wing_inside_bridge_point = wing_dict["D_wing_top_points"].UT
+    def get_center_soil_points(bridge_point, soil_point):
+        return [
+            bridge_point,
+            soil_point,
+            Point3D(x=soil_point.x, y=soil_point.y, z=foundation_top_z),
+            Point3D(x=bridge_point.x, y=bridge_point.y, z=foundation_top_z),
+        ]
+
+    def get_center_soil_end_point(bridge_point):
+        x_length = D_wing_inside_bridge_point.x - U_wing_inside_bridge_point.x
+        if abs(x_length) < 0.01:
+            return U_wing_inside_soil_point
+        ratio = (bridge_point.x - U_wing_inside_bridge_point.x) / x_length
+        return interpolate_point_3d(
+            U_wing_inside_soil_point,
+            D_wing_inside_soil_point,
+            ratio,
+        )
+
+    def same_center_section(section1, section2):
+        return (
+            const_point_obj(section1[0]).DistanceTo(const_point_obj(section2[0])) < 0.01
+            and const_point_obj(section1[1]).DistanceTo(const_point_obj(section2[1])) < 0.01
+        )
+
+    def get_center_soil_brep(center_sections):
+        unique_sections = []
+        for section in center_sections:
+            if not unique_sections or not same_center_section(unique_sections[-1], section):
+                unique_sections.append(section)
+        center_breps = [
+            const_brep_from_two_closed_point_lists(section1, section2)
+            for i, (section1, section2) in enumerate(zip(unique_sections, unique_sections[1:]))
+        ]
+        if len(center_breps) == 1:
+            return center_breps[0]
+        unioned = rg.Brep.CreateBooleanUnion(center_breps, 0.01)
+        if not unioned or len(unioned) != 1:
+            raise ValueError(f"Failed to union center soil breps. count={len(center_breps)}")
+        capped_brep = unioned[0].CapPlanarHoles(0.01)
+        return capped_brep if capped_brep is not None else unioned[0]
+
+    if double:
+        center_soil_brep = get_center_soil_brep([
+            get_center_soil_points(
+                U_wing_inside_bridge_point,
+                U_wing_inside_soil_point,
+            ),
+            get_center_soil_points(
+                backwall_dict["U_backwall_top_corners"].DN,
+                get_center_soil_end_point(backwall_dict["U_backwall_top_corners"].DN),
+            ),
+            get_center_soil_points(
+                backwall_dict["C_backwall_top_corners"].UN,
+                get_center_soil_end_point(backwall_dict["C_backwall_top_corners"].UN),
+            ),
+            get_center_soil_points(
+                backwall_dict["C_backwall_top_corners"].DN,
+                get_center_soil_end_point(backwall_dict["C_backwall_top_corners"].DN),
+            ),
+            get_center_soil_points(
+                backwall_dict["D_backwall_top_corners"].UN,
+                get_center_soil_end_point(backwall_dict["D_backwall_top_corners"].UN),
+            ),
+            get_center_soil_points(
+                D_wing_inside_bridge_point,
+                D_wing_inside_soil_point,
+            ),
+        ])
+    else:
+        center_soil_brep = const_brep_from_two_closed_point_lists(
+            get_center_soil_points(
+                U_wing_inside_bridge_point,
+                U_wing_inside_soil_point,
+            ),
+            get_center_soil_points(
+                D_wing_inside_bridge_point,
+                D_wing_inside_soil_point,
+            ),
+        )
+
+    def get_wing_under_soil_points(middle_wide, middle_narrow, bottom):
+        middle_wide_bottom = Point3D(
+            x=middle_wide.x,
+            y=middle_wide.y,
+            z=foundation_top_z,
+        )
+        return [
+            middle_wide,
+            middle_narrow,
+            bottom,
+            middle_wide_bottom,
+        ]
+
+    def get_wing_under_soil_brep(U_inside_points, D_inside_points):
+        if len(remove_same_points(U_inside_points)) < 3 or len(remove_same_points(D_inside_points)) < 3:
+            return None
+        return const_brep_from_two_closed_point_lists(
+            U_inside_points,
+            D_inside_points,
+        )
+
+    U_wing_under_soil_brep = get_wing_under_soil_brep(
+        U_inside_points=get_wing_under_soil_points(
+            wing_dict["U_wing_middle_wide_points"].DN,
+            wing_dict["U_wing_middle_narrow_points"].DN,
+            wing_dict["U_wing_bottom_points"].DN,
+        ),
+        D_inside_points=get_wing_under_soil_points(
+            wing_dict["U_wing_middle_wide_points"].UN,
+            wing_dict["U_wing_middle_narrow_points"].UN,
+            wing_dict["U_wing_bottom_points"].UN,
+        ),
+    )
+    D_wing_under_soil_brep = get_wing_under_soil_brep(
+        U_inside_points=get_wing_under_soil_points(
+            wing_dict["D_wing_middle_wide_points"].UN,
+            wing_dict["D_wing_middle_narrow_points"].UN,
+            wing_dict["D_wing_bottom_points"].UN,
+        ),
+        D_inside_points=get_wing_under_soil_points(
+            wing_dict["D_wing_middle_wide_points"].DN,
+            wing_dict["D_wing_middle_narrow_points"].DN,
+            wing_dict["D_wing_bottom_points"].DN,
+        ),
+    )
+    soil_dict = {
+        "center": center_soil_brep,
+        "U_wing_under": U_wing_under_soil_brep,
+        "D_wing_under": D_wing_under_soil_brep,
+    }
 
     def place_obj_setting(obj):
         if obj is None:
@@ -700,8 +846,7 @@ def get_each_abut(
     def place_point_setting(point):
         if point is None:
             return None
-        world_point = place_obj_setting(point)
-        return Point3D(x=world_point.X, y=world_point.Y, z=world_point.Z)
+        return const_3Dpoint(place_obj_setting(point))
 
     # 上面のデータは必要(ワールド座標）
     if not double:
@@ -752,6 +897,16 @@ def get_each_abut(
         "DE_wing": place_point_setting(DE_wing_base_bottom),
     },
     {
+        "foundation_top_z": foundation_top_z,
+        "U_wing_outer_end": place_point_setting(wing_dict["U_wing_top_points"].UN),
+        "D_wing_outer_end": place_point_setting(wing_dict["D_wing_top_points"].DN),
+    },
+    {
+        key: place_obj_setting(brep)
+        for key, brep in soil_dict.items()
+        if brep is not None
+    },
+    {
         "frame_2D": frame_2D,
         "top_corners": top_surf_corners,
     })
@@ -763,19 +918,29 @@ def main(initial_or_final: str):
     indiv_infos = load_from_pickle(DIR / f"{Filenames.INPUT}_{Filenames.ABUT}_{Filenames.INDIV}.pickle")
     common_info_dict = load_from_pickle(DIR / f"{Filenames.INPUT}_{Filenames.ABUT}_{Filenames.COMMON}.pickle")
     barrier_base_bottom_dict = {}
+    wing_outer_points_dict = {}
     local_top_surf_corners_dict = {}
     world_items_dict_for_bake = {}
     world_items_dict_for_bake_2 = {}
+    world_items_dict_for_bake_3 = {}
 
     for abut_name, indiv_info in indiv_infos.items():
         bridge_type = indiv_info.bridge_type
         common_info = common_info_dict[bridge_type]
-        abut_dict, barrier_dict, barrier_base_point_dict,top_surf_corners_dict = get_each_abut(
+        abut_dict, barrier_dict, barrier_base_point_dict, wing_outer_points, soil_dict, top_surf_corners_dict = get_each_abut(
             input_indiv_info = indiv_info,
             input_common_info = common_info,
         )
 
-        barrier_base_bottom_dict[abut_name] = barrier_base_point_dict # ここはpickel用
+        barrier_base_bottom_dict[abut_name] = {
+            "pavement_height": common_info.barrier_common_info.pavement_height,
+            "foundation_top_z": wing_outer_points["foundation_top_z"],
+            "points": barrier_base_point_dict,
+        } # ここはpickel用
+        wing_outer_points_dict[abut_name] = {
+            "U": wing_outer_points["U_wing_outer_end"],
+            "D": wing_outer_points["D_wing_outer_end"],
+        }
         frame_2D = top_surf_corners_dict["frame_2D"]
         top_surf_corners = top_surf_corners_dict["top_corners"]
         if len(top_surf_corners) == 1:
@@ -795,6 +960,7 @@ def main(initial_or_final: str):
         
         world_items_dict_for_bake[abut_name] = abut_dict # ここはbake用
         world_items_dict_for_bake_2[abut_name] = barrier_dict # ここはbake用
+        world_items_dict_for_bake_3[f"{abut_name}_soil"] = soil_dict
     
     # 壁高欄起点情報を全部pickelに保存
     save_json_and_pickle(
@@ -807,6 +973,11 @@ def main(initial_or_final: str):
         folder_path = DIR,
         name = f"{Filenames.WORLD}_{Filenames.ABUT}_{Filenames.TOP}_{Filenames.POINTS}",
     )
+    save_json_and_pickle(
+        data = wing_outer_points_dict,
+        folder_path = DIR,
+        name = f"{Filenames.WORLD}_{Filenames.ABUT}_wing_outer_points",
+    )
     def get_keys_and_values_for_bake(world_items_dict):
         flatten_dict_for_bake = flatten_any(world_items_dict)
         items = list(flatten_dict_for_bake.items())
@@ -815,7 +986,11 @@ def main(initial_or_final: str):
         keys = [k for k, _ in items]
         values = [v for _, v in items]
         return keys, values
-    return get_keys_and_values_for_bake(world_items_dict_for_bake), get_keys_and_values_for_bake(world_items_dict_for_bake_2)
+    return (
+        get_keys_and_values_for_bake(world_items_dict_for_bake),
+        get_keys_and_values_for_bake(world_items_dict_for_bake_2),
+        get_keys_and_values_for_bake(world_items_dict_for_bake_3),
+    )
 
 if __name__ == "__main__":
-    (bake_keys, bake_objs), (bake_keys2, bake_objs2) = main("initial")
+    (bake_keys, bake_objs), (bake_keys2, bake_objs2), (bake_keys3, bake_objs3) = main("initial")

@@ -95,12 +95,37 @@ def get_barrier_points(
         ]
     }, base_bottom_L, base_bottom_R
 
+
+def get_barrier_base_point_record(CG_name: str, U: Point3D, D: Point3D) -> dict:
+    return {
+        "CG_name": CG_name,
+        "U": U,
+        "D": D,
+    }
+
+
+def get_center_barrier_base_point_record(
+    CG_name: str,
+    Uin: Point3D,
+    Din: Point3D,
+    Uout: Point3D = None,
+    Dout: Point3D = None,
+) -> dict:
+    return {
+        "CG_name": CG_name,
+        "Uin": Uin,
+        "Uout": Uout,
+        "Din": Din,
+        "Dout": Dout,
+    }
+
+
 def get_each_barrier(
     barrier_info: BarrierInfo,
 ):
     common_info = barrier_info.common_info
     slab_edge_points = barrier_info.slab_edge_points
-    barrier_base_points_dict = {}
+    barrier_base_points = []
     barrier_dict = {}
     for i in range(len(slab_edge_points)):
         slab_edge_points_i = slab_edge_points[i]
@@ -109,10 +134,13 @@ def get_each_barrier(
             common_info = common_info,
             slab_edge_points = slab_edge_points_i,
         )
-        barrier_base_points_dict[name_i] = {
-            "U": base_bottom_L,
-            "D": base_bottom_R,
-        }
+        barrier_base_points.append(
+            get_barrier_base_point_record(
+                CG_name=name_i,
+                U=base_bottom_L,
+                D=base_bottom_R,
+            )
+        )
         if i < len(slab_edge_points) - 1:
             slab_edge_points_i1 = slab_edge_points[i+1]
             name_i1 = slab_edge_points_i1.name
@@ -130,7 +158,7 @@ def get_each_barrier(
                 "L": L_brep,
                 "R": R_brep,
             }
-    return barrier_dict, barrier_base_points_dict
+    return barrier_dict, barrier_base_points
 
 #ノーズ先端の円形部分は作らない
 def get_center_barrier_and_nose_LR2points(
@@ -354,7 +382,8 @@ def get_center_barriers_and_noses(
         center_barrier_info = center_barrier_info,
         slab_edge_points = slab_edge_points,
     )
-    center_barrier_base_points_dict = {}
+    center_barrier_base_points = []
+    center_barrier_base_point_names = set()
     center_barrier_dict = {}
     center_barrier_dict["中央壁高欄"] = {}
     center_barrier_dict["ノーズ"] = {}
@@ -365,12 +394,16 @@ def get_center_barriers_and_noses(
             barrier_common_info = barrier_common_info,
             LR2_point = barrier_LR2_points_i,
         )
-        center_barrier_base_points_dict[name_i] = {
-            "Uin": base_bottom_Li,
-            "Uout": bottom_out_Li,
-            "Din": base_bottom_Ri,
-            "Dout": bottom_out_Ri,
-        }
+        center_barrier_base_points.append(
+            get_center_barrier_base_point_record(
+                CG_name=name_i,
+                Uin=base_bottom_Li,
+                Uout=bottom_out_Li,
+                Din=base_bottom_Ri,
+                Dout=bottom_out_Ri,
+            )
+        )
+        center_barrier_base_point_names.add(name_i)
         if i < len(barrier_LR2_points_on_slab) - 1:
             barrier_LR2_points_i1 = barrier_LR2_points_on_slab[i+1]
             name_i1 = barrier_LR2_points_i1.name
@@ -396,12 +429,16 @@ def get_center_barriers_and_noses(
             LR2_point = nose_straight_LR2_points_on_slab_i,
         )
         if i > 0:
-            if name_i in center_barrier_base_points_dict:
+            if name_i in center_barrier_base_point_names:
                 raise ValueError("同じ名前のLR2ポイント")
-            center_barrier_base_points_dict[name_i] = {
-                "Uin": base_Li,
-                "Din": base_Ri,
-            }
+            center_barrier_base_points.append(
+                get_center_barrier_base_point_record(
+                    CG_name=name_i,
+                    Uin=base_Li,
+                    Din=base_Ri,
+                )
+            )
+            center_barrier_base_point_names.add(name_i)
         if i < len(nose_straight_LR2_points_on_slab) - 1:
             nose_straight_LR2_points_on_slab_i1 = nose_straight_LR2_points_on_slab[i+1]
             name_i1 = nose_straight_LR2_points_on_slab_i1.name
@@ -413,7 +450,7 @@ def get_center_barriers_and_noses(
             curve_i1 = const_closed_polycurve_obj(nose_points_i1)
             brep = const_srf_from_2crvs([curve_i, curve_i1]).CapPlanarHoles(0.01)
             center_barrier_dict["ノーズ"][f"{name_i}_to_{name_i1}"] = brep
-    return center_barrier_dict, center_barrier_base_points_dict
+    return center_barrier_dict, center_barrier_base_points
 
 def main(initial_or_final: str):
     DIR = get_output_dir(initial_or_final)
@@ -435,7 +472,10 @@ def main(initial_or_final: str):
         barrier_dict, barrier_base_points_dict = get_each_barrier(
             barrier_info = barrier_info,
         )
-        barrier_base_bottom_dict[unique_slab_name] = barrier_base_points_dict # ここはpickel用
+        barrier_base_bottom_dict[unique_slab_name] = {
+            "pavement_height": barrier_info.common_info.pavement_height,
+            "points": barrier_base_points_dict,
+        }
         world_items_dict_for_bake[unique_slab_name] = barrier_dict # ここはbake用
     for center_barrier_info in center_barrier_infos:
         unique_slab_name = f"{center_barrier_info.bridge_name}_{center_barrier_info.num}"
@@ -444,7 +484,10 @@ def main(initial_or_final: str):
             center_barrier_info = center_barrier_info,
             slab_edge_points = barrier_info.slab_edge_points,
         )
-        center_barrier_base_bottom_dict[unique_slab_name] = center_barrier_base_points_dict # ここはpickel用
+        center_barrier_base_bottom_dict[unique_slab_name] = {
+            "pavement_height": center_barrier_info.barrier_common_info.pavement_height,
+            "points": center_barrier_base_points_dict,
+        }
         world_items_dict_for_bake_2[unique_slab_name] = center_barrier_dict # ここはbake用
     
     save_json_and_pickle(

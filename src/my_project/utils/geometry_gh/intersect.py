@@ -2,6 +2,7 @@ from typing import Optional, Union
 
 import Rhino.Geometry as rg
 
+from my_project.config.constants import DISTANCE_TOL
 from my_project.config.util_schemas import Point2D, Point3D, Vector2D
 from my_project.utils.geometry_gh.const import (
     const_curve_obj,
@@ -285,22 +286,29 @@ def get_any_interior_point_on_brep_by_mesh(
 def trim_srf_by_closed_curve(
     target_srf: Union[rg.Surface, rg.Brep],
     cutter_crv: Union[rg.Curve, rg.Line, rg.PolylineCurve],
+    keep: str = "inside",
 ) -> list[rg.Brep]:
+    if keep not in {"inside", "outside"}:
+        raise ValueError(f"keep must be 'inside' or 'outside', got {keep}")
     target_brep = target_srf if isinstance(target_srf, rg.Brep) else target_srf.ToBrep()
     cutter_crv = const_curve_obj(cutter_crv)
     cutter_srf = const_vertical_srf_from_closed_curve(cutter_crv)
-    split_result = target_brep.Split(cutter_srf, 0.01)
+    split_result = target_brep.Split(cutter_srf, DISTANCE_TOL)
     if not split_result:
         raise ValueError("サーフェスの分割に失敗しました")
     if split_result.Length == 0:
         raise ValueError("サーフェスの分割結果が空でした")
     if split_result.Length == 1:
         raise ValueError("サーフェスの分割結果が1つだけでした。分割されていない可能性があります。")
+    cutter_crv_xy = cutter_crv.DuplicateCurve()
+    cutter_crv_xy.Transform(rg.Transform.PlanarProjection(rg.Plane.WorldXY))
     kept = []
     for piece in split_result:
         test_point = get_any_interior_point_on_brep_by_mesh(piece)
-        containment = cutter_crv.Contains(test_point)
-        if containment == rg.PointContainment.Inside:
+        test_point_xy = rg.Point3d(test_point.X, test_point.Y, 0)
+        containment = cutter_crv_xy.Contains(test_point_xy, rg.Plane.WorldXY, DISTANCE_TOL)
+        is_inside = containment == rg.PointContainment.Inside
+        if (keep == "inside" and is_inside) or (keep == "outside" and not is_inside):
             kept.append(piece)
     if len(kept) == 0:
         raise ValueError("分割後のサーフェスのうち、切り取るべき部分が見つかりませんでした")

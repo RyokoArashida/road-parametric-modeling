@@ -8,6 +8,7 @@ from my_project.config.constants import STANDARD_BASE_Z, EPS
 from my_project.config.util_schemas import (
     Point2D,
     Point3D,
+    Square_Corners,
     Vector2D,
 )
 
@@ -113,6 +114,62 @@ def const_extrude_brep_from_curve(
             brep = capped
     return brep
 
+def const_brep_from_two_closed_point_lists(
+    points1: list[Union[Point3D, Point2D, rg.Point3d]],
+    points2: list[Union[Point3D, Point2D, rg.Point3d]],
+    cap: bool = True,
+    tol: float = 0.01,
+) -> rg.Brep:
+    if len(points1) != len(points2):
+        raise ValueError(f"Point list lengths must match, got {len(points1)} and {len(points2)}")
+    if len(points1) < 3:
+        raise ValueError(f"Need at least 3 points, got {len(points1)}")
+    brep = const_srf_from_2crvs([
+        const_closed_polycurve_obj(points1),
+        const_closed_polycurve_obj(points2),
+    ])
+    if cap:
+        capped = brep.CapPlanarHoles(tol)
+        if capped is not None:
+            brep = capped
+    return brep
+
+def const_brep_to_z_from_points(
+    points: list[Union[Point3D, Point2D, rg.Point3d]],
+    target_z: float,
+    cap: bool = True,
+    tol: float = 0.01,
+) -> rg.Brep:
+    top_points = [const_3Dpoint(point) for point in points]
+    bottom_points = [
+        Point3D(x=point.x, y=point.y, z=target_z)
+        for point in top_points
+    ]
+    return const_brep_from_two_closed_point_lists(
+        top_points,
+        bottom_points,
+        cap=cap,
+        tol=tol,
+    )
+
+def const_closed_polycurve_from_square_corners(
+    corners: Square_Corners,
+) -> rg.PolylineCurve:
+    return const_closed_polycurve_obj([corners.DT, corners.DN, corners.UN, corners.UT])
+
+def const_brep_to_z_from_square_corners(
+    corners: Square_Corners,
+    target_z: float,
+    cap: bool = True,
+    tol: float = 0.01,
+) -> rg.Brep:
+    return const_brep_to_z_from_points(
+        [corners.DT, corners.DN, corners.UN, corners.UT],
+        target_z=target_z,
+        cap=cap,
+        tol=tol,
+    )
+
 def const_z_extruded_box_from_4points(
     points: list[Union[Point3D, Point2D, rg.Point3d]],
     z_offset: float,
@@ -124,13 +181,76 @@ def const_z_extruded_box_from_4points(
         raise ValueError(f"Need 4 valid points, got {len(unique_points)}")
     if z_offset == 0:
         raise ValueError("z_offset must not be 0")
-    base_crv = const_closed_polycurve_obj(unique_points)
-    return const_extrude_brep_from_curve(
-        base_crv,
-        rg.Vector3d(0, 0, float(z_offset)),
+    moved_points = []
+    for point in unique_points:
+        point = const_point_obj(point)
+        moved_points.append(rg.Point3d(point.X, point.Y, point.Z + z_offset))
+    return const_brep_from_two_closed_point_lists(
+        unique_points,
+        moved_points,
         cap=cap,
         tol=tol,
     )
+
+def const_z_extruded_brep_from_srf(
+    brep: rg.Brep,
+    z_offset: float,
+    cap: bool = True,
+    tol: float = 0.01,
+) -> rg.Brep:
+    vector = rg.Vector3d(0, 0, float(z_offset))
+    bottom = brep.DuplicateBrep()
+    top = brep.DuplicateBrep()
+    top.Transform(rg.Transform.Translation(vector))
+
+    side_breps = []
+    for edge_crv in bottom.DuplicateNakedEdgeCurves(True, True):
+        top_edge_crv = edge_crv.DuplicateCurve()
+        top_edge_crv.Transform(rg.Transform.Translation(vector))
+        side_breps.append(const_srf_from_2crvs([edge_crv, top_edge_crv]))
+
+    joined = join_breps_or_raise(
+        [bottom, top] + side_breps,
+        tol=tol,
+        context="const_z_extruded_brep_from_srf",
+    )
+    if cap:
+        capped = joined.CapPlanarHoles(tol)
+        if capped is not None:
+            joined = capped
+    return joined
+
+def const_brep_from_point_lists(
+    point_lists: list[list[Union[Point3D, Point2D, rg.Point3d]]],
+    cap: bool = True,
+    tol: float = 0.01,
+) -> rg.Brep:
+    if len(point_lists) < 2:
+        raise ValueError(f"Need at least 2 point lists, got {len(point_lists)}")
+    lengths = {len(point_list) for point_list in point_lists}
+    if len(lengths) != 1:
+        raise ValueError(f"Point lists must have the same length, got {sorted(lengths)}")
+    if next(iter(lengths)) < 2:
+        raise ValueError("Each point list must have at least 2 points")
+    crvs = [
+        const_polycurve_obj(points)
+        for points in zip(*point_lists)
+    ]
+    return const_brep_from_all_crvs(crvs, cap=cap, tol=tol)
+
+def boolean_difference_or_raise(
+    base_brep: rg.Brep,
+    cutter_brep: rg.Brep,
+    context: str = "",
+    tol: float = 0.01,
+) -> rg.Brep:
+    diff = rg.Brep.CreateBooleanDifference(base_brep, cutter_brep, tol)
+    if not diff or len(diff) == 0:
+        suffix = f" ({context})" if context else ""
+        raise ValueError(f"Failed to subtract brep{suffix}")
+    if len(diff) == 1:
+        return diff[0]
+    return join_breps_or_raise(list(diff), tol=tol, context=context)
 
 def const_planer_srf_from_points(points: list[Union[Point3D, Point2D, rg.Point3d]]) -> rg.Brep:
     unique_points = remove_same_points(points)

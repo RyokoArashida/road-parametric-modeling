@@ -23,7 +23,7 @@ from my_project.utils.geometry_gh.attributes import (
 )
 from my_project.utils.geometry_gh.const import (
     const_3Dpoint,
-    const_brep_from_all_crvs,
+    const_brep_from_point_lists,
     const_point_obj,
     const_polycurve_obj,
     const_srf_from_2crvs,
@@ -240,9 +240,7 @@ def get_crossing_brep_points(
     return floor_brep, outer_fence_brep, inner_fence_brep
 
 def get_brep_from_4point_lists(points: list[tuple[Point3D, Point3D, Point3D, Point3D]]):
-    point_lists = list(zip(*points))
-    polylines = [const_polycurve_obj(point_list) for point_list in point_lists]
-    return const_brep_from_all_crvs(crvs = polylines)
+    return const_brep_from_point_lists(points)
 
 def is_minus_side(side: str) -> bool:
     return str(side).strip().lower() == "minus"

@@ -242,6 +242,7 @@ def get_bottom_srf_on_unflat_srf(
     box_bottom_srfs = trim_srf_by_closed_curve(
         target_srf=bottom_srf,
         cutter_crv=const_closed_polycurve_obj([bottom_points.DT, bottom_points.DN, bottom_points.UN, bottom_points.UT]),
+        keep="inside",
     )
     return box_bottom_srfs, bottom_points, direction_x, direction_y
 
