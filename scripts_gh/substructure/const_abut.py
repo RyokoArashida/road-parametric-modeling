@@ -33,7 +33,6 @@ from my_project.utils.geometry.vectors import get_frame_2D
 from my_project.utils.geometry_gh.const import (
     const_3Dpoint,
     const_brep_from_two_closed_point_lists,
-    const_brep_to_z_from_square_corners,
     const_closed_polycurve_obj,
     const_point_obj,
     const_srf_from_2crvs,
@@ -49,9 +48,15 @@ def get_box_from_SquareCorners(
     foundation_top_z: float,
     cap: bool = True,
 ) -> rg.Brep:
-    return const_brep_to_z_from_square_corners(
-        top_corners,
-        target_z=foundation_top_z,
+    bottom_corners = Square_Corners(
+        DT=Point3D(x=top_corners.DT.x, y=top_corners.DT.y, z=foundation_top_z),
+        DN=Point3D(x=top_corners.DN.x, y=top_corners.DN.y, z=foundation_top_z),
+        UN=Point3D(x=top_corners.UN.x, y=top_corners.UN.y, z=foundation_top_z),
+        UT=Point3D(x=top_corners.UT.x, y=top_corners.UT.y, z=foundation_top_z),
+    )
+    return const_brep_from_two_closed_point_lists(
+        [top_corners.DT, top_corners.DN, top_corners.UN, top_corners.UT],
+        [bottom_corners.DT, bottom_corners.DN, bottom_corners.UN, bottom_corners.UT],
         cap=cap,
     )
 

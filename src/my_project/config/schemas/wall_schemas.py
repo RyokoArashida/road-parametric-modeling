@@ -21,7 +21,7 @@ class BlockInfo:
 
 @dataclass(frozen=True)
 class RefPointInfo:
-    top_height: float
+    top_z: float
     top_num: int
     bottom_num: int
 
@@ -32,3 +32,5 @@ class WallInfo:
     wall_type: str #現状ではブロック積みだけ
     block_info: Optional[BlockInfo] # 種類が増えれば適宜増やす
     reference_points: list[RefPointInfo]
+    top_gap_point_num: list[int] # 上にしかない折れ点
+    bottom_gap_point_num: list[int] # 下にしかない折れ点

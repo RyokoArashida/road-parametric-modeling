@@ -35,4 +35,5 @@ class Filenames:
     INSPECTION_WALKWAY = "inspection_walkway"
     ROAD_SURFACE = "road_surface"
     EDGE = "edge"
+    WALL = "wall"
     

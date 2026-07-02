@@ -157,19 +157,6 @@ def const_closed_polycurve_from_square_corners(
 ) -> rg.PolylineCurve:
     return const_closed_polycurve_obj([corners.DT, corners.DN, corners.UN, corners.UT])
 
-def const_brep_to_z_from_square_corners(
-    corners: Square_Corners,
-    target_z: float,
-    cap: bool = True,
-    tol: float = 0.01,
-) -> rg.Brep:
-    return const_brep_to_z_from_points(
-        [corners.DT, corners.DN, corners.UN, corners.UT],
-        target_z=target_z,
-        cap=cap,
-        tol=tol,
-    )
-
 def const_z_extruded_box_from_4points(
     points: list[Union[Point3D, Point2D, rg.Point3d]],
     z_offset: float,

@@ -5,7 +5,11 @@ from my_project.config.util_schemas import Frame2D, LocalOffset, Point2D, Point3
 from my_project.config.schemas.superstructure_schemas import CoordInfo
 
 
-def get_distance_2D(point1: Point3D, point2: Point3D) -> float:
+def get_distance_2D(point1: Union[Point2D, Point3D], point2: Union[Point2D, Point3D]) -> float:
+    if isinstance(point1, Point2D):
+        point1 = Point3D(x=point1.x, y=point1.y, z=0)
+    if isinstance(point2, Point2D):
+        point2 = Point3D(x=point2.x, y=point2.y, z=0)
     return math.hypot(point2.x - point1.x, point2.y - point1.y)
 
 def get_distance_3D(point1: Point3D, point2: Point3D) -> float:
@@ -81,6 +85,17 @@ def get_point_by_xy_z_offset(
         z=point_xy_offset.z + offset_z,
     )
 
+def get_point_by_z_offset_on_line(
+    point1: Point3D,
+    point2: Point3D,
+    offset_z: float, # 正の値のときpoint1から見てpoint2の方向にZ差分だけオフセットする
+) -> Point3D:
+    dz = point2.z - point1.z
+    if dz == 0:
+        raise ValueError("point1 and point2 have the same Z coordinate")
+    t = offset_z / dz
+    return interpolate_point_3d(point1, point2, t)
+
 
 def get_both_points_by_xy_offset(L_point, R_point, offset_xy):
     return (
@@ -143,4 +158,3 @@ def const_point3D_from_point2D(point: Union[Point2D, Point3D]) -> Point3D:
     if isinstance(point, Point3D):
         return point
     return Point3D(x=point.x, y=point.y, z=0)
-
