@@ -9,15 +9,11 @@ from my_project.config.constants import (
 )
 from my_project.config.file_names import Filenames
 from my_project.config.locale_compat import normalize_lc_time
-from my_project.config.paths import (
-    FINAL_OUTPUT_DIR,
-    INITIAL_OUTPUT_DIR,
-)
+from my_project.config.paths import get_output_dir
 from my_project.config.schemas.road_surface_schemas import (
+    EmbankmentPaveInfo,
     RoadSurfaceInfo,
     typeInfo,
-    EmbankmentPaveInfo,
-    SlopeInfo,
 )
 from my_project.config.util_schemas import Vector2D
 from my_project.utils.geometry_gh.attributes import get_point_on_crv_at_distance
@@ -368,9 +364,10 @@ def get_embankment_edge_points(
     left_vectors: list[Vector2D],
     center_line_STAs: list[float],
     embankment_pave_infos: list[EmbankmentPaveInfo],
-) -> tuple[list[rg.Point3d], list[rg.Point3d]]:
+) -> tuple[dict[int, list[rg.Point3d]], dict[int, list[rg.Point3d]], dict[int, list[float]]]:
     U_edge_points_dict = {}
     D_edge_points_dict = {}
+    edge_STAs_dict = {}
     for i, embankment_pave_info in enumerate(embankment_pave_infos):
         slope_infos = sorted(embankment_pave_info.slope_infos, key=lambda s: s.STA)
         slope_STAs = [slope_info.STA for slope_info in slope_infos]
@@ -395,19 +392,16 @@ def get_embankment_edge_points(
             D_edge_points.append(D_edge_point)
         U_edge_points_dict[i] = U_edge_points
         D_edge_points_dict[i] = D_edge_points
-    return U_edge_points_dict, D_edge_points_dict
+        edge_STAs_dict[i] = target_STAs
+    return U_edge_points_dict, D_edge_points_dict, edge_STAs_dict
     
 
 def main(initial_or_final: str, debug=False):
-    if initial_or_final == "initial":
-        DIR = INITIAL_OUTPUT_DIR
-    elif initial_or_final == "final":
-        DIR = FINAL_OUTPUT_DIR
+    DIR = get_output_dir(initial_or_final)
 
     road_center_infos = load_from_pickle(DIR / f"{Filenames.INPUT}_{Filenames.ROAD_SURFACE}.pickle")
-    center_line_points_dict = {}
-    U_edge_points_dict = {}
-    D_edge_points_dict = {}
+    center_line_info_dict = {}
+    edge_info_dict = {}
     if debug:
         points = []
         for name, road_center_infos in road_center_infos.items():
@@ -417,7 +411,7 @@ def main(initial_or_final: str, debug=False):
             )
             points.extend(center_line_points)
             if road_center_infos.embankment_pave_infos is not None:
-                this_U_edge_points_dict, this_D_edge_points_dict = get_embankment_edge_points(
+                this_U_edge_points_dict, this_D_edge_points_dict, _ = get_embankment_edge_points(
                     center_line_points=center_line_points,
                     left_vectors=left_vectors,
                     center_line_STAs=center_line_STAs,
@@ -434,32 +428,32 @@ def main(initial_or_final: str, debug=False):
             center_line_points, left_vectors, center_line_STAs = get_indiv_center_line_points(
                 road_center_info = road_center_infos,
             )
-            center_line_points_dict[name] = [const_3Dpoint(pt) for pt in center_line_points] # シリアライズのために変換
+            center_line_info_dict[name] = {
+                "STAs": center_line_STAs,
+                "points": [const_3Dpoint(pt) for pt in center_line_points],
+            }
             if road_center_infos.embankment_pave_infos is not None:
-                this_U_edge_points_dict, this_D_edge_points_dict = get_embankment_edge_points(
+                this_U_edge_points_dict, this_D_edge_points_dict, this_edge_STAs_dict = get_embankment_edge_points(
                     center_line_points=center_line_points,
                     left_vectors=left_vectors,
                     center_line_STAs=center_line_STAs,
                     embankment_pave_infos=road_center_infos.embankment_pave_infos,
                 )
-                for n, U_edge_points in this_U_edge_points_dict.items():
-                    U_edge_points_dict[f"{name}_{n}"] = [const_3Dpoint(pt) for pt in U_edge_points]
-                for n, D_edge_points in this_D_edge_points_dict.items():
-                    D_edge_points_dict[f"{name}_{n}"] = [const_3Dpoint(pt) for pt in D_edge_points]
+                for n in this_edge_STAs_dict.keys():
+                    edge_info_dict[f"{name}_{n}"] = {
+                        "STAs": this_edge_STAs_dict[n],
+                        "U_points": [const_3Dpoint(pt) for pt in this_U_edge_points_dict[n]],
+                        "D_points": [const_3Dpoint(pt) for pt in this_D_edge_points_dict[n]],
+                    }
         save_json_and_pickle(
-            data = center_line_points_dict,
+            data = center_line_info_dict,
             folder_path = DIR,
             name = f"{Filenames.ROAD}_{Filenames.CENTER}_{Filenames.POINTS}",
         )
         save_json_and_pickle(
-            data = U_edge_points_dict,
+            data = edge_info_dict,
             folder_path = DIR,
-            name = f"{Filenames.ROAD}_{Filenames.UP}_{Filenames.EDGE}_{Filenames.POINTS}",
-        )
-        save_json_and_pickle(
-            data = D_edge_points_dict,
-            folder_path = DIR,
-            name = f"{Filenames.ROAD}_{Filenames.DOWN}_{Filenames.EDGE}_{Filenames.POINTS}",
+            name = f"{Filenames.ROAD}_{Filenames.EDGE}_{Filenames.POINTS}",
         )
     return None
 
@@ -468,5 +462,5 @@ def main(initial_or_final: str, debug=False):
 
 
 if __name__ == "__main__":
-    # points = main("initial")
-    points = main("initial", debug=True)
+    points = main("initial")
+    # points = main("initial", debug=True)

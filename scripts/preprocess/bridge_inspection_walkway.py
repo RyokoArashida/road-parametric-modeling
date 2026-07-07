@@ -3,12 +3,7 @@
 import pandas as pd
 
 from my_project.config.file_names import Filenames
-from my_project.config.paths import (
-    FINAL_INPUT_DIR,
-    FINAL_OUTPUT_DIR,
-    INITIAL_INPUT_DIR,
-    INITIAL_OUTPUT_DIR,
-)
+from my_project.config.paths import get_input_output_dirs
 from my_project.config.schemas.bridge_inspection_walkway_schemas import (
     CrossingInfo,
     MainInfo,
@@ -179,12 +174,7 @@ def get_main_route_info(
     )
 
 def main(initial_or_final: str) -> None:
-    if initial_or_final == "initial":
-        input_dir = INITIAL_INPUT_DIR
-        output_dir = INITIAL_OUTPUT_DIR
-    elif initial_or_final == "final":
-        input_dir = FINAL_INPUT_DIR
-        output_dir = FINAL_OUTPUT_DIR
+    input_dir, output_dir = get_input_output_dirs(initial_or_final)
 
     route_excel_path = input_dir / "橋梁検査路諸元.xlsx"
 

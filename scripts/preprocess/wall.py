@@ -43,16 +43,19 @@ def get_wall_info(indiv_info_row, size_info):
     reference_points = []
     for i in range(1, ref_point_num + 1):
         top_z = indiv_info_row[f"上点高さ_図面{i}"] * 1000  # m -> mm
+        bottom_z = indiv_info_row[f"下点高さ_図面{i}"] * 1000  # m -> mm
         top_num = indiv_info_row[f"上点点番号_図面{i}"]
         bottom_num = indiv_info_row[f"下点点番号_図面{i}"]
         ref_point_info = RefPointInfo(
             top_z=top_z,
+            bottom_z=bottom_z,
             top_num=top_num,
             bottom_num=bottom_num
         )
         reference_points.append(ref_point_info)
     top_gap_point_num = parse_point_num_list(indiv_info_row["過剰点_上"])
     bottom_gap_point_num = parse_point_num_list(indiv_info_row["過剰点_下"])
+    berm_gap_point_num = parse_point_num_list(indiv_info_row["過剰点_小段"])
     return WallInfo(
         location=indiv_info_row["全体_大名称"],
         name=indiv_info_row["全体_小名称"],
@@ -60,7 +63,8 @@ def get_wall_info(indiv_info_row, size_info):
         block_info=size_info,
         reference_points=reference_points,
         top_gap_point_num=top_gap_point_num,
-        bottom_gap_point_num=bottom_gap_point_num
+        bottom_gap_point_num=bottom_gap_point_num,
+        berm_gap_point_num=berm_gap_point_num
     )
 
 

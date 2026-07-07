@@ -36,4 +36,6 @@ class Filenames:
     ROAD_SURFACE = "road_surface"
     EDGE = "edge"
     WALL = "wall"
+    EMBANKMENT = "embankment"
+    PAVEMENT = "pavement"
     

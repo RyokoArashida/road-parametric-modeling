@@ -13,7 +13,7 @@ def get_named_points_on_layer(layer_index: int) -> dict[str, rg.Point3d]:
             continue
         name = rhino_obj.Attributes.Name
         if not name:
-            raise ValueError(f"Point object has no name: {rhino_obj.Id}")
+            continue
         if name in point_dict:
             raise ValueError(f"Duplicate point name on layer index {layer_index}: {name}")
         point_dict[name] = geometry.Location

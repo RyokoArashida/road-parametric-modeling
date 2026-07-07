@@ -5,10 +5,7 @@ import Rhino.Geometry as rg
 
 from my_project.config.file_names import Filenames
 from my_project.config.locale_compat import normalize_lc_time
-from my_project.config.paths import (
-    FINAL_OUTPUT_DIR,
-    INITIAL_OUTPUT_DIR,
-)
+from my_project.config.paths import get_output_dir
 from my_project.config.schemas.bridge_drainage_schemas import (
     DrainageInfo,
 )
@@ -499,10 +496,7 @@ def const_indiv_drains(
 
 
 def main(initial_or_final: str):
-    if initial_or_final == "initial":
-        DIR = INITIAL_OUTPUT_DIR
-    elif initial_or_final == "final":
-        DIR = FINAL_OUTPUT_DIR
+    DIR = get_output_dir(initial_or_final)
     
     point_infos = load_from_pickle(DIR / f"{Filenames.INPUT}_{Filenames.DRAINAGE}_{Filenames.POINTS}.pickle")
     poliline_dict = get_polilines_2D(point_infos)

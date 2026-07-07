@@ -20,8 +20,8 @@ from my_project.config.util_schemas import (
 )
 from my_project.utils.dataframe import flatten_any
 from my_project.utils.geometry.points import (
-    get_distance_2D,
     get_point_by_xy_offset,
+    get_point_by_xy_offset_with_z_delta,
     get_point_by_z_offset_on_line,
 )
 from my_project.utils.geometry_gh.attributes import (
@@ -31,6 +31,7 @@ from my_project.utils.geometry_gh.attributes import (
 from my_project.utils.geometry_gh.const import (
     const_3Dpoint,
     const_closed_polycurve_obj,
+    const_point_obj,
     const_polycurve_obj,
     const_srf_from_2crvs,
     join_breps_or_raise,
@@ -63,12 +64,11 @@ def make_top_bottom_points_num_same(
     for ref_point in ref_points:
         top_num = int(ref_point.top_num)
         bottom_num = int(ref_point.bottom_num)
-        top_ref_point = top_points2D[top_num]
-        bottom_ref_point = bottom_points2D[bottom_num]
         top_ref_distance = top_distances[top_num]
         bottom_ref_distance = bottom_distances[bottom_num]
         ref_top_distances.append(top_ref_distance)
         ref_bottom_distances.append(bottom_ref_distance)
+
 
     full_top_points2D = []
     full_top_points2D_distances = []
@@ -113,41 +113,73 @@ def make_top_bottom_points_num_same(
     full_bottom_points2D, full_bottom_points2D_distances = zip(*sorted(zip(full_bottom_points2D, full_bottom_points2D_distances), key=lambda x: x[1]))
 
     top_ref_point_idx = [i for i, pt in enumerate(full_top_points2D) if full_top_points2D_distances[i] in ref_top_distances]
+    top_original_point_idx = [i for i, pt in enumerate(full_top_points2D) if full_top_points2D_distances[i] in top_distances]
     bottom_ref_point_idx = [i for i, pt in enumerate(full_bottom_points2D) if full_bottom_points2D_distances[i] in ref_bottom_distances]
+    return (
+        list(full_top_points2D),
+        list(full_bottom_points2D),
+        list(top_ref_point_idx),
+        list(bottom_ref_point_idx),
+        list(full_top_points2D_distances),
+        list(full_bottom_points2D_distances),
+        list(top_original_point_idx),
+    )
 
-    return list(full_top_points2D), list(full_bottom_points2D), list(top_ref_point_idx), list(full_top_points2D_distances)
+def get_top_xy_offset_from_slope_offset(
+    offset: float,
+    slope: float,
+) -> float:
+    return offset * math.sqrt(1 + slope ** 2)
 
-def get_xy_offset_from_slope_normal_offset(
+def get_bottom_xy_z_offset_from_slope_offset(
     offset: float,
     slope: float,
 ) -> tuple[float, float]:
     offset_xy = offset / math.sqrt(1 + slope ** 2)
-    offset_z = offset / math.sqrt(1 + slope ** 2) * slope
+    offset_z = offset_xy * slope
     return offset_xy, offset_z
 
-def get_point_by_xy_offset_with_z_delta(
-    point1: Point3D,
-    point2: Point3D,
-    offset_xy: float,
-    offset_z: float = 0,
-) -> Point3D:
-    point_xy = get_point_by_xy_offset(
-        point1=Point2D(x=point1.x, y=point1.y),
-        point2=Point2D(x=point2.x, y=point2.y),
-        offset=offset_xy,
-    )
-    return Point3D(
-        x=point_xy.x,
-        y=point_xy.y,
-        z=point1.z + offset_z,
-    )
+def get_z_from_ref_points(
+    point_idx: int,
+    ref_point_idx: list[int],
+    distances: list[float],
+    ref_zs: list[float],
+) -> float:
+    if point_idx in ref_point_idx:
+        return ref_zs[ref_point_idx.index(point_idx)]
+    for j in range(len(ref_point_idx) - 1):
+        if ref_point_idx[j] < point_idx < ref_point_idx[j + 1]:
+            prev_idx = ref_point_idx[j]
+            next_idx = ref_point_idx[j + 1]
+            ratio = (distances[point_idx] - distances[prev_idx]) / (distances[next_idx] - distances[prev_idx])
+            return ref_zs[j] + ratio * (ref_zs[j + 1] - ref_zs[j])
+    raise ValueError(f"Failed to interpolate wall point z: point_idx={point_idx}, ref_point_idx={ref_point_idx}")
+
+def cap_planar_holes_or_raise(
+    brep: rg.Brep,
+    context: str,
+    tol: float = 0.01,
+) -> rg.Brep:
+    capped = brep.CapPlanarHoles(tol)
+    if capped is None:
+        raise ValueError(f"Failed to cap planar holes ({context})")
+    return capped
 
 def get_indiv_points(
     wall_info: WallInfo,
     top_points2D: list[Point2D],
     bottom_points2D: list[Point2D],
+    berm_points2D: list[Point2D],
 ) -> tuple[list[Point3D], list[Point3D], list[Point3D], list[Vector2D]]:
-    full_top_points2D, full_bottom_points2D, top_ref_point_idx, full_top_points2D_distances = make_top_bottom_points_num_same(
+    (
+        full_top_points2D,
+        full_bottom_points2D,
+        top_ref_point_idx,
+        bottom_ref_point_idx,
+        full_top_points2D_distances,
+        full_bottom_points2D_distances,
+        top_original_point_idx,
+    ) = make_top_bottom_points_num_same(
         top_points2D=top_points2D,
         bottom_points2D=bottom_points2D,
         top_gap_point_num=wall_info.top_gap_point_num,
@@ -157,32 +189,29 @@ def get_indiv_points(
     top_points3D = []
     bottom_points3D = []
     embed_points3D = []
-    t2b_vectors = []
+    berm_points3D = []
 
-    front_slope = wall_info.block_info.front_slope.value # 1.8など、1:1.8の意。
     embed_depth = wall_info.block_info.embed_depth
+    top_ref_zs = [ref_point.top_z for ref_point in wall_info.reference_points]
+    bottom_ref_zs = [ref_point.bottom_z for ref_point in wall_info.reference_points]
 
     for i in range(len(full_top_points2D)):
         top_point_2D = full_top_points2D[i]
         bottom_point_2D = full_bottom_points2D[i]
 
-        if i in top_ref_point_idx:
-            ref_point = wall_info.reference_points[top_ref_point_idx.index(i)]
-            top_z = ref_point.top_z
-        else:
-            for j in range(len(top_ref_point_idx) - 1):
-                this_distance = full_top_points2D_distances[i]
-                if top_ref_point_idx[j] < i < top_ref_point_idx[j + 1]:
-                    prev_top_idx = top_ref_point_idx[j]
-                    next_top_idx = top_ref_point_idx[j + 1]
-                    prev_top_z = wall_info.reference_points[j].top_z
-                    next_top_z = wall_info.reference_points[j + 1].top_z
-                    prev_top_distance = full_top_points2D_distances[prev_top_idx]
-                    next_top_distance = full_top_points2D_distances[next_top_idx]
-                    ratio = (this_distance - prev_top_distance) / (next_top_distance - prev_top_distance)
-                    top_z = prev_top_z + ratio * (next_top_z - prev_top_z)
+        top_z = get_z_from_ref_points(
+            point_idx=i,
+            ref_point_idx=top_ref_point_idx,
+            distances=full_top_points2D_distances,
+            ref_zs=top_ref_zs,
+        )
+        bottom_z = get_z_from_ref_points(
+            point_idx=i,
+            ref_point_idx=bottom_ref_point_idx,
+            distances=full_bottom_points2D_distances,
+            ref_zs=bottom_ref_zs,
+        )
         top_point3D = Point3D(x=top_point_2D.x, y=top_point_2D.y, z=top_z)
-        bottom_z = top_z - (get_distance_2D(top_point_2D, bottom_point_2D) / front_slope) # 1:0.5なら距離の2倍の高さになる。
         bottom_point3D = Point3D(x=bottom_point_2D.x, y=bottom_point_2D.y, z=bottom_z)
         top_points3D.append(top_point3D)
         bottom_points3D.append(bottom_point3D)
@@ -192,35 +221,74 @@ def get_indiv_points(
             offset_z=-embed_depth,
         )
         embed_points3D.append(embed_point3D)
-    return top_points3D, bottom_points3D, embed_points3D
+
+    berm_gap_point_num = wall_info.berm_gap_point_num
+    berm_polyline = const_polycurve_obj(berm_points2D)
+    berm_points_distances = get_distance_along_crv(berm_polyline, berm_points2D)
+    match_berm_points2D = [berm_points2D[i] for i in range(len(berm_points2D)) if i not in berm_gap_point_num]
+    if len(match_berm_points2D) != len(top_original_point_idx):
+        raise ValueError(
+            f"match_berm_points2Dとtop_original_point_idxの長さが一致しません。"
+            f"match_berm_points2D: {match_berm_points2D}, top_original_point_idx: {top_original_point_idx}"
+        )
+    for i, berm_point_2D in enumerate(match_berm_points2D):
+        if berm_point_2D in match_berm_points2D:
+            idx = match_berm_points2D.index(berm_point_2D)
+            top_point3D = top_points3D[top_original_point_idx[idx]]
+            berm_point3D = Point3D(x=berm_point_2D.x, y=berm_point_2D.y, z=top_point3D.z)
+        else:
+            prev_ref_idx = max([j for j in range(len(match_berm_points2D)) if j < i])
+            next_ref_idx = min([j for j in range(len(match_berm_points2D)) if j > i])
+            prev_z = top_points3D[top_original_point_idx[prev_ref_idx]].Z
+            next_z= top_points3D[top_original_point_idx[next_ref_idx]].Z
+            prev_berm_idx = berm_points2D.index(match_berm_points2D[prev_ref_idx])
+            next_berm_idx = berm_points2D.index(match_berm_points2D[next_ref_idx])
+            prev_berm_distance = berm_points_distances[prev_berm_idx]
+            next_berm_distance = berm_points_distances[next_berm_idx]
+            this_berm_distance = berm_points_distances[i]
+            ratio = (this_berm_distance - prev_berm_distance) / (next_berm_distance - prev_berm_distance)
+            berm_z = prev_z + ratio * (next_z - prev_z)
+            berm_point3D = Point3D(x=berm_point_2D.x, y=berm_point_2D.y, z=berm_z)
+        berm_points3D.append(berm_point3D)
+    return top_points3D, bottom_points3D, embed_points3D, berm_points3D
 
 def get_indiv_wall(
     wall_info: WallInfo,
     top_points2D: list[Point2D],
     bottom_points2D: list[Point2D],
+    berm_points2D: list[Point2D],
 ) -> tuple[dict[str, rg.Brep], list[Point3D], list[Point3D]]:
-    top_points3D, bottom_points3D, embed_points3D = get_indiv_points(
+    top_points3D, bottom_points3D, embed_points3D, berm_points3D = get_indiv_points(
         wall_info=wall_info,
         top_points2D=top_points2D,
-        bottom_points2D=bottom_points2D
+        bottom_points2D=bottom_points2D,
+        berm_points2D=berm_points2D,
     )
     block_polylines = [] #表上、表下、裏下、裏上
     backfill_concrete_polylines = []
     backfill_stone_polylines = []
     base_polylines = [] # ブロック表下、表上、表下、裏下、裏上
 
-    block_offset_xy, block_offset_z = get_xy_offset_from_slope_normal_offset(
+    front_slope = wall_info.block_info.front_slope.value
+    block_top_offset_xy = get_top_xy_offset_from_slope_offset(
         offset=wall_info.block_info.block_width,
-        slope=wall_info.block_info.front_slope.value
+        slope=front_slope,
     )
-    fill_con_offset_xy, _ = get_xy_offset_from_slope_normal_offset(
+    block_bottom_offset_xy, block_bottom_offset_z = get_bottom_xy_z_offset_from_slope_offset(
+        offset=wall_info.block_info.block_width,
+        slope=front_slope,
+    )
+    fill_con_top_offset_xy = get_top_xy_offset_from_slope_offset(
         offset=wall_info.block_info.backfill_concrete_width,
-        slope=wall_info.block_info.front_slope.value
+        slope=front_slope,
     )
-
-    fill_stone_offset_xy_top, _ = get_xy_offset_from_slope_normal_offset(
+    fill_con_bottom_offset_xy, fill_con_bottom_offset_z = get_bottom_xy_z_offset_from_slope_offset(
+        offset=wall_info.block_info.backfill_concrete_width,
+        slope=front_slope,
+    )
+    fill_stone_offset_xy_top = get_top_xy_offset_from_slope_offset(
         offset=wall_info.block_info.backfill_stone_top_width,
-        slope=wall_info.block_info.front_slope.value
+        slope=front_slope,
     )
 
     for top_point, bottom_point, embed_point in zip(top_points3D, bottom_points3D, embed_points3D):
@@ -229,42 +297,41 @@ def get_indiv_wall(
         block_back_top = get_point_by_xy_offset_with_z_delta(
             point1=block_front_top,
             point2=block_front_bottom,
-            offset_xy=-1 * block_offset_xy,
-            offset_z=-1 * block_offset_z,
+            offset_xy=-1 * block_top_offset_xy,
+            offset_z=0,
         )
         block_back_bottom = get_point_by_xy_offset_with_z_delta(
             point1=block_front_bottom,
             point2=block_front_top,
-            offset_xy = block_offset_xy,
-            offset_z = -1 * block_offset_z
+            offset_xy=block_bottom_offset_xy,
+            offset_z=-1 * block_bottom_offset_z,
         )
         block_polylines.append(const_closed_polycurve_obj([block_front_top, block_front_bottom, block_back_bottom, block_back_top]))
 
 
         fill_con_front_top = block_back_top
-        fill_con_front_bottom = get_point_by_xy_offset_with_z_delta(
-            point1=bottom_point,
-            point2=fill_con_front_top,
-            offset_xy=block_offset_xy,
-            offset_z=0,
-        )
+        fill_con_front_bottom = block_back_bottom
         fill_con_back_top = get_point_by_xy_offset_with_z_delta(
             point1=fill_con_front_top,
             point2=fill_con_front_bottom,
-            offset_xy=-1 * fill_con_offset_xy,
+            offset_xy=-1 * fill_con_top_offset_xy,
             offset_z=0,
         )
         fill_con_back_bottom = get_point_by_xy_offset_with_z_delta(
             point1=fill_con_front_bottom,
             point2=fill_con_front_top,
-            offset_xy=fill_con_offset_xy,
-            offset_z=0,
+            offset_xy=fill_con_bottom_offset_xy,
+            offset_z=-1 * fill_con_bottom_offset_z,
         )
         backfill_concrete_polylines.append(const_closed_polycurve_obj([fill_con_front_top, fill_con_front_bottom, fill_con_back_bottom, fill_con_back_top]))
 
         fill_stone_offset_xy_bottom = fill_stone_offset_xy_top + (top_point.z - bottom_point.z) * (wall_info.block_info.front_slope.value - wall_info.block_info.back_slope.value)
         fill_stone_front_top = fill_con_back_top
-        fill_stone_front_bottom = fill_con_back_bottom
+        fill_stone_front_bottom = get_point_by_z_offset_on_line(
+            point1=fill_con_back_top,
+            point2=fill_con_back_bottom,
+            offset_z=bottom_point.z - fill_con_back_top.z,
+        )
         fill_stone_back_top = get_point_by_xy_offset_with_z_delta(
             point1=fill_stone_front_top,
             point2=fill_stone_front_bottom,
@@ -280,7 +347,7 @@ def get_indiv_wall(
         backfill_stone_polylines.append(const_closed_polycurve_obj([fill_stone_front_top, fill_stone_front_bottom, fill_stone_back_bottom, fill_stone_back_top]))
 
         base_embed = block_front_bottom
-        base_back_top = block_back_bottom
+        base_back_top = fill_con_back_bottom
         base_front_top = get_point_by_xy_offset_with_z_delta(
             point1 = base_embed,
             point2 = top_point,
@@ -288,24 +355,36 @@ def get_indiv_wall(
             offset_z = 0,
         )
         base_front_bottom = Point3D(x=base_front_top.x, y=base_front_top.y, z=base_front_top.z - wall_info.block_info.foundation_front_height)
-        base_back_bottom = Point3D(x=base_back_top.x, y=base_back_top.y, z=base_back_top.z - wall_info.block_info.foundation_back_height)
+        base_back_bottom = Point3D(x=base_back_top.x, y=base_back_top.y, z=base_front_bottom.z)
         base_polylines.append(const_closed_polycurve_obj([base_embed, base_front_top, base_front_bottom, base_back_bottom, base_back_top]))
     
     block_breps = [const_srf_from_2crvs([block_polylines[i], block_polylines[i + 1]]) for i in range(len(block_polylines) - 1)]
     backfill_concrete_breps = [const_srf_from_2crvs([backfill_concrete_polylines[i], backfill_concrete_polylines[i + 1]]) for i in range(len(backfill_concrete_polylines) - 1)]
     backfill_stone_breps = [const_srf_from_2crvs([backfill_stone_polylines[i], backfill_stone_polylines[i + 1]]) for i in range(len(backfill_stone_polylines) - 1)]
     base_breps = [const_srf_from_2crvs([base_polylines[i], base_polylines[i + 1]]) for i in range(len(base_polylines) - 1)]
-    block_brep = join_breps_or_raise(block_breps, context="wall block")
-    backfill_concrete_brep = join_breps_or_raise(backfill_concrete_breps, context="wall backfill concrete")
-    backfill_stone_brep = join_breps_or_raise(backfill_stone_breps, context="wall backfill stone")
-    base_brep = join_breps_or_raise(base_breps, context="wall base")
+    block_brep = cap_planar_holes_or_raise(
+        join_breps_or_raise(block_breps, context="wall block"),
+        context="wall block",
+    )
+    backfill_concrete_brep = cap_planar_holes_or_raise(
+        join_breps_or_raise(backfill_concrete_breps, context="wall backfill concrete"),
+        context="wall backfill concrete",
+    )
+    backfill_stone_brep = cap_planar_holes_or_raise(
+        join_breps_or_raise(backfill_stone_breps, context="wall backfill stone"),
+        context="wall backfill stone",
+    )
+    base_brep = cap_planar_holes_or_raise(
+        join_breps_or_raise(base_breps, context="wall base"),
+        context="wall base",
+    )
     wall_brep_dict = {
         "block": block_brep,
         "backfill_concrete": backfill_concrete_brep,
         "backfill_stone": backfill_stone_brep,
         "base": base_brep
     }
-    return wall_brep_dict, top_points3D, bottom_points3D
+    return wall_brep_dict, top_points3D, bottom_points3D, berm_points3D
 
 
 def get_ordered_wall_points(
@@ -338,7 +417,7 @@ def get_ordered_wall_points(
     ]
 
 
-def main(initial_or_final: str):
+def main(initial_or_final: str, debug: bool = False) -> tuple[list[str], list[rg.Brep]]:
     DIR = get_output_dir(initial_or_final)
 
     wall_infos = load_from_pickle(DIR / f"{Filenames.INPUT}_{Filenames.WALL}.pickle")
@@ -363,6 +442,11 @@ def main(initial_or_final: str):
             for key, pt in wall_points2D.items()
             if key.startswith(f"{fullname}_下_")
         ]
+        berm_points2D = [
+            (int(key.replace(f"{fullname}_小段_", "")), pt)
+            for key, pt in wall_points2D.items()
+            if key.startswith(f"{fullname}_小段_")
+        ]
         required_top_nums = sorted({
             int(ref_point.top_num) for ref_point in wall_info.reference_points
         } | set(wall_info.top_gap_point_num))
@@ -379,11 +463,18 @@ def main(initial_or_final: str):
             required_bottom_nums,
             context=f"{fullname}_下",
         )
-        wall_brep_dict, top_points3D, bottom_points3D = get_indiv_wall(wall_info, top_points2D, bottom_points2D)
+        berm_points2D = get_ordered_wall_points(
+            berm_points2D,
+            [num for num, _ in berm_points2D],
+            context=f"{fullname}_小段",
+        )
+        wall_brep_dict, top_points3D, bottom_points3D, berm_points3D = get_indiv_wall(wall_info, top_points2D, bottom_points2D, berm_points2D)
         for i, pt in enumerate(top_points3D):
             wall_points_dict[f"{fullname}_上_{i}"] = const_3Dpoint(pt)
         for i, pt in enumerate(bottom_points3D):
             wall_points_dict[f"{fullname}_下_{i}"] = const_3Dpoint(pt)
+        for i, pt in enumerate(berm_points3D):
+            wall_points_dict[f"{fullname}_小段_{i}"] = const_3Dpoint(pt)
         
         world_items_dict_for_bake[fullname] = wall_brep_dict
     
@@ -400,7 +491,16 @@ def main(initial_or_final: str):
         keys = [k for k, _ in items]
         values = [v for _, v in items]
         return keys, values
-    return get_keys_and_values_for_bake(world_items_dict_for_bake)
+    
+    if not debug:
+        return get_keys_and_values_for_bake(world_items_dict_for_bake)
+    if debug:
+        points = [const_point_obj(pt) for pt in top_points3D + bottom_points3D + berm_points3D]
+        return get_keys_and_values_for_bake(world_items_dict_for_bake), points
+    
+
+
 
 if __name__ == "__main__":
-    (bake_keys, bake_objs) = main("initial")
+    # (bake_keys, bake_objs) = main("initial")
+    (bake_keys, bake_objs), points = main("initial", debug=True)

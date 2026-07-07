@@ -1,12 +1,15 @@
-from pyproj import CRS, Transformer
-
 original_EPSG = 30168 # 平面直角座標系、旧日本測地系、静岡県
 wgs84_EPSG = 4326 # WGS84
+
+def get_STA_from_STA_info(big: float, small: float) -> float:
+    return (big * 100 + small) * 1000 # staは100m + m単位
 
 def to_world_coordinates(
     x: float, # 図面上のx座標（日本測地系）-82543.2004とか
     y: float, # 図面上のy座標（日本測地系）37693.6124とか
 ) -> tuple[float, float]:
+    from pyproj import CRS, Transformer
+
     transformer = Transformer.from_crs(
         CRS.from_epsg(original_EPSG),
         CRS.from_epsg(wgs84_EPSG),

@@ -22,6 +22,7 @@ class BlockInfo:
 @dataclass(frozen=True)
 class RefPointInfo:
     top_z: float
+    bottom_z: float
     top_num: int
     bottom_num: int
 
@@ -34,3 +35,4 @@ class WallInfo:
     reference_points: list[RefPointInfo]
     top_gap_point_num: list[int] # 上にしかない折れ点
     bottom_gap_point_num: list[int] # 下にしかない折れ点
+    berm_gap_point_num: list[int] # 小段にしかない折れ点

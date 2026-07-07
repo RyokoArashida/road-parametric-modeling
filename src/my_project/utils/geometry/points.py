@@ -41,6 +41,57 @@ def interpolate_point_3d(p0: Point3D, p1: Point3D, ratio: float) -> Point3D:
         z=p0.z + (p1.z - p0.z) * ratio,
     )
 
+def transform_local_point_to_world_vertical_plane(
+    local_points: list[Union[Point2D, Point3D]],
+    world_points: list[Point3D],
+    local_target_point: Union[Point2D, Point3D],
+    local_z_base_point: Optional[Union[Point2D, Point3D]] = None,
+    world_z_base_point: Optional[Point3D] = None,
+) -> Point3D:
+    if len(local_points) != 2:
+        raise ValueError(f"Need 2 local points, got {len(local_points)}")
+    if len(world_points) != 2:
+        raise ValueError(f"Need 2 world points, got {len(world_points)}")
+
+    local_start, local_end = local_points
+    world_start, world_end = world_points
+    local_dx = local_end.x - local_start.x
+    local_dy = local_end.y - local_start.y
+    target_dx = local_target_point.x - local_start.x
+    target_dy = local_target_point.y - local_start.y
+    if local_dy == 0:
+        raise ValueError("local_points have the same y coordinate")
+    xy_ratio = target_dy / local_dy
+    world_base = interpolate_point_3d(world_start, world_end, xy_ratio)
+    world_xy_distance = math.hypot(world_end.x - world_start.x, world_end.y - world_start.y)
+    xy_scale = world_xy_distance / abs(local_dy)
+    if local_z_base_point is None:
+        local_z_base_point = local_start
+    if world_z_base_point is None:
+        world_z_base_point = world_start
+    local_down_delta = local_target_point.x - local_z_base_point.x
+    z = world_z_base_point.z - local_down_delta * xy_scale
+    return Point3D(
+        x=world_base.x,
+        y=world_base.y,
+        z=z,
+    )
+
+def transform_point_to_local_coordinate(
+    local_points: list[Union[Point2D, Point3D]],
+    world_points: list[Point3D],
+    local_target_point: Union[Point2D, Point3D],
+    local_z_base_point: Optional[Union[Point2D, Point3D]] = None,
+    world_z_base_point: Optional[Point3D] = None,
+) -> Point3D:
+    return transform_local_point_to_world_vertical_plane(
+        local_points=local_points,
+        world_points=world_points,
+        local_target_point=local_target_point,
+        local_z_base_point=local_z_base_point,
+        world_z_base_point=world_z_base_point,
+    )
+
 def get_point_by_xy_offset(
     point1: Union[Point3D, Point2D],
     point2: Union[Point3D, Point2D],
@@ -83,6 +134,23 @@ def get_point_by_xy_z_offset(
         x=point_xy_offset.x,
         y=point_xy_offset.y,
         z=point_xy_offset.z + offset_z,
+    )
+
+def get_point_by_xy_offset_with_z_delta(
+    point1: Point3D,
+    point2: Point3D,
+    offset_xy: float, # 正の値のときpoint1から見てpoint2の方向にXYオフセットする
+    offset_z: float = 0,
+) -> Point3D:
+    point_xy = get_point_by_xy_offset(
+        point1=Point2D(x=point1.x, y=point1.y),
+        point2=Point2D(x=point2.x, y=point2.y),
+        offset=offset_xy,
+    )
+    return Point3D(
+        x=point_xy.x,
+        y=point_xy.y,
+        z=point1.z + offset_z,
     )
 
 def get_point_by_z_offset_on_line(

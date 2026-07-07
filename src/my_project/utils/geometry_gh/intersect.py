@@ -313,3 +313,73 @@ def trim_srf_by_closed_curve(
     if len(kept) == 0:
         raise ValueError("分割後のサーフェスのうち、切り取るべき部分が見つかりませんでした")
     return kept
+
+
+def split_brep_by_vertical_srf_from_two_points_keep_near_point(
+    target_brep: Union[rg.Surface, rg.Brep],
+    cutter_points: list[Union[Point3D, Point2D, rg.Point3d]],
+    keep_point: Union[Point3D, Point2D, rg.Point3d],
+    cut_point: Union[Point3D, Point2D, rg.Point3d],
+    *,
+    cap: bool = True,
+    tol: float = DISTANCE_TOL,
+) -> rg.Brep:
+    if len(cutter_points) != 2:
+        raise ValueError(f"Need 2 cutter points, got {len(cutter_points)}")
+
+    target_brep = target_brep if isinstance(target_brep, rg.Brep) else target_brep.ToBrep()
+    if target_brep is None:
+        raise ValueError("target_brep を Brep に変換できませんでした。")
+
+    cutter_srf = const_vertical_srf_from_two_points(
+        cutter_points[0],
+        cutter_points[1],
+    )
+    split_result = target_brep.Split(cutter_srf, tol)
+    pieces = list(split_result) if split_result and split_result.Length > 0 else [target_brep]
+
+    keep_pt = const_point_obj(keep_point)
+    cut_pt = const_point_obj(cut_point)
+    candidates = []
+    for piece in pieces:
+        test_point = get_any_interior_point_on_brep_by_mesh(piece)
+        keep_distance = test_point.DistanceTo(keep_pt)
+        cut_distance = test_point.DistanceTo(cut_pt)
+        if keep_distance <= cut_distance:
+            candidates.append((cut_distance - keep_distance, piece))
+
+    if not candidates:
+        raise ValueError("分割後のBrepのうち、keep_point側の部分が見つかりませんでした")
+    kept_brep = max(candidates, key=lambda item: item[0])[1]
+    if cap:
+        capped = kept_brep.CapPlanarHoles(tol)
+        if capped is None:
+            raise ValueError("Failed to cap brep after split")
+        kept_brep = capped
+    return kept_brep
+
+
+def split_breps_by_vertical_srf_from_two_points_keep_near_point(
+    target_breps: list[Union[rg.Surface, rg.Brep]],
+    cutter_points: list[Union[Point3D, Point2D, rg.Point3d]],
+    keep_point: Union[Point3D, Point2D, rg.Point3d],
+    cut_point: Union[Point3D, Point2D, rg.Point3d],
+    *,
+    cap: bool = True,
+    tol: float = DISTANCE_TOL,
+) -> list[rg.Brep]:
+    kept = []
+    for target_brep in target_breps:
+        kept.append(
+            split_brep_by_vertical_srf_from_two_points_keep_near_point(
+                target_brep=target_brep,
+                cutter_points=cutter_points,
+                keep_point=keep_point,
+                cut_point=cut_point,
+                cap=cap,
+                tol=tol,
+            )
+        )
+    if not kept:
+        raise ValueError("keep_point側に残すBrepが見つかりませんでした")
+    return kept

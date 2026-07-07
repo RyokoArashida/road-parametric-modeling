@@ -5,12 +5,7 @@ from typing import Optional
 import pandas as pd
 
 from my_project.config.file_names import Filenames
-from my_project.config.paths import (
-    FINAL_INPUT_DIR,
-    FINAL_OUTPUT_DIR,
-    INITIAL_INPUT_DIR,
-    INITIAL_OUTPUT_DIR,
-)
+from my_project.config.paths import get_input_output_dirs
 from my_project.config.schemas.road_surface_schemas import (
     EmbankmentPaveInfo,
     RoadSurfaceInfo,
@@ -19,11 +14,8 @@ from my_project.config.schemas.road_surface_schemas import (
     typeInfo,
 )
 from my_project.config.util_schemas import Point2D
+from my_project.utils.coordinates import get_STA_from_STA_info
 from my_project.utils.io import read_file_to_df, save_json_and_pickle
-
-
-def get_STA_from_STA_info(big: float, small: float) -> float:
-    return (big * 100 + small) * 1000 # staは100m + m単位
 
 
 def get_road_center_info(plan_road_center_df: pd.DataFrame, z_road_center_df: pd.DataFrame, embankment_pave_target_df: Optional[pd.DataFrame], slope_info_df: Optional[pd.DataFrame]) -> RoadSurfaceInfo:
@@ -123,12 +115,7 @@ def get_road_center_info(plan_road_center_df: pd.DataFrame, z_road_center_df: pd
 
 
 def main(initial_or_final: str) -> None:
-    if initial_or_final == "initial":
-        input_dir = INITIAL_INPUT_DIR
-        output_dir = INITIAL_OUTPUT_DIR
-    elif initial_or_final == "final":
-        input_dir = FINAL_INPUT_DIR
-        output_dir = FINAL_OUTPUT_DIR
+    input_dir, output_dir = get_input_output_dirs(initial_or_final)
 
     plan_road_center_excel_path = input_dir / "センターライン平面線形.xlsx"
     target_names_df = read_file_to_df(

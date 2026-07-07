@@ -3,10 +3,7 @@ from typing import Union
 
 from my_project.config.file_names import Filenames
 from my_project.config.locale_compat import normalize_lc_time
-from my_project.config.paths import (
-    FINAL_OUTPUT_DIR,
-    INITIAL_OUTPUT_DIR,
-)
+from my_project.config.paths import get_output_dir
 from my_project.config.schemas.bridge_inspection_walkway_schemas import (
     MainInfo,
 )
@@ -511,10 +508,7 @@ def const_indiv_route(
 
 
 def main(initial_or_final: str, debug=False):
-    if initial_or_final == "initial":
-        DIR = INITIAL_OUTPUT_DIR
-    elif initial_or_final == "final":
-        DIR = FINAL_OUTPUT_DIR
+    DIR = get_output_dir(initial_or_final)
 
     slab_top_points_UP = load_from_pickle(DIR / f"{Filenames.WORLD}_{Filenames.SLAB}_{Filenames.UP}_{Filenames.TOP}_{Filenames.POINTS}.pickle")
     slab_top_points_DOWN = load_from_pickle(DIR / f"{Filenames.WORLD}_{Filenames.SLAB}_{Filenames.DOWN}_{Filenames.TOP}_{Filenames.POINTS}.pickle")

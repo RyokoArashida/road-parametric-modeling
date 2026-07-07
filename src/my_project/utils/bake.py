@@ -4,6 +4,9 @@ from typing import Any
 
 import Rhino.Geometry as rg
 
+from my_project.config.util_schemas import Point2D, Point3D
+from my_project.utils.geometry_gh.const import const_point_obj
+
 RHINO_TYPES = (
     rg.Point3d,
     rg.Vector3d,
@@ -17,29 +20,32 @@ RHINO_TYPES = (
 
 
 def is_leaf_for_bake(obj: Any) -> bool:
-    return obj is None or isinstance(obj, RHINO_TYPES)
+    return obj is None or isinstance(obj, (RHINO_TYPES, Point2D, Point3D))
+
+
+def normalize_leaf_for_bake(obj: Any) -> Any:
+    if isinstance(obj, (Point2D, Point3D)):
+        return const_point_obj(obj)
+    return obj
 
 
 def to_dict_recursive_for_bake(obj: Any) -> Any:
-    # Rhino geometry は分解しない
+    # Keep Rhino geometry and supported point values as bake leaves.
     if is_leaf_for_bake(obj):
-        return obj
+        return normalize_leaf_for_bake(obj)
 
-    # dict
     if isinstance(obj, Mapping):
         return {
             k: to_dict_recursive_for_bake(v)
             for k, v in obj.items()
         }
 
-    # dataclass
     if is_dataclass(obj):
         return {
             k: to_dict_recursive_for_bake(v)
             for k, v in obj.__dict__.items()
         }
 
-    # 普通の自作class
     if hasattr(obj, "__dict__"):
         return {
             k: to_dict_recursive_for_bake(v)
@@ -47,14 +53,12 @@ def to_dict_recursive_for_bake(obj: Any) -> Any:
             if not k.startswith("_")
         }
 
-    # list / tuple
     if isinstance(obj, (list, tuple)):
         return {
             i: to_dict_recursive_for_bake(v)
             for i, v in enumerate(obj)
         }
 
-    # int, float, str など
     return obj
 
 
@@ -63,7 +67,6 @@ def flatten_dict_for_bake(
     parent_key: str = "",
     sep: str = "_",
 ) -> dict[str, Any]:
-
     result = {}
 
     for k, v in d.items():
@@ -85,11 +88,12 @@ def flatten_any_for_bake(obj: Any, sep: str = "_") -> dict[str, Any]:
 
     return flatten_dict_for_bake(dict_obj, sep=sep)
 
+
 def get_keys_and_values_for_bake(world_items_dict):
-    flatten_dict_for_bake = flatten_any_for_bake(world_items_dict)
-    items = list(flatten_dict_for_bake.items())
-    # valueがNoneのものはbakeできないので除外
-    items = [(k,v) for k,v in items if v is not None]
+    flattened = flatten_any_for_bake(world_items_dict)
+    items = list(flattened.items())
+    # None values cannot be baked.
+    items = [(k, v) for k, v in items if v is not None]
     keys = [k for k, _ in items]
     values = [v for _, v in items]
     return keys, values

@@ -57,3 +57,10 @@ def get_output_dir(initial_or_final: str) -> Path:
     if initial_or_final == "final":
         return FINAL_OUTPUT_DIR
     raise ValueError(f"initial_or_final must be 'initial' or 'final', got {initial_or_final}")
+
+def get_input_Rhino_dir(initial_or_final: str) -> Path:
+    if initial_or_final == "initial":
+        return INITIAL_INPUT_DIR / "Rhinoから取得"
+    if initial_or_final == "final":
+        return FINAL_INPUT_DIR / "Rhinoから取得"
+    raise ValueError(f"initial_or_final must be 'initial' or 'final', got {initial_or_final}")
