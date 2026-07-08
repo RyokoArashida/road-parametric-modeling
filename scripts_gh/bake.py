@@ -32,12 +32,30 @@ def ensure_list(obj: Any) -> list[Any]:
     return [obj]
 
 
+def unwrap_gh_value(obj: Any) -> Any:
+    if obj is None:
+        return None
+
+    script_variable = getattr(obj, "ScriptVariable", None)
+    if callable(script_variable):
+        try:
+            return script_variable()
+        except TypeError:
+            pass
+
+    if hasattr(obj, "Value"):
+        return obj.Value
+
+    return obj
+
+
 def bake_one_geometry(
     geometry: Any,
     name: str,
     layer_index: int | None = None,
     color=None,
 ) -> str | None:
+    geometry = unwrap_gh_value(geometry)
     if geometry is None:
         return None
 
@@ -72,7 +90,7 @@ def bake_one_geometry(
     elif isinstance(geometry, Rhino.Geometry.Extrusion):
         guid = rhdoc.Objects.AddExtrusion(geometry, attr)
     else:
-        raise TypeError(f"Unsupported bake geometry type: {type(geometry)}")
+        return None
 
     if guid is None or guid == Guid.Empty:
         return None
@@ -117,17 +135,19 @@ def bake_flat_brep_dict(
             continue
 
         # 最初の1個だけ使う
-        geometry = geometries[0]
+        guids = []
+        for geometry in geometries:
+            guid = bake_one_geometry(
+                geometry=geometry,
+                name=name,
+                layer_index=layer_index,
+                color=color,
+            )
+            if guid is not None:
+                guids.append(guid)
 
-        guid = bake_one_geometry(
-            geometry=geometry,
-            name=name,
-            layer_index=layer_index,
-            color=color,
-        )
-
-        if guid is not None:
-            baked_result[name] = [guid]
+        if guids:
+            baked_result[name] = guids
 
     if redraw:
         Rhino.RhinoDoc.ActiveDoc.Views.Redraw()

@@ -92,8 +92,11 @@ def flatten_any_for_bake(obj: Any, sep: str = "_") -> dict[str, Any]:
 def get_keys_and_values_for_bake(world_items_dict):
     flattened = flatten_any_for_bake(world_items_dict)
     items = list(flattened.items())
-    # None values cannot be baked.
-    items = [(k, v) for k, v in items if v is not None]
+    items = [
+        (k, v)
+        for k, v in items
+        if isinstance(v, RHINO_TYPES)
+    ]
     keys = [k for k, _ in items]
     values = [v for _, v in items]
     return keys, values

@@ -43,6 +43,58 @@ from my_project.utils.geometry_gh.transform import place_obj
 from my_project.utils.io import load_from_pickle, save_json_and_pickle
 
 
+def get_named_footing_top_points(
+    footing_top_points: list[Point3D],
+    abut_points: dict,
+) -> dict[str, Point3D]:
+    if len(footing_top_points) != 4:
+        raise ValueError(f"Need 4 footing top points, got {len(footing_top_points)}")
+
+    wing_dict = abut_points["wing_dict"]
+    U_base = wing_dict["U_wing_top_points"]["DT"]
+    D_base = wing_dict["D_wing_top_points"]["UT"]
+    U_wing = wing_dict["U_wing_top_points"]["DN"]
+    D_wing = wing_dict["D_wing_top_points"]["UN"]
+
+    def center(point1: Point3D, point2: Point3D) -> Point3D:
+        return Point3D(
+            x=(point1.x + point2.x) / 2,
+            y=(point1.y + point2.y) / 2,
+            z=(point1.z + point2.z) / 2,
+        )
+
+    def xy_projection(point: Point3D, origin: Point3D, axis_end: Point3D) -> float:
+        return (
+            (point.x - origin.x) * (axis_end.x - origin.x)
+            + (point.y - origin.y) * (axis_end.y - origin.y)
+        )
+
+    base_center = center(U_base, D_base)
+    wing_center = center(U_wing, D_wing)
+    sorted_by_base_to_wing = sorted(
+        footing_top_points,
+        key=lambda point: xy_projection(point, base_center, wing_center),
+    )
+    bridge_points = sorted_by_base_to_wing[:2]
+    soil_points = sorted_by_base_to_wing[2:]
+
+    def split_UD(points: list[Point3D]) -> tuple[Point3D, Point3D]:
+        sorted_by_U_to_D = sorted(
+            points,
+            key=lambda point: xy_projection(point, U_base, D_base),
+        )
+        return sorted_by_U_to_D[0], sorted_by_U_to_D[1]
+
+    U_bridge, D_bridge = split_UD(bridge_points)
+    U_soil, D_soil = split_UD(soil_points)
+    return {
+        "U_bridge": U_bridge,
+        "D_bridge": D_bridge,
+        "U_soil": U_soil,
+        "D_soil": D_soil,
+    }
+
+
 def get_box_from_SquareCorners(
     top_corners: Square_Corners,
     foundation_top_z: float,
@@ -853,6 +905,45 @@ def get_each_abut(
             return None
         return const_3Dpoint(place_obj_setting(point))
 
+    def place_point_data(obj):
+        if obj is None:
+            return None
+        if isinstance(obj, (Point2D, Point3D, rg.Point3d)):
+            return place_point_setting(obj)
+        if isinstance(obj, dict):
+            return {
+                key: place_point_data(value)
+                for key, value in obj.items()
+            }
+        if isinstance(obj, (list, tuple)):
+            return [
+                place_point_data(value)
+                for value in obj
+            ]
+        if hasattr(obj, "__dict__"):
+            return {
+                key: place_point_data(value)
+                for key, value in obj.__dict__.items()
+                if not key.startswith("_")
+            }
+        return obj
+
+    def collect_point_data(source_dict):
+        point_key_tokens = ("point", "points", "corner", "corners", "bottom")
+        return {
+            key: place_point_data(value)
+            for key, value in source_dict.items()
+            if any(token in key for token in point_key_tokens)
+        }
+
+    abut_points = {
+        "beamseat_dict": collect_point_data(beamseat_dict),
+        "backwall_dict": collect_point_data(backwall_dict),
+        "wing_dict": collect_point_data(wing_dict),
+        "slabseat_dict": collect_point_data(slabseat_dict),
+        "barrier_dict": collect_point_data(barrier_dict),
+    }
+
     # 上面のデータは必要(ワールド座標）
     if not double:
         top_surf_corners = [
@@ -901,11 +992,8 @@ def get_each_abut(
         "UE_wing": place_point_setting(UE_wing_base_bottom),
         "DE_wing": place_point_setting(DE_wing_base_bottom),
     },
-    {
-        "foundation_top_z": foundation_top_z,
-        "U_wing_outer_end": place_point_setting(wing_dict["U_wing_top_points"].UN),
-        "D_wing_outer_end": place_point_setting(wing_dict["D_wing_top_points"].DN),
-    },
+    abut_points,
+    foundation_top_z,
     {
         key: place_obj_setting(brep)
         for key, brep in soil_dict.items()
@@ -922,8 +1010,11 @@ def main(initial_or_final: str):
 
     indiv_infos = load_from_pickle(DIR / f"{Filenames.INPUT}_{Filenames.ABUT}_{Filenames.INDIV}.pickle")
     common_info_dict = load_from_pickle(DIR / f"{Filenames.INPUT}_{Filenames.ABUT}_{Filenames.COMMON}.pickle")
+    abut_footing_top_points_dict = load_from_pickle(
+        DIR / f"{Filenames.WORLD}_{Filenames.ABUT}_{Filenames.FOOTING}_{Filenames.TOP}_{Filenames.POINTS}.pickle"
+    )
     barrier_base_bottom_dict = {}
-    wing_outer_points_dict = {}
+    abut_points_dict = {}
     local_top_surf_corners_dict = {}
     world_items_dict_for_bake = {}
     world_items_dict_for_bake_2 = {}
@@ -932,20 +1023,24 @@ def main(initial_or_final: str):
     for abut_name, indiv_info in indiv_infos.items():
         bridge_type = indiv_info.bridge_type
         common_info = common_info_dict[bridge_type]
-        abut_dict, barrier_dict, barrier_base_point_dict, wing_outer_points, soil_dict, top_surf_corners_dict = get_each_abut(
+        abut_dict, barrier_dict, barrier_base_point_dict, abut_points, foundation_top_z, soil_dict, top_surf_corners_dict = get_each_abut(
             input_indiv_info = indiv_info,
             input_common_info = common_info,
         )
 
         barrier_base_bottom_dict[abut_name] = {
             "pavement_height": common_info.barrier_common_info.pavement_height,
-            "foundation_top_z": wing_outer_points["foundation_top_z"],
+            "foundation_top_z": foundation_top_z,
             "points": barrier_base_point_dict,
         } # ここはpickel用
-        wing_outer_points_dict[abut_name] = {
-            "U": wing_outer_points["U_wing_outer_end"],
-            "D": wing_outer_points["D_wing_outer_end"],
-        }
+        if abut_name in abut_footing_top_points_dict:
+            abut_points["footing_dict"] = {
+                "footing_top_points": get_named_footing_top_points(
+                    footing_top_points=abut_footing_top_points_dict[abut_name],
+                    abut_points=abut_points,
+                )
+            }
+        abut_points_dict[abut_name] = abut_points
         frame_2D = top_surf_corners_dict["frame_2D"]
         top_surf_corners = top_surf_corners_dict["top_corners"]
         if len(top_surf_corners) == 1:
@@ -979,9 +1074,9 @@ def main(initial_or_final: str):
         name = f"{Filenames.WORLD}_{Filenames.ABUT}_{Filenames.TOP}_{Filenames.POINTS}",
     )
     save_json_and_pickle(
-        data = wing_outer_points_dict,
+        data = abut_points_dict,
         folder_path = DIR,
-        name = f"{Filenames.WORLD}_{Filenames.ABUT}_wing_outer_points",
+        name = f"{Filenames.WORLD}_{Filenames.ABUT}_{Filenames.POINTS}",
     )
     def get_keys_and_values_for_bake(world_items_dict):
         flatten_dict_for_bake = flatten_any(world_items_dict)

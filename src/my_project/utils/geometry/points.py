@@ -77,6 +77,66 @@ def transform_local_point_to_world_vertical_plane(
         z=z,
     )
 
+def transform_local_point_by_corresponding_points(
+    local_points: list[Union[Point2D, Point3D]],
+    world_points: list[Point3D],
+    local_target_point: Union[Point2D, Point3D],
+) -> Point3D:
+    if len(local_points) != len(world_points):
+        raise ValueError(
+            f"local_points and world_points length mismatch: {len(local_points)}, {len(world_points)}"
+        )
+    if len(local_points) == 2:
+        return transform_local_point_to_world_vertical_plane(
+            local_points=local_points,
+            world_points=world_points,
+            local_target_point=local_target_point,
+        )
+    if len(local_points) != 3:
+        raise ValueError(f"Need 2 or 3 corresponding points, got {len(local_points)}")
+
+    def as_3d(point: Union[Point2D, Point3D]) -> Point3D:
+        if isinstance(point, Point2D):
+            return Point3D(x=point.x, y=point.y, z=0)
+        return point
+
+    def sub(point1: Point3D, point0: Point3D) -> Point3D:
+        return Point3D(
+            x=point1.x - point0.x,
+            y=point1.y - point0.y,
+            z=point1.z - point0.z,
+        )
+
+    def dot(v0: Point3D, v1: Point3D) -> float:
+        return v0.x * v1.x + v0.y * v1.y + v0.z * v1.z
+
+    local_0, local_1, local_2 = [as_3d(point) for point in local_points]
+    world_0, world_1, world_2 = world_points
+    target = as_3d(local_target_point)
+
+    local_v1 = sub(local_1, local_0)
+    local_v2 = sub(local_2, local_0)
+    local_vt = sub(target, local_0)
+
+    a11 = dot(local_v1, local_v1)
+    a12 = dot(local_v1, local_v2)
+    a22 = dot(local_v2, local_v2)
+    b1 = dot(local_vt, local_v1)
+    b2 = dot(local_vt, local_v2)
+    det = a11 * a22 - a12 * a12
+    if det == 0:
+        raise ValueError("local_points are collinear")
+
+    coef1 = (b1 * a22 - b2 * a12) / det
+    coef2 = (a11 * b2 - a12 * b1) / det
+    world_v1 = sub(world_1, world_0)
+    world_v2 = sub(world_2, world_0)
+    return Point3D(
+        x=world_0.x + world_v1.x * coef1 + world_v2.x * coef2,
+        y=world_0.y + world_v1.y * coef1 + world_v2.y * coef2,
+        z=world_0.z + world_v1.z * coef1 + world_v2.z * coef2,
+    )
+
 def transform_point_to_local_coordinate(
     local_points: list[Union[Point2D, Point3D]],
     world_points: list[Point3D],

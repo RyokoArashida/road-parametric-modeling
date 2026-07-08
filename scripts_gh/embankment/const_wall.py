@@ -20,7 +20,6 @@ from my_project.config.util_schemas import (
 )
 from my_project.utils.dataframe import flatten_any
 from my_project.utils.geometry.points import (
-    get_point_by_xy_offset,
     get_point_by_xy_offset_with_z_delta,
     get_point_by_z_offset_on_line,
 )

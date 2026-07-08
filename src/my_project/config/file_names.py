@@ -38,4 +38,5 @@ class Filenames:
     WALL = "wall"
     EMBANKMENT = "embankment"
     PAVEMENT = "pavement"
+    FOOTING = "footing"
     

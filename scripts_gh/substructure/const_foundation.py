@@ -16,7 +16,7 @@ from my_project.utils.geometry_gh.const import (
     const_extrude_brep_from_curve,
     const_point_obj,
 )
-from my_project.utils.io import load_from_pickle
+from my_project.utils.io import load_from_pickle, save_json_and_pickle
 
 
 
@@ -25,14 +25,14 @@ def get_each_footing(
     ref_offset: LocalOffset,
     corner_points: list[Point3D],
     height: float,
-) -> tuple[rg.Brep, float]:
+) -> tuple[rg.Brep, float, list[Point3D]]:
     corner_points_2D = sort_points_clockwise_from_upper_right(
         points = corner_points,
         center = ref_point
     )
     top_z = ref_point.z + ref_offset.z #基準点からマイナス、を足す（負値）
-    corner_points_3D = [Point3D(p.X, p.Y, top_z) for p in corner_points_2D]
-    corner_points_3D = [const_point_obj(p) for p in corner_points_3D]
+    top_corner_points = [Point3D(p.X, p.Y, top_z) for p in corner_points_2D]
+    corner_points_3D = [const_point_obj(p) for p in top_corner_points]
     footing_polyline = rg.Polyline(corner_points_3D + [corner_points_3D[0]])
     footing_curve = rg.PolylineCurve(footing_polyline)
     footing_brep = const_extrude_brep_from_curve(
@@ -40,7 +40,7 @@ def get_each_footing(
         vector = rg.Vector3d(0, 0, -height),
         cap=True,
     )
-    return footing_brep, top_z - height
+    return footing_brep, top_z - height, top_corner_points
 
 def get_each_piles(
     ref_point: Point3D,
@@ -115,19 +115,22 @@ def main(initial_or_final: str):
     abut_indiv_infos = load_from_pickle(DIR / f"{Filenames.INPUT}_{Filenames.ABUT}_{Filenames.INDIV}.pickle")
     indiv_infos = {**pier_indiv_infos, **abut_indiv_infos}
     world_foundation_dict_for_bake = {}
+    abut_footing_top_points_dict = {}
 
     for substructure_name, indiv_info in indiv_infos.items():
         if pd.isna(indiv_info.footing) and pd.isna(indiv_info.caisson):
             print(f"{substructure_name}の基礎はありません")
             continue
         elif not pd.isna(indiv_info.footing):
-            footing, height = get_each_footing(
+            footing, height, footing_top_points = get_each_footing(
                 ref_point = indiv_info.footing.reference_point,
                 ref_offset = indiv_info.footing.reference_offset,
                 corner_points = indiv_info.footing.corner_points,
                 height = indiv_info.footing.height,
             )
             world_foundation_dict_for_bake[f"{substructure_name}_フーチング"] = footing
+            if substructure_name in abut_indiv_infos:
+                abut_footing_top_points_dict[substructure_name] = footing_top_points
             piles = get_each_piles(
                 ref_point = indiv_info.footing.reference_point,
                 corner_points = indiv_info.piles.corner_points,
@@ -150,6 +153,12 @@ def main(initial_or_final: str):
             )
             for i, caisson in enumerate(caissons):
                 world_foundation_dict_for_bake[f"{substructure_name}_深礎_{i+1}"] = caisson
+
+    save_json_and_pickle(
+        data=abut_footing_top_points_dict,
+        folder_path=DIR,
+        name=f"{Filenames.WORLD}_{Filenames.ABUT}_{Filenames.FOOTING}_{Filenames.TOP}_{Filenames.POINTS}",
+    )
 
     items = world_foundation_dict_for_bake.items()
     keys = [k for k, _ in items]
