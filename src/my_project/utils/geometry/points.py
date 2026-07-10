@@ -1,6 +1,7 @@
 import math
 from typing import Union, Optional
 
+from my_project.config.constants import DISTANCE_TOL, STANDARD_BASE_Z
 from my_project.config.util_schemas import Frame2D, LocalOffset, Point2D, Point3D
 from my_project.config.schemas.superstructure_schemas import CoordInfo
 
@@ -40,6 +41,77 @@ def interpolate_point_3d(p0: Point3D, p1: Point3D, ratio: float) -> Point3D:
         y=p0.y + (p1.y - p0.y) * ratio,
         z=p0.z + (p1.z - p0.z) * ratio,
     )
+
+def get_center_point(points: list[Point3D]) -> Point3D:
+    return Point3D(
+        x=sum(point.x for point in points) / len(points),
+        y=sum(point.y for point in points) / len(points),
+        z=sum(point.z for point in points) / len(points),
+    )
+
+def center_point_pair(point1: Point3D, point2: Point3D) -> Point3D:
+    return Point3D(
+        x=(point1.x + point2.x) / 2,
+        y=(point1.y + point2.y) / 2,
+        z=(point1.z + point2.z) / 2,
+    )
+
+def get_xy_distance_to_segment(point: Point3D, segment_points: tuple[Point3D, Point3D]) -> float:
+    start, end = segment_points
+    dx = end.x - start.x
+    dy = end.y - start.y
+    length2 = dx * dx + dy * dy
+    if length2 == 0:
+        return get_distance_2D(point, start)
+    ratio = (
+        ((point.x - start.x) * dx + (point.y - start.y) * dy)
+        / length2
+    )
+    ratio = max(0.0, min(1.0, ratio))
+    projection = Point3D(
+        x=start.x + dx * ratio,
+        y=start.y + dy * ratio,
+        z=0,
+    )
+    return get_distance_2D(point, projection)
+
+def remove_near_duplicate_points(
+    points: list[Point3D],
+    tol: float = DISTANCE_TOL,
+) -> list[Point3D]:
+    unique_points = []
+    for point in points:
+        if all(get_distance_3D(point, existing) > tol for existing in unique_points):
+            unique_points.append(point)
+    return unique_points
+
+def interpolate_value_by_distance(
+    distances: list[float],
+    values: list[float],
+    target_distance: float,
+    tol: float = DISTANCE_TOL,
+) -> float:
+    if len(distances) != len(values):
+        raise ValueError("Distance and value length mismatch")
+    if target_distance <= distances[0] + tol:
+        return values[0]
+    if target_distance >= distances[-1] - tol:
+        return values[-1]
+    for i in range(len(distances) - 1):
+        if distances[i] - tol <= target_distance <= distances[i + 1] + tol:
+            denom = distances[i + 1] - distances[i]
+            ratio = 0 if abs(denom) < tol else (target_distance - distances[i]) / denom
+            return values[i] + (values[i + 1] - values[i]) * ratio
+    raise ValueError(f"Failed to interpolate value at distance: {target_distance}")
+
+def is_unknown_z_marker(z: float) -> bool:
+    return abs(z - STANDARD_BASE_Z) < DISTANCE_TOL
+
+def point_with_unknown_z_marker(item: dict) -> Point3D:
+    point = item["point"]
+    if item["z_known"]:
+        return point
+    return Point3D(x=point.x, y=point.y, z=STANDARD_BASE_Z)
 
 def transform_local_point_to_world_vertical_plane(
     local_points: list[Union[Point2D, Point3D]],

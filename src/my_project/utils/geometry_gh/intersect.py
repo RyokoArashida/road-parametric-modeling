@@ -2,8 +2,10 @@ from typing import Optional, Union
 
 import Rhino.Geometry as rg
 
-from my_project.config.constants import DISTANCE_TOL
+from my_project.config.constants import DISTANCE_TOL, STANDARD_BASE_Z
 from my_project.config.util_schemas import Point2D, Point3D, Vector2D
+from my_project.utils.geometry.points import get_distance_3D
+from my_project.utils.geometry_gh.attributes import point3d_from_rg
 from my_project.utils.geometry_gh.const import (
     const_curve_obj,
     const_extended_line_from_two_points,
@@ -13,6 +15,93 @@ from my_project.utils.geometry_gh.const import (
     const_vertical_srf_from_point_and_axis,
     const_vertical_srf_from_two_points,
 )
+
+
+def get_intersections_with_vertical_plane(
+    curve: Union[rg.Curve, rg.Line, rg.PolylineCurve],
+    plane_points: tuple[Point3D, Point3D],
+    z: float = STANDARD_BASE_Z,
+) -> list[Point3D]:
+    plane_srf = const_vertical_srf_from_two_points(
+        Point3D(plane_points[0].x, plane_points[0].y, z),
+        Point3D(plane_points[1].x, plane_points[1].y, z),
+    )
+    curve = const_curve_obj(curve)
+    curve_on_reference_z = curve.DuplicateCurve()
+    curve_on_reference_z.Transform(rg.Transform.PlanarProjection(rg.Plane.WorldXY))
+    curve_on_reference_z.Transform(rg.Transform.Translation(rg.Vector3d(0, 0, z)))
+    intersection_events = rg.Intersect.Intersection.CurveBrep(
+        curve_on_reference_z,
+        plane_srf,
+        DISTANCE_TOL,
+    )
+    if not intersection_events or len(intersection_events[2]) == 0:
+        return []
+    return [point3d_from_rg(point, z=z) for point in intersection_events[2]]
+
+
+def get_nearest_projected_intersection_with_vertical_plane(
+    curve: Union[rg.Curve, rg.Line, rg.PolylineCurve],
+    plane_points: tuple[Point3D, Point3D],
+    z: float,
+    anchor_point: Point3D,
+    context: str = "",
+) -> Point3D:
+    points = get_intersections_with_vertical_plane(curve, plane_points, z=z)
+    if not points:
+        suffix = f" context={context}" if context else ""
+        raise ValueError(
+            "Input curve and projected vertical plane do not intersect."
+            f"{suffix}"
+        )
+    return min(points, key=lambda point: get_distance_3D(point, anchor_point))
+
+
+def get_curve_intersections_with_vertical_plane(
+    curve: Union[rg.Curve, rg.Line, rg.PolylineCurve],
+    plane_points: tuple[Point3D, Point3D],
+) -> list[Point3D]:
+    plane_srf = const_vertical_srf_from_two_points(plane_points[0], plane_points[1])
+    intersection_events = rg.Intersect.Intersection.CurveBrep(
+        const_curve_obj(curve),
+        plane_srf,
+        DISTANCE_TOL,
+    )
+    if not intersection_events or len(intersection_events[2]) == 0:
+        return []
+    return [point3d_from_rg(point) for point in intersection_events[2]]
+
+
+def get_polyline_intersections_with_vertical_plane(
+    points: list[Point3D],
+    plane_points: tuple[Point3D, Point3D],
+) -> list[Point3D]:
+    if len(points) < 2:
+        return []
+    curve = rg.PolylineCurve([const_point_obj(point) for point in points])
+    plane_srf = const_vertical_srf_from_two_points(plane_points[0], plane_points[1])
+    intersection_events = rg.Intersect.Intersection.CurveBrep(
+        curve,
+        plane_srf,
+        DISTANCE_TOL,
+    )
+    if not intersection_events or len(intersection_events[2]) == 0:
+        return []
+    return [point3d_from_rg(point) for point in intersection_events[2]]
+
+
+def get_cut_point_on_polyline_with_vertical_plane(
+    points: list[Point3D],
+    cutter_points: list[Point3D],
+    anchor_point: Point3D,
+) -> Point3D:
+    curve = rg.PolylineCurve([const_point_obj(point) for point in points])
+    cutter_srf = const_vertical_srf_from_two_points(cutter_points[0], cutter_points[1])
+    intersection_events = rg.Intersect.Intersection.CurveBrep(curve, cutter_srf, DISTANCE_TOL)
+    if not intersection_events or len(intersection_events[2]) == 0:
+        raise ValueError("Polyline and vertical cutter do not intersect")
+    points_on_curve = [point3d_from_rg(point) for point in intersection_events[2]]
+    return min(points_on_curve, key=lambda point: get_distance_3D(point, anchor_point))
 
 
 def split_two_surfaces(

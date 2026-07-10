@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, fields
-from typing import Optional, TypeVar
+from dataclasses import dataclass
+from typing import Optional
 
 import Rhino.Geometry as rg
 
@@ -17,9 +17,9 @@ from my_project.config.schemas.cross_girder_schemas import (
     YokogetaInfo,
 )
 from my_project.config.util_schemas import Point3D, Vector2D
+from my_project.domain.main_girder import get_MG_polylines, get_polyline_from_points
 from my_project.utils.bake import get_keys_and_values_for_bake
 from my_project.utils.geometry.points import (
-    get_point_by_xy_offset,
     get_point_by_xyz_offset,
     interpolate_point_3d,
 )
@@ -45,9 +45,6 @@ from my_project.utils.geometry_gh.transform import (
     offset_line_segment_on_plane_and_get_vectors,
 )
 from my_project.utils.io import load_from_pickle
-
-T = TypeVar("T")
-
 
 @dataclass(frozen=True)
 class MGSpanContext:
@@ -114,45 +111,6 @@ def get_MG_edge_context(
         polyline_I_side_dict = get_MG_polyline_side_dict(MG_polyline_dict_I, "I"),
         polyline_O_side_dict = get_MG_polyline_side_dict(MG_polyline_dict_O, "O"),
     )
-
-def get_polyline_from_points(infos: list[T]) -> dict[str, rg.Polyline]:
-    points = {}
-    names = [f.name for f in fields(infos[0])]
-    for name in names:
-        points[name] = []
-    for info in infos:
-        d = {f.name: getattr(info, f.name) for f in fields(info)}
-        for name, point in d.items():
-            points[name].append(point)
-    polylines = {}
-    for name, pts in points.items():
-        if isinstance(pts[0], Point3D):
-            # 端っこを少しだけ伸ばす
-            start_distance = const_line_obj(pts[0], pts[1]).Length
-            end_distance = const_line_obj(pts[-1], pts[-2]).Length
-            extended_start_point = get_point_by_xy_offset(
-                point1 = pts[0],
-                point2 = pts[1],
-                offset = -start_distance * 0.1, # 10%伸ばす
-            )
-            extended_end_point = get_point_by_xy_offset(
-                point1 = pts[-1],
-                point2 = pts[-2],
-                offset = -end_distance * 0.1, # 10%伸ばす
-            )
-            extended_pts = [extended_start_point] + pts[1:-1] + [extended_end_point]
-            polylines[name] = const_polycurve_obj(extended_pts)
-    return polylines
-
-def get_MG_polylines(
-    MG_point_dict_for_CG_for_MG: list[MainGirderPointInfo_IO], #あるMGについて
-):
-    MG_type = "I" if MG_point_dict_for_CG_for_MG[0].I_points is not None else "Box"
-    if MG_type == "I":
-        info_list = [mg_point_info.I_points for mg_point_info in MG_point_dict_for_CG_for_MG]
-    else:
-        info_list = [mg_point_info.Box_points for mg_point_info in MG_point_dict_for_CG_for_MG]
-    return get_polyline_from_points(info_list)
 
 def get_slab_bottom_polylines(
     slab_bottom_points_for_CG: list[list[SlabBottomPoints_IO]],

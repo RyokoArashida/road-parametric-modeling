@@ -1,32 +1,152 @@
-
 import pandas as pd
+from typing import Optional
 
 from my_project.config.file_names import Filenames
 from my_project.config.paths import get_input_output_dirs
 from my_project.config.schemas.embankment_pavement_schemas import (
+    EdgeSideInfo,
     EdgeStructureInfo,
     EmbankmentPaveInfo,
     PointsInfo,
+    WallInterferenceInfo,
+    WallTargetInfo,
 )
 from my_project.config.util_schemas import MonoSlope
 from my_project.utils.io import load_from_pickle, read_file_to_df, save_json_and_pickle
 
 
-def get_indiv_info_from_row(row: pd.Series, edge_points_dict: dict) -> EmbankmentPaveInfo:
+def clean_optional(value):
+    if pd.isna(value):
+        return None
+    return value
+
+
+def clean_optional_str(value):
+    value = clean_optional(value)
+    if value is None:
+        return None
+    return str(value)
+
+
+def clean_optional_int(value):
+    value = clean_optional(value)
+    if value is None:
+        return None
+    return int(value)
+
+
+def structure_type_to_code(value):
+    value = clean_optional_str(value)
+    if value is None:
+        return None
+    if value == "橋台":
+        return "abutment"
+    raise ValueError(f"Unknown structure type: {value}")
+
+
+def get_embankment_excel_path(input_dir):
+    candidates = [
+        input_dir / "土工部土工線形.xlsx",
+        input_dir / "土工部横断線形.xlsx",
+    ]
+    for path in candidates:
+        if path.exists():
+            return path
+    raise FileNotFoundError(f"Embankment alignment Excel was not found: {candidates}")
+
+
+def get_edge_structure(row: pd.Series, prefix: str) -> Optional[EdgeStructureInfo]:
+    structure_type = structure_type_to_code(row[f"{prefix}_全体_種類"])
+    structure_name = clean_optional_str(row[f"{prefix}_全体_名称"])
+    if structure_type is None and structure_name is None:
+        return None
+    if structure_type is None or structure_name is None:
+        raise ValueError(f"Incomplete edge structure info: {prefix}, {row.to_dict()}")
+    return EdgeStructureInfo(
+        structure_type=structure_type,
+        structure_name=structure_name,
+    )
+
+
+def get_edge_side(row: pd.Series, prefix: str) -> EdgeSideInfo:
+    return EdgeSideInfo(
+        structure=get_edge_structure(row, prefix),
+        U_slope=clean_optional(row[f"{prefix}_勾配_上り線"]),
+        D_slope=clean_optional(row[f"{prefix}_勾配_下り線"]),
+    )
+
+
+def get_target_info(row: pd.Series, prefix: str) -> Optional[WallTargetInfo]:
+    target_name = clean_optional_str(row[f"{prefix}_対象名称"])
+    target_num = clean_optional_int(row[f"{prefix}_対象番号"])
+    target_type = clean_optional_str(row[f"{prefix}_対象区分"])
+    target_edge_name = clean_optional_str(row[f"{prefix}_対象名称.1"])
+    target_tier = clean_optional_int(row[f"{prefix}_対象盛土段"])
+    target_position = clean_optional_str(row[f"{prefix}_対象盛土位置"])
+    if all(v is None for v in [target_name, target_num, target_type, target_edge_name, target_tier, target_position]):
+        return None
+    if target_name is None or target_num is None or target_type is None:
+        raise ValueError(f"Incomplete wall target info: {prefix}, {row.to_dict()}")
+    return WallTargetInfo(
+        target_name=target_name,
+        target_num=target_num,
+        target_type=target_type,
+        target_edge_name=target_edge_name,
+        target_tier=target_tier,
+        target_position=target_position,
+    )
+
+
+def get_key(name: str, num: int) -> tuple[str, int]:
+    return name, int(num)
+
+
+def get_edge_info_dict(edge_df: pd.DataFrame) -> dict[tuple[str, int], tuple[EdgeSideInfo, EdgeSideInfo]]:
+    edge_info_dict = {}
+    for _, row in edge_df.iterrows():
+        name = row["全体_全体_名称"]
+        num = int(row["全体_全体_番号"])
+        edge_info_dict[get_key(name, num)] = (
+            get_edge_side(row, "起点側"),
+            get_edge_side(row, "終点側"),
+        )
+    return edge_info_dict
+
+
+def get_wall_interference_dict(wall_df: pd.DataFrame) -> dict[tuple[str, int], list[WallInterferenceInfo]]:
+    interference_dict: dict[tuple[str, int], list[WallInterferenceInfo]] = {}
+    wall_df = wall_df[wall_df["全体_大名称"] != "大名称"]
+    for _, row in wall_df.iterrows():
+        wall_info = WallInterferenceInfo(
+            wall_main_name=row["全体_大名称"],
+            wall_name=row["全体_小名称"],
+            berm=get_target_info(row, "小段"),
+            top=get_target_info(row, "上点"),
+            bottom=get_target_info(row, "下点"),
+        )
+        target_infos = [info for info in [wall_info.berm, wall_info.top, wall_info.bottom] if info is not None]
+        if not target_infos:
+            continue
+        keys = {get_key(info.target_name, info.target_num) for info in target_infos}
+        if len(keys) != 1:
+            raise ValueError(f"Wall interference points refer to multiple embankments: {row.to_dict()}")
+        key = next(iter(keys))
+        interference_dict.setdefault(key, []).append(wall_info)
+    return interference_dict
+
+
+def get_indiv_info_from_row(
+    row: pd.Series,
+    edge_points_dict: dict,
+    edge_info_dict: dict[tuple[str, int], tuple[EdgeSideInfo, EdgeSideInfo]],
+    wall_interference_dict: dict[tuple[str, int], list[WallInterferenceInfo]],
+) -> EmbankmentPaveInfo:
     name = row["全体_名称"]
     num = int(row["全体_番号"])
     edge_key = f"{name}_{num - 1}"
     edge_points = edge_points_dict[edge_key]
-    if row["境界構造物_起点側種類"] is not None:
-        if row["境界構造物_起点側種類"] == "橋台":
-            row["境界構造物_起点側種類"] = "abutment"
-        else:
-            raise ValueError(f"Unknown structure type: {row['境界構造物_起点側種類']}")
-    if row["境界構造物_終点側種類"] is not None:
-        if row["境界構造物_終点側種類"] == "橋台":
-            row["境界構造物_終点側種類"] = "abutment"
-        else:
-            raise ValueError(f"Unknown structure type: {row['境界構造物_終点側種類']}")
+    key = get_key(name, num)
+    start_edge, end_edge = edge_info_dict.get(key, (None, None))
     return EmbankmentPaveInfo(
         name=name,
         num=num,
@@ -35,45 +155,57 @@ def get_indiv_info_from_row(row: pd.Series, edge_points_dict: dict) -> Embankmen
             Upoint=edge_points["U_points"],
             Dpoint=edge_points["D_points"],
         ),
+        width=row["形状_幅"],
         thickness=row["形状_厚"],
         slope=MonoSlope(row["形状_勾配"]),
-        start_edge_structure=EdgeStructureInfo(
-            structure_type=row["境界構造物_起点側種類"],
-            structure_name=row["境界構造物_起点側名称"],
-        ),
-        end_edge_structure=EdgeStructureInfo(
-            structure_type=row["境界構造物_終点側種類"],
-            structure_name=row["境界構造物_終点側名称"],
-        )
+        start_edge=start_edge,
+        end_edge=end_edge,
+        wall_interferences=wall_interference_dict.get(key, []),
+        start_edge_structure=start_edge.structure if start_edge else None,
+        end_edge_structure=end_edge.structure if end_edge else None,
     )
-
 
 
 def main(initial_or_final: str) -> None:
     input_dir, output_dir = get_input_output_dirs(initial_or_final)
+    embankment_excel_path = get_embankment_excel_path(input_dir)
 
-    embankment_pave_excel_path = input_dir / "土工部舗装横断線形.xlsx"
-
-    embankment_pave_master_df = read_file_to_df(
-        file_path = embankment_pave_excel_path,
-        sheet_name = "土工部舗装対象一覧",
-        header = [0,1]
+    embankment_target_df = read_file_to_df(
+        file_path=embankment_excel_path,
+        sheet_name="土工部対象一覧",
+        header=[0, 1],
+    )
+    edge_info_df = read_file_to_df(
+        file_path=embankment_excel_path,
+        sheet_name="端部情報一覧",
+        header=[0, 1, 2],
+    )
+    wall_interference_df = read_file_to_df(
+        file_path=embankment_excel_path,
+        sheet_name="擁壁干渉一覧",
+        header=[0, 1],
     )
 
     edge_points_dict = load_from_pickle(
         file_path=output_dir / f"{Filenames.ROAD}_{Filenames.EDGE}_{Filenames.POINTS}.pickle",
     )
+    edge_info_dict = get_edge_info_dict(edge_info_df)
+    wall_interference_dict = get_wall_interference_dict(wall_interference_df)
 
-    embankment_pave_info = []
-    for _, row in embankment_pave_master_df.iterrows():
-        info = get_indiv_info_from_row(row, edge_points_dict)
-        embankment_pave_info.append(info)
-        
+    embankment_pave_info = [
+        get_indiv_info_from_row(
+            row=row,
+            edge_points_dict=edge_points_dict,
+            edge_info_dict=edge_info_dict,
+            wall_interference_dict=wall_interference_dict,
+        )
+        for _, row in embankment_target_df.iterrows()
+    ]
 
     save_json_and_pickle(
-        data = embankment_pave_info,
-        folder_path = output_dir,
-        name = f"{Filenames.INPUT}_{Filenames.EMBANKMENT}_{Filenames.PAVEMENT}"
+        data=embankment_pave_info,
+        folder_path=output_dir,
+        name=f"{Filenames.INPUT}_{Filenames.EMBANKMENT}_{Filenames.PAVEMENT}",
     )
 
 

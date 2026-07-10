@@ -1,5 +1,5 @@
-from dataclasses import fields, replace
-from typing import Any, TypeVar, Union
+from dataclasses import replace
+from typing import Any, Union
 
 import Rhino.Geometry as rg
 
@@ -23,10 +23,8 @@ from my_project.config.util_schemas import (
     Square_and_center_Corners,
     Square_Corners,
 )
+from my_project.domain.main_girder import get_MG_polylines
 from my_project.utils.dataframe import flatten_any
-from my_project.utils.geometry.points import (
-    get_point_by_xy_offset,
-)
 from my_project.utils.geometry.vectors import (
     get_frame_2D,
 )
@@ -54,47 +52,6 @@ from my_project.utils.geometry_gh.transform import (
     unplace_obj,
 )
 from my_project.utils.io import load_from_pickle
-
-T = TypeVar("T")
-
-def get_polyline_from_points(infos: list[T]) -> dict[str, rg.Polyline]:
-    points = {}
-    names = [f.name for f in fields(infos[0])]
-    for name in names:
-        points[name] = []
-    for info in infos:
-        d = {f.name: getattr(info, f.name) for f in fields(info)}
-        for name, point in d.items():
-            points[name].append(point)
-    polylines = {}
-    for name, pts in points.items():
-        if isinstance(pts[0], Point3D):
-            # 端っこを少しだけ伸ばす
-            start_distance = const_line_obj(pts[0], pts[1]).Length
-            end_distance = const_line_obj(pts[-1], pts[-2]).Length
-            extended_start_point = get_point_by_xy_offset(
-                point1 = pts[0],
-                point2 = pts[1],
-                offset = -start_distance * 0.1, # 10%伸ばす
-            )
-            extended_end_point = get_point_by_xy_offset(
-                point1 = pts[-1],
-                point2 = pts[-2],
-                offset = -end_distance * 0.1, # 10%伸ばす
-            )
-            extended_pts = [extended_start_point] + pts[1:-1] + [extended_end_point]
-            polylines[name] = const_polycurve_obj(extended_pts)
-    return polylines
-
-def get_MG_polylines(
-    MG_point_dict_for_CG_for_MG: list[MainGirderPointInfo_IO], #あるMGについて
-):
-    MG_type = "I" if MG_point_dict_for_CG_for_MG[0].I_points is not None else "Box"
-    if MG_type == "I":
-        info_list = [mg_point_info.I_points for mg_point_info in MG_point_dict_for_CG_for_MG]
-    else:
-        info_list = [mg_point_info.Box_points for mg_point_info in MG_point_dict_for_CG_for_MG]
-    return get_polyline_from_points(info_list)
 
 
 def get_MG_bottom_srfs(

@@ -18,3 +18,21 @@ def get_named_points_on_layer(layer_index: int) -> dict[str, rg.Point3d]:
             raise ValueError(f"Duplicate point name on layer index {layer_index}: {name}")
         point_dict[name] = geometry.Location
     return point_dict
+
+
+def get_named_curves_on_layer(layer_index: int) -> dict[str, rg.Curve]:
+    rhdoc = Rhino.RhinoDoc.ActiveDoc
+    settings = Rhino.DocObjects.ObjectEnumeratorSettings()
+    settings.LayerIndex = int(layer_index)
+    curve_dict = {}
+    for rhino_obj in rhdoc.Objects.GetObjectList(settings):
+        geometry = rhino_obj.Geometry
+        if not isinstance(geometry, rg.Curve):
+            continue
+        name = rhino_obj.Attributes.Name
+        if not name:
+            continue
+        if name in curve_dict:
+            raise ValueError(f"Duplicate curve name on layer index {layer_index}: {name}")
+        curve_dict[name] = geometry
+    return curve_dict

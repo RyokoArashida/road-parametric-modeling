@@ -3,11 +3,78 @@ from typing import Union
 
 import Rhino.Geometry as rg
 
+from my_project.config.constants import DISTANCE_TOL
 from my_project.config.util_schemas import (
     Point2D,
     Point3D,
 )
+from my_project.utils.geometry.points import interpolate_value_by_distance
 from my_project.utils.geometry_gh.const import const_curve_obj, const_point_obj
+
+
+def point3d_from_rg(point: rg.Point3d, z: Union[float, None] = None) -> Point3D:
+    return Point3D(
+        x=point.X,
+        y=point.Y,
+        z=point.Z if z is None else z,
+    )
+
+
+def get_curve_distance(
+    curve: Union[rg.Curve, rg.Line, rg.PolylineCurve, rg.Circle],
+    point: Union[rg.Point3d, Point3D, Point2D],
+) -> float:
+    curve = const_curve_obj(curve)
+    ok, t = curve.ClosestPoint(const_point_obj(point))
+    if not ok:
+        raise ValueError("ClosestPoint failed")
+    return curve.GetLength(rg.Interval(curve.Domain.Min, t))
+
+
+def get_polyline_distances(points: list[Point3D]) -> list[float]:
+    distances = [0.0]
+    for point1, point2 in zip(points, points[1:]):
+        distances.append(distances[-1] + const_point_obj(point1).DistanceTo(const_point_obj(point2)))
+    return distances
+
+
+def get_value_at_point_on_polyline(
+    points: list[Point3D],
+    values: list[float],
+    target_point: Point3D,
+) -> float:
+    distances = get_polyline_distances(points)
+    curve = rg.PolylineCurve([const_point_obj(point) for point in points])
+    target_distance = get_curve_distance(curve, target_point)
+    return interpolate_value_by_distance(
+        distances=distances,
+        values=values,
+        target_distance=target_distance,
+    )
+
+
+def get_curve_polyline_points(curve: rg.Curve) -> list[Point3D]:
+    curve = const_curve_obj(curve)
+    ok, polyline = curve.TryGetPolyline()
+    if ok:
+        points = [point3d_from_rg(pt, z=0) for pt in polyline]
+    elif isinstance(curve, rg.PolyCurve):
+        points = []
+        for segment in curve.DuplicateSegments():
+            if not points:
+                points.append(point3d_from_rg(segment.PointAtStart, z=0))
+            points.append(point3d_from_rg(segment.PointAtEnd, z=0))
+    else:
+        nurbs_curve = curve.ToNurbsCurve()
+        if nurbs_curve is None or nurbs_curve.Points.Count == 0:
+            raise ValueError(f"Input curve has no usable vertices or control points: {curve}")
+        points = [
+            point3d_from_rg(nurbs_curve.Points[i].Location, z=0)
+            for i in range(nurbs_curve.Points.Count)
+        ]
+    if len(points) >= 2 and const_point_obj(points[0]).DistanceTo(const_point_obj(points[-1])) < DISTANCE_TOL:
+        points = points[:-1]
+    return points
 
 
 def sort_points_clockwise_from_upper_right(
