@@ -549,11 +549,23 @@ def get_world_embankment_points(
                         break
             crv_df.at[idx, "points"] = points
     
-    def get_cross_section_height_with_slope(name_df, slope):
+    def get_cross_section_slope(name_df, start_slope, end_slope):
+        # tier1のtoeを使う。
+        tier1_toe_distances = name_df[(name_df["tier"] == 1) & (name_df["kind"] == "toe")]["2Ddistances"].iloc[0]
+        all_distance = tier1_toe_distances[-1]
+        slopes = []
+        for i in range(len(tier1_toe_distances)):
+            distance_ratio = 0 if abs(all_distance) < DISTANCE_TOL else tier1_toe_distances[i] / all_distance
+            this_slope = start_slope + (end_slope - start_slope) * distance_ratio
+            slopes.append(this_slope)
+        return slopes
+
+    def get_cross_section_height_with_slope(name_df, slopes):
         name_df = name_df.copy()
         tier1_shoulder_points = name_df[(name_df["tier"] == 1) & (name_df["kind"] == "shoulder")]["points"].iloc[0]
         for i in range(len(tier1_shoulder_points)):
             tier1_shoulder_point = tier1_shoulder_points[i]
+            slope = slopes[i]
             # 全てのtier, kindの点の中でzがstandard_base_z以外の点があるかと、距離の一覧を作る。
             has_known_z_points = []
             cross_section_distances = [0]
@@ -625,41 +637,31 @@ def get_world_embankment_points(
                 name_df.at[toe_idx, "points"] = toe_points
         return name_df
 
-    return crv_df
-                        
-
-        
-        
-        
+    def get_points_with_name_df(name_df, start_slope, end_slope):
+        slopes = get_cross_section_slope(name_df, start_slope, end_slope)
+        name_df_z = get_cross_section_height_with_slope(name_df, slopes)
+        name_points_dict = {}
+        for _, row in name_df_z.iterrows():
+            tier = row["tier"]
+            kind = row["kind"]
+            points = row["points"]
+            if tier not in name_points_dict:
+                name_points_dict[tier] = {}
+            if kind not in name_points_dict[tier]:
+                name_points_dict[tier][kind] = {}
+            name_points_dict[tier][kind] = points
+        return name_points_dict
     
-
-    
-    
-
-
-
-            
-
-
-
-    
-
-
-
-
-
-
-
-    
-
-            
-
-        
-    
-
-
-    
-
+    return {
+        "U_parallel": get_points_with_name_df(crv_df[crv_df["name"] == "U_parallel"],slope,slope),
+        "D_parallel": get_points_with_name_df(crv_df[crv_df["name"] == "D_parallel"],slope,slope),
+        "start_edge_U": get_points_with_name_df(crv_df[crv_df["name"] == "start_edge_U"],slope,start_U_slope),
+        "start_edge_UD": get_points_with_name_df(crv_df[crv_df["name"] == "start_edge_UD"],start_U_slope,start_D_slope),
+        "start_edge_D": get_points_with_name_df(crv_df[crv_df["name"] == "start_edge_D"],start_D_slope,slope),
+        "end_edge_U": get_points_with_name_df(crv_df[crv_df["name"] == "end_edge_U"],slope,end_U_slope),
+        "end_edge_UD": get_points_with_name_df(crv_df[crv_df["name"] == "end_edge_UD"],end_U_slope,end_D_slope),
+        "end_edge_D": get_points_with_name_df(crv_df[crv_df["name"] == "end_edge_D"],end_D_slope,slope),
+    }
 
 def main(initial_or_final: str, debug: bool = False):
     DIR = get_output_dir(initial_or_final)
@@ -682,8 +684,6 @@ def main(initial_or_final: str, debug: bool = False):
         name = info.name
         num = info.num
         unique_key = f"{name}_{num}"
-
-
         indiv_dict = get_world_embankment_points(
             pavement_info=info,
             pavement_bottom_points_dict=pavement_bottom_points_dict[unique_key],
@@ -702,10 +702,9 @@ def main(initial_or_final: str, debug: bool = False):
         bake_keys, bake_objs = get_keys_and_values_for_bake(world_embankment_points_dict)
         if len(bake_objs) == 0:
             raise ValueError("No embankment points were generated for debug bake")
-        crvs = get_debug_crvs(world_embankment_points_dict)
-        return bake_keys, bake_objs, crvs
+        return bake_keys, bake_objs
     return None
 
 
 if __name__ == "__main__":
-    bake_keys, bake_objs, crvs = main("initial", debug=True)
+    bake_keys, bake_objs = main("initial", debug=True)
