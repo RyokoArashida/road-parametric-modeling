@@ -1,14 +1,19 @@
+# ruff: noqa: E402
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, replace
 from typing import Optional
+from itertools import combinations
 
 import Rhino.Geometry as rg
 
-from my_project.config.constants import DISTANCE_TOL
 from my_project.config.file_names import Filenames
 from my_project.config.locale_compat import normalize_lc_time
+
+normalize_lc_time()
+
+import pandas as pd
+
 from my_project.config.paths import get_output_dir
 from my_project.config.schemas.embankment_pavement_schemas import EmbankmentPaveInfo
 from my_project.config.schemas.embankment_schemas import (
@@ -38,1502 +43,622 @@ from my_project.utils.geometry_gh.attributes import (
     get_curve_distance,
     get_curve_polyline_points,
     get_value_at_point_on_polyline,
-    point3d_from_rg,
+    get_closest_point_on_curve_2D,
 )
 from my_project.utils.geometry_gh.const import (
     const_curve_obj,
     const_point_obj,
-    const_vertical_srf_from_two_points,
+    const_polycurve_obj,
 )
 from my_project.utils.geometry_gh.document import get_named_curves_on_layer
 from my_project.utils.geometry_gh.intersect import (
-    get_curve_intersections_with_vertical_plane,
+    split_curve_by_lines_and_match_endpoints,
     get_intersections_with_vertical_plane,
-    get_nearest_projected_intersection_with_vertical_plane,
-    get_polyline_intersections_with_vertical_plane,
 )
 from my_project.utils.io import load_from_pickle, save_json_and_pickle
-
-normalize_lc_time()
+from my_project.config.constants import STANDARD_BASE_Z, DISTANCE_TOL
 
 CURVE_NAME_RE = re.compile(r"^(?P<embankment_key>.+_\d+)_(?P<tier>\d+)_(?P<kind>shoulder|toe)$")
 
 
-@dataclass(frozen=True)
-class EdgeAbutContext:
-    edge: str
-    edge_info: object
-    structure: object
-    wing_points: dict[str, Point3D]
-    soil_line: tuple[Point3D, Point3D]
-    side_lines: dict[str, tuple[Point3D, Point3D]]
+def get_tier_position_from_curve_name(curve_name: str) -> tuple[int, str]:
+    match = CURVE_NAME_RE.match(curve_name)
+    if match is None:
+        raise ValueError(f"Invalid embankment curve name: {curve_name}")
+    return int(match.group("tier")), match.group("kind")
 
 
-def get_embankment_key(pavement_info: EmbankmentPaveInfo) -> str:
-    return f"{pavement_info.name}_{pavement_info.num}"
-
-
-def get_edge_abut_context(
-    pavement_info: EmbankmentPaveInfo,
-    abut_points_dict: dict,
-    edge: str,
-) -> Optional[EdgeAbutContext]:
-    edge_info = get_edge_info(pavement_info, edge)
-    structure = get_edge_structure(pavement_info, edge)
-    if edge_info is None or structure is None or structure.structure_type != "abutment":
-        return None
-    wing_dict = abut_points_dict[structure.structure_name]["wing_dict"]
-    wing_points = get_abut_wing_named_points(wing_dict)
-    return EdgeAbutContext(
-        edge=edge,
-        edge_info=edge_info,
-        structure=structure,
-        wing_points=wing_points,
-        soil_line=(wing_points["U_soil"], wing_points["D_soil"]),
-        side_lines={
-            "U": (wing_points["U_bridge"], wing_points["U_soil"]),
-            "D": (wing_points["D_bridge"], wing_points["D_soil"]),
-        },
-    )
-
-
-def get_bottom_points_at_sta(
-    bottom_points_info: dict,
-    STA: float,
-) -> tuple[Point3D, Point3D]:
-    STAs = [float(sta) for sta in bottom_points_info["STAs"]]
-    U_points = bottom_points_info["U_points"]
-    D_points = bottom_points_info["D_points"]
-    if len(STAs) != len(U_points) or len(STAs) != len(D_points):
-        raise ValueError(
-            f"Pavement bottom point length mismatch: STAs={len(STAs)}, "
-            f"U={len(U_points)}, D={len(D_points)}"
-        )
-    if len(STAs) < 2:
-        raise ValueError("Need at least 2 pavement bottom STAs")
-    if STA < STAs[0] - DISTANCE_TOL or STA > STAs[-1] + DISTANCE_TOL:
-        raise ValueError(f"STA {STA} is outside pavement bottom range {STAs[0]} to {STAs[-1]}")
-
-    for i in range(len(STAs) - 1):
-        sta0 = STAs[i]
-        sta1 = STAs[i + 1]
-        if sta0 - DISTANCE_TOL <= STA <= sta1 + DISTANCE_TOL:
-            if sta1 == sta0:
-                raise ValueError(f"Duplicate pavement bottom STA: {sta0}")
-            ratio = (STA - sta0) / (sta1 - sta0)
-            return (
-                interpolate_point_3d(U_points[i], U_points[i + 1], ratio),
-                interpolate_point_3d(D_points[i], D_points[i + 1], ratio),
-            )
-    raise ValueError(f"Failed to find pavement bottom interval for STA {STA}")
-
-
-def find_named_curve(
-    named_curves: dict[str, rg.Curve],
-    embankment_key: str,
-    side: str,
-    tier: int,
-    point_kind: str,
-) -> tuple[Optional[str], Optional[rg.Curve]]:
-    candidates = [
-        f"{embankment_key}_{side}_{tier}_{point_kind}",
-        f"{embankment_key}_{tier}_{side}_{point_kind}",
-        f"{embankment_key}_{tier}_{point_kind}",
-    ]
-    for name in candidates:
-        if name in named_curves:
-            return name, named_curves[name]
-    return None, None
-
-
-def get_wall_points_for_curve(
-    pavement_info: EmbankmentPaveInfo,
-    curve_spec: dict,
-    wall_points_dict: dict,
-) -> list[Point3D]:
-    wall_points = []
-    point_kind_by_position = {"法肩": "shoulder", "法尻": "toe"}
-    point_prefix_by_attr = {"berm": "小段", "top": "上", "bottom": "下"}
-    for wall_interference in pavement_info.wall_interferences or []:
-        for target_attr in ["berm", "top", "bottom"]:
-            target = getattr(wall_interference, target_attr)
-            if target is None:
-                continue
-            target_key = f"{target.target_name}_{target.target_num}"
-            if target_key != curve_spec["embankment_key"]:
-                continue
-            if target.target_tier != curve_spec["tier"]:
-                continue
-            if point_kind_by_position.get(target.target_position) != curve_spec["kind"]:
-                continue
-            prefix = (
-                f"{wall_interference.wall_main_name}_"
-                f"{wall_interference.wall_name}_"
-                f"{point_prefix_by_attr[target_attr]}_"
-            )
-            matched = [
-                (int(name.replace(prefix, "")), point)
-                for name, point in wall_points_dict.items()
-                if name.startswith(prefix)
-            ]
-            wall_points.extend(point for _, point in sorted(matched, key=lambda item: item[0]))
-    return wall_points
-
-
-def interpolate_unknown_z(points: list[dict]) -> list[Point3D]:
-    if not points:
-        return []
-    polyline = rg.PolylineCurve([const_point_obj(item["point"]) for item in points])
-    distances = [get_curve_distance(polyline, item["point"]) for item in points]
-    known_distance_points = sorted(
-        [
-            (distance, item["point"])
-            for distance, item in zip(distances, points)
-            if item["z_known"]
-        ],
-        key=lambda item: item[0],
-    )
-    if not known_distance_points:
-        return [item["point"] for item in points]
-    output = []
-    for distance, item in zip(distances, points):
-        if item["z_known"]:
-            output.append(item["point"])
-            continue
-        prev_known = max(
-            [known for known in known_distance_points if known[0] <= distance],
-            default=None,
-            key=lambda known: known[0],
-        )
-        next_known = min(
-            [known for known in known_distance_points if known[0] >= distance],
-            default=None,
-            key=lambda known: known[0],
-        )
-        if prev_known is None:
-            z = next_known[1].z
-        elif next_known is None:
-            z = prev_known[1].z
-        else:
-            denom = next_known[0] - prev_known[0]
-            ratio = 0 if abs(denom) < DISTANCE_TOL else (distance - prev_known[0]) / denom
-            z0 = prev_known[1].z
-            z1 = next_known[1].z
-            z = z0 + (z1 - z0) * ratio
-        point = item["point"]
-        output.append(Point3D(point.x, point.y, z))
-    return output
-
-
-def get_abut_intersections_on_mixed_curve(
-    curve_items: list[dict],
-    wing_points: tuple[Point3D, Point3D],
-) -> list[dict]:
-    if len(curve_items) < 2:
-        return []
-    mixed_points = [point_with_unknown_z_marker(item) for item in curve_items]
-    mixed_curve = rg.PolylineCurve([const_point_obj(point) for point in mixed_points])
-    plane_srf = const_vertical_srf_from_two_points(
-        wing_points[0],
-        wing_points[1],
-    )
-    intersection_events = rg.Intersect.Intersection.CurveBrep(
-        mixed_curve,
-        plane_srf,
-        DISTANCE_TOL,
-    )
-    if not intersection_events or len(intersection_events[2]) == 0:
-        return []
-    intersections = []
-    for rg_point in intersection_events[2]:
-        point = point3d_from_rg(rg_point)
-        closest_segment_index = min(
-            range(len(mixed_points) - 1),
-            key=lambda i: rg.LineCurve(
-                const_point_obj(mixed_points[i]),
-                const_point_obj(mixed_points[i + 1]),
-            ).PointAt(
-                rg.LineCurve(
-                    const_point_obj(mixed_points[i]),
-                    const_point_obj(mixed_points[i + 1]),
-                ).ClosestPoint(const_point_obj(point))[1]
-            ).DistanceTo(const_point_obj(point)),
-        )
-        has_known_z = (
-            curve_items[closest_segment_index]["z_known"]
-            and curve_items[closest_segment_index + 1]["z_known"]
-            and not is_unknown_z_marker(point.z)
-        )
-        intersections.append({"point": point, "has_known_z": has_known_z})
-    return intersections
-
-
-def get_abut_intersection_items_after_wall(
-    *,
-    curve_items: list[dict],
+def get_curve_between_start_end_lines(
     curve: rg.Curve,
-    pavement_info: EmbankmentPaveInfo,
-    abut_points_dict: dict,
-    curve_spec: dict,
-) -> list[dict]:
-    items = []
-    for edge in ["start", "end"]:
-        edge_context = get_edge_abut_context(pavement_info, abut_points_dict, edge)
-        if edge_context is None:
-            continue
-        for side, side_points in edge_context.side_lines.items():
-            intersections = get_abut_intersections_on_mixed_curve(curve_items, side_points)
-            if not intersections:
-                intersections = [
-                    {"point": point, "has_known_z": False}
-                    for point in get_intersections_with_vertical_plane(
-                        curve,
-                        side_points,
-                    )
-                ]
-            intersection = min(
-                intersections,
-                key=lambda item: get_xy_distance_to_segment(item["point"], side_points),
-                default=None,
-            )
-            if intersection is None:
-                continue
-            point = intersection["point"]
-            items.append(
-                {
-                    "point": point,
-                    "edge": edge,
-                    "side": side,
-                    "location": "abut",
-                    "curve_spec": curve_spec,
-                    "has_known_z": intersection["has_known_z"],
-                    "source": f"{edge}_abut",
-                }
-            )
-    return items
-
-
-def get_section_kind_point(
-    section: CrossSectionInfo,
-    side: str,
-    curve_spec: dict,
-) -> Point3D:
-    edge_points = section.U_points if side == "U" else section.D_points
-    point_info = edge_points.points[curve_spec["tier"] - 1]
-    return point_info.top if curve_spec["kind"] == "shoulder" else point_info.bottom
-
-
-def get_parallel_edge_items(
-    *,
-    sections: list[CrossSectionInfo],
-    curve: rg.Curve,
-    curve_spec: dict,
-    edge: str,
-    edge_parallel_points: dict,
-) -> list[dict]:
-    section = sections[0] if edge == "start" else sections[-1]
-    U_provisional = get_section_kind_point(section, "U", curve_spec)
-    U_parallel_point = get_nearest_projected_intersection_with_vertical_plane(
-        curve=curve,
-        plane_points=(edge_parallel_points["U_point"], edge_parallel_points["D_point"]),
-        z=U_provisional.z,
-        anchor_point=edge_parallel_points["U_point"],
-        context=f"{curve_spec['embankment_key']}/{edge}/U/{curve_spec['tier']}/{curve_spec['kind']}/parallel",
-    )
-    D_provisional = get_section_kind_point(section, "D", curve_spec)
-    D_parallel_point = get_nearest_projected_intersection_with_vertical_plane(
-        curve=curve,
-        plane_points=(edge_parallel_points["U_point"], edge_parallel_points["D_point"]),
-        z=D_provisional.z,
-        anchor_point=edge_parallel_points["D_point"],
-        context=f"{curve_spec['embankment_key']}/{edge}/D/{curve_spec['tier']}/{curve_spec['kind']}/parallel",
-    )
-    return [
-        {
-            "point": U_parallel_point,
-            "z_known": True,
-            "source": f"{edge}_parallel",
-            "edge": edge,
-            "side": "U",
-            "location": "parallel",
-        },
-        {
-            "point": D_parallel_point,
-            "z_known": True,
-            "source": f"{edge}_parallel",
-            "edge": edge,
-            "side": "D",
-            "location": "parallel",
-        },
-    ]
-
-
-def get_curve_segment_between_items(
-    *,
-    curve: rg.Curve,
-    curve_items: list[dict],
-    item0: dict,
-    item1: dict,
-    direction: str,
-) -> list[dict]:
-    curve_length = const_curve_obj(curve).GetLength()
-    distance_items = [
-        (get_curve_distance(curve, item["point"]), item)
-        for item in curve_items
-    ]
-    distance0 = get_curve_distance(curve, item0["point"])
-    distance1 = get_curve_distance(curve, item1["point"])
-    if direction == "forward":
-        span = (distance1 - distance0) % curve_length
-
-        def get_offset(distance: float) -> float:
-            return (distance - distance0) % curve_length
-
-    elif direction == "backward":
-        span = (distance0 - distance1) % curve_length
-
-        def get_offset(distance: float) -> float:
-            return (distance0 - distance) % curve_length
-
-    else:
-        raise ValueError(f"Invalid curve segment direction: {direction}")
-
-    segment = [
-        (get_offset(distance), item)
-        for distance, item in distance_items
-        if get_offset(distance) <= span + DISTANCE_TOL
-    ]
-    return [item for _, item in sorted(segment, key=lambda pair: pair[0])]
-
-
-def choose_edge_curve_direction(
-    *,
-    curve: rg.Curve,
-    U_parallel: dict,
-    U_abut: dict,
-    D_abut: dict,
-    D_parallel: dict,
-) -> str:
-    controls = [U_parallel, U_abut, D_abut, D_parallel]
-    curve_length = const_curve_obj(curve).GetLength()
-    direction_lengths = {}
-    for direction in ["forward", "backward"]:
-        total = 0
-        for item0, item1 in zip(controls, controls[1:]):
-            distance0 = get_curve_distance(curve, item0["point"])
-            distance1 = get_curve_distance(curve, item1["point"])
-            total += (
-                (distance1 - distance0) % curve_length
-                if direction == "forward"
-                else (distance0 - distance1) % curve_length
-            )
-        direction_lengths[direction] = total
-    return min(direction_lengths, key=direction_lengths.get)
-
-
-def get_edge_segment_items(
-    *,
-    curve: rg.Curve,
-    curve_items: list[dict],
-    edge: str,
-    context: str,
-) -> list[dict]:
-    edge_items = [item for item in curve_items if item.get("edge") == edge]
-
-    def find_items(side: str, location: str) -> list[dict]:
-        return [
-            item for item in edge_items
-            if item.get("side") == side and item.get("location") == location
-        ]
-
-    def find_item(side: str, location: str) -> Optional[dict]:
-        matches = [
-            item for item in edge_items
-            if item.get("side") == side and item.get("location") == location
-        ]
-        return matches[0] if matches else None
-
-    U_parallel = find_item("U", "parallel")
-    D_parallel = find_item("D", "parallel")
-    U_abut_matches = find_items("U", "abut")
-    D_abut_matches = find_items("D", "abut")
-    U_abut = (
-        min(U_abut_matches, key=lambda item: get_distance_2D(item["point"], U_parallel["point"]))
-        if U_parallel is not None and U_abut_matches
-        else None
-    )
-    D_abut = (
-        min(D_abut_matches, key=lambda item: get_distance_2D(item["point"], D_parallel["point"]))
-        if D_parallel is not None and D_abut_matches
-        else None
-    )
-    if None in [U_parallel, U_abut, D_parallel, D_abut]:
-        found = [
-            f"{item.get('side')}_{item.get('location')}"
-            for item in edge_items
-            if item.get("location") in ["parallel", "abut"]
-        ]
-        raise ValueError(
-            f"Missing edge control points: {context} {edge}; "
-            f"found={found}"
-        )
-
-    direction = choose_edge_curve_direction(
-        curve=curve,
-        U_parallel=U_parallel,
-        U_abut=U_abut,
-        D_abut=D_abut,
-        D_parallel=D_parallel,
-    )
-    U_segment = get_curve_segment_between_items(
-        curve=curve,
-        curve_items=curve_items,
-        item0=U_parallel,
-        item1=U_abut,
-        direction=direction,
-    )
-    middle_segment = get_curve_segment_between_items(
-        curve=curve,
-        curve_items=curve_items,
-        item0=U_abut,
-        item1=D_abut,
-        direction=direction,
-    )
-    D_segment = get_curve_segment_between_items(
-        curve=curve,
-        curve_items=curve_items,
-        item0=D_abut,
-        item1=D_parallel,
-        direction=direction,
-    )
-    output = []
-    for segment in [U_segment, middle_segment, D_segment]:
-        for item in segment:
-            if output and get_distance_3D(output[-1]["point"], item["point"]) < DISTANCE_TOL:
-                continue
-            output.append(item)
-    return output
-
-
-def insert_cross_section_points(
-    points: list[Point3D],
-    *,
-    bottom_points_info: dict,
-    local_sections: list[CrossSectionInfo],
-) -> list[Point3D]:
-    if len(points) < 2:
-        return points
-    curve = rg.PolylineCurve([const_point_obj(point) for point in points])
-    inserted = list(points)
-    for local_section in local_sections:
-        world_U_bottom, world_D_bottom = get_bottom_points_at_sta(
-            bottom_points_info=bottom_points_info,
-            STA=local_section.STA,
-        )
-        cutter_srf = const_vertical_srf_from_two_points(world_U_bottom, world_D_bottom)
-        intersection_events = rg.Intersect.Intersection.CurveBrep(
-            curve,
-            cutter_srf,
-            DISTANCE_TOL,
-        )
-        if not intersection_events or len(intersection_events[2]) == 0:
-            continue
-        inserted.extend(point3d_from_rg(point) for point in intersection_events[2])
-    inserted = remove_near_duplicate_points(inserted)
-    inserted = sorted(inserted, key=lambda point: get_curve_distance(curve, point))
-    return interpolate_unknown_z(
-        [
-            {"point": point, "z_known": abs(point.z) > DISTANCE_TOL, "source": "section_insert"}
-            for point in inserted
-        ]
-    )
-
-
-def get_abut_known_points_for_curve(
-    *,
-    pavement_info: EmbankmentPaveInfo,
-    abut_points_dict: dict,
-    curve: rg.Curve,
-    curve_spec: dict,
-    edge: str,
-) -> list[dict]:
-    edge_context = get_edge_abut_context(pavement_info, abut_points_dict, edge)
-    if edge_context is None:
-        return []
-    intersections = get_intersections_with_vertical_plane(curve, edge_context.soil_line, z=0)
-    known_points = []
-    for point in intersections:
-        U_wing, D_wing = edge_context.soil_line
-        if get_distance_2D(point, U_wing) <= get_distance_2D(point, D_wing):
-            anchor = U_wing
-            slope = edge_context.edge_info.U_slope
-        else:
-            anchor = D_wing
-            slope = edge_context.edge_info.D_slope
-        if slope is None:
-            continue
-        z = anchor.z - get_distance_2D(anchor, point) / slope
-        known_points.append(
-            {
-                "point": Point3D(point.x, point.y, z),
-                "z_known": True,
-                "source": f"{edge}_abut",
-            }
-        )
-    return known_points
-
-
-def get_required_curve_specs(local_sections: list[CrossSectionInfo]) -> list[dict]:
-    max_tier = max(
-        max(len(section.U_points.points), len(section.D_points.points))
-        for section in local_sections
-    )
-    specs = []
-    for tier in range(1, max_tier + 1):
-        if tier != 1:
-            specs.append({"tier": tier, "kind": "shoulder"})
-        specs.append({"tier": tier, "kind": "toe"})
-    return specs
-
-
-def get_edge_curve_points(
-    *,
-    pavement_info: EmbankmentPaveInfo,
-    sections: list[CrossSectionInfo],
-    named_curves: dict[str, rg.Curve],
-    wall_points_dict: dict,
-    abut_points_dict: dict,
-    parallel_points: dict,
+    start_edge_points: tuple[Point3D, Point3D],
+    end_edge_points: tuple[Point3D, Point3D],
 ) -> dict:
-    embankment_key = get_embankment_key(pavement_info)
-
-    prepared_curves = []
-    for spec in get_required_curve_specs(sections):
-        curve_name, curve = find_named_curve(
-            named_curves=named_curves,
-            embankment_key=embankment_key,
-            side="",
-            tier=spec["tier"],
-            point_kind=spec["kind"],
-        )
-        if curve is None:
-            candidates = [
-                f"{embankment_key}_{spec['tier']}_{spec['kind']}",
-                f"{embankment_key}__{spec['tier']}_{spec['kind']}",
-                f"{embankment_key}_{spec['tier']}__{spec['kind']}",
-            ]
-            available = sorted(
-                name for name in named_curves
-                if name.startswith(f"{embankment_key}_")
-            )
-            raise ValueError(
-                "Missing required embankment edge curve: "
-                f"embankment={embankment_key}, tier={spec['tier']}, kind={spec['kind']}, "
-                f"candidates={candidates}, available={available}"
-            )
-        curve_spec = {
-            "embankment_key": embankment_key,
-            "tier": spec["tier"],
-            "kind": spec["kind"],
-        }
-        curve_items = sorted(
-            [
-                {"point": point, "z_known": False, "source": "input_vertex"}
-                for point in get_curve_polyline_points(curve)
-            ],
-            key=lambda item: get_curve_distance(curve, item["point"]),
-        )
-        wall_points = get_wall_points_for_curve(
-            pavement_info=pavement_info,
-            curve_spec=curve_spec,
-            wall_points_dict=wall_points_dict,
-        )
-        curve_items = curve_items + [
-            {"point": point, "z_known": True, "source": "wall"}
-            for point in wall_points
-        ]
-        abut_items = get_abut_intersection_items_after_wall(
-            curve_items=curve_items,
-            curve=curve,
-            pavement_info=pavement_info,
-            abut_points_dict=abut_points_dict,
-            curve_spec=curve_spec,
-        )
-        prepared_curves.append(
-            {
-                "curve_name": curve_name,
-                "curve": curve,
-                "spec": curve_spec,
-                "curve_items": curve_items,
-                "abut_items": abut_items,
-            }
-        )
-
-    edge_curve_points = {}
-    for prepared in prepared_curves:
-        curve = prepared["curve"]
-        for edge in ["start", "end"]:
-            parallel_items = get_parallel_edge_items(
-                sections=sections,
-                curve=curve,
-                curve_spec=prepared["spec"],
-                edge=edge,
-                edge_parallel_points=parallel_points[edge],
-            )
-            curve_items = prepared["curve_items"] + parallel_items + [
-                {
-                    "point": item["point"],
-                    "z_known": item["has_known_z"],
-                    "source": item["source"],
-                    "edge": item["edge"],
-                    "side": item["side"],
-                    "location": "abut",
-                }
-                for item in prepared["abut_items"]
-                if item["edge"] == edge
-            ]
-            curve_items = sorted(curve_items, key=lambda item: get_curve_distance(curve, item["point"]))
-            segment_items = get_edge_segment_items(
-                curve=curve,
-                curve_items=curve_items,
-                edge=edge,
-                context=prepared["curve_name"],
-            )
-            if not segment_items:
-                continue
-            points = interpolate_unknown_z(segment_items)
-            point_sources = [
-                {
-                    "source": item.get("source"),
-                    "location": item.get("location"),
-                    "side": item.get("side"),
-                }
-                for item in segment_items
-            ]
-            edge_curve_points[f"{prepared['curve_name']}_{edge}"] = {
-                "tier": prepared["spec"]["tier"],
-                "kind": prepared["spec"]["kind"],
-                "edge": edge,
-                "points": points,
-                "point_sources": point_sources,
-            }
-    return align_edge_curve_points(
-        edge_curve_points=edge_curve_points,
-        pavement_info=pavement_info,
-        abut_points_dict=abut_points_dict,
-    )
-
-
-def transform_local_point_with_optional_curve_xy(
-    *,
-    local_U_base: Point3D,
-    local_D_base: Point3D,
-    world_U_bottom: Point3D,
-    world_D_bottom: Point3D,
-    local_point: Point3D,
-    named_curves: dict[str, rg.Curve],
-    embankment_key: str,
-    side: str,
-    tier: int,
-    point_kind: str,
-) -> Point3D:
-    provisional_point = transform_local_point_to_world_vertical_plane(
-        local_points=[local_U_base, local_D_base],
-        world_points=[world_U_bottom, world_D_bottom],
-        local_target_point=local_point,
-        local_z_base_point=local_U_base if side == "U" else local_D_base,
-        world_z_base_point=world_U_bottom if side == "U" else world_D_bottom,
-    )
-    curve_name, curve = find_named_curve(
-        named_curves=named_curves,
-        embankment_key=embankment_key,
-        side=side,
-        tier=tier,
-        point_kind=point_kind,
-    )
-    if curve is None:
-        return provisional_point
-    return get_nearest_projected_intersection_with_vertical_plane(
+    split_items = split_curve_by_lines_and_match_endpoints(
         curve=curve,
-        plane_points=(world_U_bottom, world_D_bottom),
-        z=provisional_point.z,
-        anchor_point=world_U_bottom if side == "U" else world_D_bottom,
-        context=f"{embankment_key}/{side}/{tier}/{point_kind}/{curve_name}",
+        split_line_points=[start_edge_points, end_edge_points],
+        target_line_points={
+            "start": start_edge_points,
+            "end": end_edge_points,
+        },
+        expected_count=3,
     )
-
-
-def transform_local_top_bottom_point(
-    *,
-    local_U_base: Point3D,
-    local_D_base: Point3D,
-    world_U_bottom: Point3D,
-    world_D_bottom: Point3D,
-    local_point_info: LocalTopBottomPointInfo,
-    named_curves: dict[str, rg.Curve],
-    embankment_key: str,
-    side: str,
-    tier: int,
-) -> LocalTopBottomPointInfo:
-    return LocalTopBottomPointInfo(
-        top=transform_local_point_with_optional_curve_xy(
-            local_U_base=local_U_base,
-            local_D_base=local_D_base,
-            world_U_bottom=world_U_bottom,
-            world_D_bottom=world_D_bottom,
-            local_point=local_point_info.top,
-            named_curves=named_curves,
-            embankment_key=embankment_key,
-            side=side,
-            tier=tier,
-            point_kind="shoulder",
-        ),
-        bottom=transform_local_point_with_optional_curve_xy(
-            local_U_base=local_U_base,
-            local_D_base=local_D_base,
-            world_U_bottom=world_U_bottom,
-            world_D_bottom=world_D_bottom,
-            local_point=local_point_info.bottom,
-            named_curves=named_curves,
-            embankment_key=embankment_key,
-            side=side,
-            tier=tier,
-            point_kind="toe",
-        ),
-    )
-
-
-def transform_edge_points(
-    *,
-    local_edge_points: EdgePoints,
-    local_U_base: Point3D,
-    local_D_base: Point3D,
-    world_U_bottom: Point3D,
-    world_D_bottom: Point3D,
-    named_curves: dict[str, rg.Curve],
-    embankment_key: str,
-    side: str,
-) -> EdgePoints:
-    points = [
-        transform_local_top_bottom_point(
-            local_U_base=local_U_base,
-            local_D_base=local_D_base,
-            world_U_bottom=world_U_bottom,
-            world_D_bottom=world_D_bottom,
-            local_point_info=point_info,
-            named_curves=named_curves,
-            embankment_key=embankment_key,
-            side=side,
-            tier=i + 1,
-        )
-        for i, point_info in enumerate(local_edge_points.points)
-    ]
-
-    wall_points = None
-    if local_edge_points.wall_points is not None:
-        wall_points = [
-            transform_local_top_bottom_point(
-                local_U_base=local_U_base,
-                local_D_base=local_D_base,
-                world_U_bottom=world_U_bottom,
-                world_D_bottom=world_D_bottom,
-                local_point_info=point_info,
-                named_curves={},
-                embankment_key=embankment_key,
-                side=side,
-                tier=i + 1,
-            )
-            for i, point_info in enumerate(local_edge_points.wall_points)
-        ]
-
-    return replace(
-        local_edge_points,
-        points=points,
-        wall_points=wall_points,
-    )
-
-
-def get_world_cross_section(
-    *,
-    local_section: CrossSectionInfo,
-    world_U_bottom: Point3D,
-    world_D_bottom: Point3D,
-    named_curves: dict[str, rg.Curve],
-    embankment_key: str,
-) -> CrossSectionInfo:
-    local_U_base = local_section.U_points.points[0].top
-    local_D_base = local_section.D_points.points[0].top
-    return CrossSectionInfo(
-        STA=local_section.STA,
-        U_points=transform_edge_points(
-            local_edge_points=local_section.U_points,
-            local_U_base=local_U_base,
-            local_D_base=local_D_base,
-            world_U_bottom=world_U_bottom,
-            world_D_bottom=world_D_bottom,
-            named_curves=named_curves,
-            embankment_key=embankment_key,
-            side="U",
-        ),
-        D_points=transform_edge_points(
-            local_edge_points=local_section.D_points,
-            local_U_base=local_U_base,
-            local_D_base=local_D_base,
-            world_U_bottom=world_U_bottom,
-            world_D_bottom=world_D_bottom,
-            named_curves=named_curves,
-            embankment_key=embankment_key,
-            side="D",
-        ),
-    )
-
-
-def get_parallel_points(
-    pavement_info: EmbankmentPaveInfo,
-    bottom_points_info: dict,
-    abut_points_dict: dict,
-) -> dict:
-    parallel_points = {}
-    edge_defs = [
-        ("start", 0),
-        ("end", -1),
-    ]
-    for edge_name, index in edge_defs:
-        edge_context = get_edge_abut_context(pavement_info, abut_points_dict, edge_name)
-        if edge_context is None:
-            continue
-        U_curve = rg.PolylineCurve([const_point_obj(point) for point in bottom_points_info["U_points"]])
-        D_curve = rg.PolylineCurve([const_point_obj(point) for point in bottom_points_info["D_points"]])
-        fallback_U = bottom_points_info["U_points"][index]
-        fallback_D = bottom_points_info["D_points"][index]
-        U_intersections = get_curve_intersections_with_vertical_plane(U_curve, edge_context.soil_line)
-        D_intersections = get_curve_intersections_with_vertical_plane(D_curve, edge_context.soil_line)
-        if not U_intersections or not D_intersections:
-            raise ValueError(f"Failed to find parallel point on abut cut: {get_embankment_key(pavement_info)} {edge_name}")
-        U_point = min(U_intersections, key=lambda point: get_distance_2D(point, fallback_U))
-        D_point = min(D_intersections, key=lambda point: get_distance_2D(point, fallback_D))
-        STAs = [float(STA) for STA in bottom_points_info["STAs"]]
-        U_STA = get_value_at_point_on_polyline(bottom_points_info["U_points"], STAs, U_point)
-        D_STA = get_value_at_point_on_polyline(bottom_points_info["D_points"], STAs, D_point)
-        parallel_points[edge_name] = {
-            "structure": edge_context.edge_info.structure,
-            "STA": (U_STA + D_STA) / 2,
-            "U_point": U_point,
-            "D_point": D_point,
-            "U_slope": edge_context.edge_info.U_slope,
-            "D_slope": edge_context.edge_info.D_slope,
-        }
-    return parallel_points
-
-
-def get_parallel_point_from_edge_curves(
-    edge_curves: dict,
-    *,
-    edge: str,
-    tier: int,
-    kind: str,
-    side: str,
-) -> Optional[Point3D]:
-    for edge_curve in edge_curves.values():
+    target_item = None
+    for item in split_items:
+        start_matches = item["start_matches"]
+        end_matches = item["end_matches"]
         if (
-            edge_curve.get("edge") != edge
-            or edge_curve.get("tier") != tier
-            or edge_curve.get("kind") != kind
+            ("start" in start_matches and "end" in end_matches)
+            or ("end" in start_matches and "start" in end_matches)
         ):
-            continue
-        for point, source in zip(edge_curve["points"], edge_curve["point_sources"]):
-            if source.get("location") == "parallel" and source.get("side") == side:
-                return point
-    return None
+            if target_item is not None:
+                raise ValueError("Multiple curves found between start and end edge lines")
+            target_item = item
+    if target_item is None:
+        raise ValueError("No curve found between start and end edge lines")
 
-
-def interpolate_edge_points_by_sta(points0: EdgePoints, points1: EdgePoints, ratio: float) -> EdgePoints:
-    point_infos = []
-    for point_info0, point_info1 in zip(points0.points, points1.points):
-        point_infos.append(
-            LocalTopBottomPointInfo(
-                top=interpolate_point_3d(point_info0.top, point_info1.top, ratio),
-                bottom=interpolate_point_3d(point_info0.bottom, point_info1.bottom, ratio),
-            )
-        )
-    return replace(points0, points=point_infos)
-
-
-def interpolate_section_by_sta(sections: list[CrossSectionInfo], STA: float) -> CrossSectionInfo:
-    sorted_sections = sorted(sections, key=lambda section: section.STA)
-    if STA <= sorted_sections[0].STA + DISTANCE_TOL:
-        return replace(sorted_sections[0], STA=STA)
-    if STA >= sorted_sections[-1].STA - DISTANCE_TOL:
-        return replace(sorted_sections[-1], STA=STA)
-    for section0, section1 in zip(sorted_sections, sorted_sections[1:]):
-        if section0.STA - DISTANCE_TOL <= STA <= section1.STA + DISTANCE_TOL:
-            denom = section1.STA - section0.STA
-            ratio = 0 if abs(denom) < DISTANCE_TOL else (STA - section0.STA) / denom
-            return CrossSectionInfo(
-                STA=STA,
-                U_points=interpolate_edge_points_by_sta(section0.U_points, section1.U_points, ratio),
-                D_points=interpolate_edge_points_by_sta(section0.D_points, section1.D_points, ratio),
-            )
-    raise ValueError(f"Failed to interpolate section at STA={STA}")
-
-
-def set_section_point(section: CrossSectionInfo, side: str, tier: int, kind: str, point: Point3D) -> CrossSectionInfo:
-    edge_points = section.U_points if side == "U" else section.D_points
-    point_infos = list(edge_points.points)
-    point_info = point_infos[tier - 1]
-    point_infos[tier - 1] = (
-        replace(point_info, top=point)
-        if kind == "shoulder"
-        else replace(point_info, bottom=point)
-    )
-    new_edge_points = replace(edge_points, points=point_infos)
-    return (
-        replace(section, U_points=new_edge_points)
-        if side == "U"
-        else replace(section, D_points=new_edge_points)
-    )
-
-
-def refine_section_points_on_named_curves(
-    section: CrossSectionInfo,
-    *,
-    named_curves: dict[str, rg.Curve],
-    embankment_key: str,
-    bottom_points_info: dict,
-) -> CrossSectionInfo:
-    U_bottom, D_bottom = get_bottom_points_at_sta(bottom_points_info, section.STA)
-    output = section
-    for spec in get_required_curve_specs([section]):
-        for side in ["U", "D"]:
-            curve_name, curve = find_named_curve(
-                named_curves=named_curves,
-                embankment_key=embankment_key,
-                side=side,
-                tier=spec["tier"],
-                point_kind=spec["kind"],
-            )
-            if curve is None:
-                curve_name, curve = find_named_curve(
-                    named_curves=named_curves,
-                    embankment_key=embankment_key,
-                    side="",
-                    tier=spec["tier"],
-                    point_kind=spec["kind"],
-                )
-            if curve is None:
-                continue
-            provisional = get_section_kind_point(output, side, spec)
-            point = get_nearest_projected_intersection_with_vertical_plane(
-                curve=curve,
-                plane_points=(U_bottom, D_bottom),
-                z=provisional.z,
-                anchor_point=U_bottom if side == "U" else D_bottom,
-                context=f"{embankment_key}/{section.STA}/{side}/{spec['tier']}/{spec['kind']}/section-align",
-            )
-            output = set_section_point(output, side, spec["tier"], spec["kind"], point)
-    return output
-
-
-def insert_parallel_sections_from_curve_vertices(
-    sections: list[CrossSectionInfo],
-    *,
-    named_curves: dict[str, rg.Curve],
-    embankment_key: str,
-    bottom_points_info: dict,
-) -> list[CrossSectionInfo]:
-    STAs = [section.STA for section in sections]
-    bottom_STAs = [float(STA) for STA in bottom_points_info["STAs"]]
-    center_points = [
-        Point3D(
-            x=(U_point.x + D_point.x) / 2,
-            y=(U_point.y + D_point.y) / 2,
-            z=0,
-        )
-        for U_point, D_point in zip(bottom_points_info["U_points"], bottom_points_info["D_points"])
-    ]
-    vertex_constraints = []
-    for spec in get_required_curve_specs(sections):
-        curve_name, curve = find_named_curve(
-            named_curves=named_curves,
-            embankment_key=embankment_key,
-            side="",
-            tier=spec["tier"],
-            point_kind=spec["kind"],
-        )
-        if curve is None:
-            continue
-        for point in get_curve_polyline_points(curve):
-            STA = get_value_at_point_on_polyline(
-                center_points,
-                bottom_STAs,
-                Point3D(point.x, point.y, 0),
-            )
-            base_section = interpolate_section_by_sta(sections, STA)
-            U_bottom, D_bottom = get_bottom_points_at_sta(bottom_points_info, STA)
-            side = "U" if get_distance_2D(point, U_bottom) <= get_distance_2D(point, D_bottom) else "D"
-            z_base = get_section_kind_point(base_section, side, spec)
-            vertex_constraints.append(
-                {
-                    "STA": STA,
-                    "side": side,
-                    "tier": spec["tier"],
-                    "kind": spec["kind"],
-                    "point": Point3D(point.x, point.y, z_base.z),
-                }
-            )
-            if all(abs(STA - existing_STA) > DISTANCE_TOL for existing_STA in STAs):
-                STAs.append(STA)
-    output_sections = []
-    for STA in sorted(STAs):
-        section = interpolate_section_by_sta(sections, STA)
-        section = refine_section_points_on_named_curves(
-            section,
-            named_curves=named_curves,
-            embankment_key=embankment_key,
-            bottom_points_info=bottom_points_info,
-        )
-        for constraint in vertex_constraints:
-            if abs(constraint["STA"] - STA) > DISTANCE_TOL:
-                continue
-            section = set_section_point(
-                section,
-                constraint["side"],
-                constraint["tier"],
-                constraint["kind"],
-                constraint["point"],
-            )
-        output_sections.append(section)
-    return output_sections
-
-
-def replace_section_edge_with_parallel_points(
-    section: CrossSectionInfo,
-    *,
-    edge_curves: dict,
-    edge_parallel_points: dict,
-    edge: str,
-    STA: float,
-) -> CrossSectionInfo:
-    def replace_edge_points(edge_points: EdgePoints, side: str) -> EdgePoints:
-        points = []
-        for i, point_info in enumerate(edge_points.points):
-            tier = i + 1
-            top = (
-                edge_parallel_points.get(f"{side}_point")
-                if tier == 1
-                else (
-                    get_parallel_point_from_edge_curves(
-                        edge_curves,
-                        edge=edge,
-                        tier=tier,
-                        kind="shoulder",
-                        side=side,
-                    )
-                    or point_info.top
-                )
-            )
-            bottom = (
-                get_parallel_point_from_edge_curves(
-                    edge_curves,
-                    edge=edge,
-                    tier=tier,
-                    kind="toe",
-                    side=side,
-                )
-                or point_info.bottom
-            )
-            points.append(LocalTopBottomPointInfo(top=top, bottom=bottom))
-        return replace(edge_points, points=points)
-
-    return replace(
-        section,
-        STA=STA,
-        U_points=replace_edge_points(section.U_points, "U"),
-        D_points=replace_edge_points(section.D_points, "D"),
-    )
-
-
-def add_alignment_points_to_edge_curve(edge_curve: dict, alignment_points: list[Point3D]) -> dict:
-    base_curve = rg.PolylineCurve([const_point_obj(point) for point in edge_curve["points"]])
-
-    base_items = [
-        {
-            "point": point,
-            "z_known": source.get("source") in ["wall"] or source.get("location") in ["parallel", "abut"],
-            "source": source.get("source"),
-            "location": source.get("location"),
-            "side": source.get("side"),
-        }
-        for point, source in zip(edge_curve["points"], edge_curve["point_sources"])
-    ]
-    for point in alignment_points:
-        if all(get_distance_3D(point, item["point"]) > DISTANCE_TOL for item in base_items):
-            base_items.append(
-                {
-                    "point": point,
-                    "z_known": False,
-                    "source": "edge_alignment",
-                    "location": "alignment",
-                    "side": None,
-                }
-            )
-    U_parallel_items = [
-        item for item in base_items
-        if item.get("location") == "parallel" and item.get("side") == "U"
-    ]
-    D_parallel_items = [
-        item for item in base_items
-        if item.get("location") == "parallel" and item.get("side") == "D"
-    ]
-    if U_parallel_items and D_parallel_items:
-        U_parallel = U_parallel_items[0]
-        D_parallel = D_parallel_items[0]
-        middle_items = [
-            item for item in base_items
-            if (
-                item is not U_parallel
-                and item is not D_parallel
-                and get_distance_3D(item["point"], U_parallel["point"]) > DISTANCE_TOL
-                and get_distance_3D(item["point"], D_parallel["point"]) > DISTANCE_TOL
-            )
-        ]
-        middle_items = sorted(middle_items, key=lambda item: get_curve_distance(base_curve, item["point"]))
-        base_items = [U_parallel] + middle_items + [D_parallel]
-    else:
-        base_items = sorted(base_items, key=lambda item: get_curve_distance(base_curve, item["point"]))
-    points = interpolate_unknown_z(base_items)
+    result_curve = target_item["curve"]
+    result_start = target_item["start"]
+    result_end = target_item["end"]
+    if "end" in target_item["start_matches"] and "start" in target_item["end_matches"]:
+        result_curve.Reverse()
+        result_start = target_item["end"]
+        result_end = target_item["start"]
     return {
-        **edge_curve,
-        "points": points,
-        "point_sources": [
-            {
-                "source": item.get("source"),
-                "location": item.get("location"),
-                "side": item.get("side"),
-            }
-            for item in base_items
-        ],
+        "curve": result_curve,
+        "start_point": result_start,
+        "end_point": result_end,
     }
 
 
-def align_edge_curve_points(
-    edge_curve_points: dict,
-    pavement_info: EmbankmentPaveInfo,
-    abut_points_dict: dict,
-) -> dict:
-    aligned = dict(edge_curve_points)
-    base_edge_points = {
-        name: list(edge_curve["points"])
-        for name, edge_curve in edge_curve_points.items()
+def split_embankment_boundary_curve_by_abut_points(
+    curve: rg.Curve,
+    start_edge_points: tuple[Point3D, Point3D],
+    end_edge_points: tuple[Point3D, Point3D],
+    U_parallel_points: tuple[Point3D, Point3D],
+    D_parallel_points: tuple[Point3D, Point3D],
+    start_U_abut_points: tuple[Point3D, Point3D],
+    start_D_abut_points: tuple[Point3D, Point3D],
+    end_U_abut_points: tuple[Point3D, Point3D],
+    end_D_abut_points: tuple[Point3D, Point3D],
+) -> dict[str, rg.Curve]:
+    curve = const_curve_obj(curve)
+    split_items = split_curve_by_lines_and_match_endpoints(
+        curve=curve,
+        split_line_points=[start_edge_points, end_edge_points],
+        target_line_points={
+            "start_edge": start_edge_points,
+            "end_edge": end_edge_points,
+        },
+        expected_count=4,
+    )
+
+    result = {}
+    for split_item in split_items:
+        start = split_item["start"]
+        end = split_item["end"]
+        start_on_start_edge = "start_edge" in split_item["start_matches"]
+        end_on_start_edge = "start_edge" in split_item["end_matches"]
+        start_on_end_edge = "end_edge" in split_item["start_matches"]
+        end_on_end_edge = "end_edge" in split_item["end_matches"]
+        oriented_curve = split_item["curve"]
+
+        if start_on_start_edge and end_on_start_edge:
+            if get_distance_2D(end, start_U_abut_points[0]) < get_distance_2D(start, start_U_abut_points[0]):
+                oriented_curve.Reverse()
+            edge_items = split_curve_by_lines_and_match_endpoints(
+                curve=oriented_curve,
+                split_line_points=[
+                    start_U_abut_points,
+                    start_D_abut_points,
+                ],
+                target_line_points={},
+                expected_count=3,
+            )
+            result["start_edge_U"] = edge_items[0]["curve"]
+            result["start_edge_UD"] = edge_items[1]["curve"]
+            result["start_edge_D"] = edge_items[2]["curve"]
+        elif start_on_end_edge and end_on_end_edge:
+            if get_distance_2D(end, end_U_abut_points[0]) < get_distance_2D(start, end_U_abut_points[0]):
+                oriented_curve.Reverse()
+            edge_items = split_curve_by_lines_and_match_endpoints(
+                curve=oriented_curve,
+                split_line_points=[
+                    end_U_abut_points,
+                    end_D_abut_points,
+                ],
+                target_line_points={},
+                expected_count=3,
+            )
+            result["end_edge_U"] = edge_items[0]["curve"]
+            result["end_edge_UD"] = edge_items[1]["curve"]
+            result["end_edge_D"] = edge_items[2]["curve"]
+        elif (
+            (start_on_start_edge and end_on_end_edge)
+            or (start_on_end_edge and end_on_start_edge)
+        ):
+            split_points = get_curve_polyline_points(oriented_curve)
+            if len(split_points) < 2:
+                split_points = [start, end]
+            U_distance = sum(get_xy_distance_to_segment(point, U_parallel_points) for point in split_points) / len(split_points)
+            D_distance = sum(get_xy_distance_to_segment(point, D_parallel_points) for point in split_points) / len(split_points)
+            key = "U_parallel" if U_distance <= D_distance else "D_parallel"
+            if get_xy_distance_to_segment(end, start_edge_points) < get_xy_distance_to_segment(start, start_edge_points):
+                oriented_curve.Reverse()
+            result[key] = oriented_curve
+        else:
+            raise ValueError(
+                "Split curve endpoints are not on expected abutment edge lines: "
+                f"start={start}, end={end}"
+            )
+
+    expected_keys = {
+        "start_edge_U",
+        "start_edge_UD",
+        "start_edge_D",
+        "end_edge_U",
+        "end_edge_UD",
+        "end_edge_D",
+        "U_parallel",
+        "D_parallel",
     }
-    for edge in ["start", "end"]:
-        edge_context = get_edge_abut_context(pavement_info, abut_points_dict, edge)
-        if edge_context is None:
-            continue
-        wing_points = edge_context.wing_points
-        edge_names = [
-            name for name, edge_curve in aligned.items()
-            if edge_curve.get("edge") == edge
-        ]
-        if len(edge_names) < 2:
-            continue
-        U_soil = wing_points["U_soil"]
-        D_soil = wing_points["D_soil"]
-        cutters = []
-        for name in edge_names:
-            for point in base_edge_points[name]:
-                side_anchor = (
-                    U_soil
-                    if get_distance_2D(point, U_soil) <= get_distance_2D(point, D_soil)
-                    else D_soil
-                )
-                if get_distance_2D(point, side_anchor) > DISTANCE_TOL:
-                    cutters.append((side_anchor, point))
-
-        for name in edge_names:
-            additions = []
-            for cutter in cutters:
-                additions.extend(
-                    get_polyline_intersections_with_vertical_plane(
-                        base_edge_points[name],
-                        cutter,
-                    )
-                )
-            aligned[name] = add_alignment_points_to_edge_curve(aligned[name], additions)
-    return aligned
-
-
-def get_output_sections(
-    sections: list[CrossSectionInfo],
-    pavement_info: EmbankmentPaveInfo,
-    parallel_points: dict,
-    edge_curves: dict,
-) -> list[CrossSectionInfo]:
-    def is_abut_edge(edge: str) -> bool:
-        edge_structure = get_edge_structure(pavement_info, edge)
-        return edge_structure is not None and edge_structure.structure_type == "abutment"
-
-    output_sections = list(sections)
-    if is_abut_edge("start") and "start" in parallel_points:
-        cut_STA = parallel_points["start"]["STA"]
-        output_sections = [
-            section for section in output_sections
-            if section.STA >= cut_STA - DISTANCE_TOL
-        ]
-        if sections:
-            output_sections.insert(
-                0,
-                replace_section_edge_with_parallel_points(
-                    sections[0],
-                    edge_curves=edge_curves,
-                    edge_parallel_points=parallel_points["start"],
-                    edge="start",
-                    STA=cut_STA,
-                ),
-            )
-    if is_abut_edge("end") and "end" in parallel_points:
-        cut_STA = parallel_points["end"]["STA"]
-        output_sections = [
-            section for section in output_sections
-            if section.STA <= cut_STA + DISTANCE_TOL
-        ]
-        if sections:
-            output_sections.append(
-                replace_section_edge_with_parallel_points(
-                    sections[-1],
-                    edge_curves=edge_curves,
-                    edge_parallel_points=parallel_points["end"],
-                    edge="end",
-                    STA=cut_STA,
-                )
-            )
-    return output_sections
-
+    missing_keys = expected_keys - set(result)
+    if missing_keys:
+        raise ValueError(f"Missing split boundary curves: {sorted(missing_keys)}")
+    return result
 
 def get_world_embankment_points(
-    pavement_infos: list[EmbankmentPaveInfo],
-    local_embankment_points_dict: dict,
-    pavement_bottom_points_dict: dict,
+    pavement_info: EmbankmentPaveInfo,
+    pavement_bottom_points_dict: dict[str, list[float] | list[Point3D]],
     named_curves: dict[str, rg.Curve],
-    wall_points_dict: dict,
+    wall_points_dict: dict[str, dict[str, list[Point3D]]],
     abut_points_dict: dict,
-) -> dict:
-    world_embankment_points_dict = {}
+) -> dict[str, EdgePoints]:
+    slope = pavement_info.slope.value
+    start_U_slope = pavement_info.start_edge.U_slope
+    start_D_slope = pavement_info.start_edge.D_slope
+    start_edge_structure = pavement_info.start_edge.structure
+    end_U_slope = pavement_info.end_edge.U_slope
+    end_D_slope = pavement_info.end_edge.D_slope
 
-    for pavement_info in pavement_infos:
-        embankment_key = get_embankment_key(pavement_info)
-        if embankment_key not in local_embankment_points_dict:
-            raise KeyError(f"Missing local embankment points: {embankment_key}")
-        if embankment_key not in pavement_bottom_points_dict:
-            raise KeyError(f"Missing pavement bottom points: {embankment_key}")
-
-        bottom_points_info = pavement_bottom_points_dict[embankment_key]
-        sections = []
-        for local_section in local_embankment_points_dict[embankment_key]:
-            world_U_bottom, world_D_bottom = get_bottom_points_at_sta(
-                bottom_points_info=bottom_points_info,
-                STA=local_section.STA,
-            )
-            sections.append(
-                get_world_cross_section(
-                    local_section=local_section,
-                    world_U_bottom=world_U_bottom,
-                    world_D_bottom=world_D_bottom,
-                    named_curves=named_curves,
-                    embankment_key=embankment_key,
-                )
-            )
-        sections = insert_parallel_sections_from_curve_vertices(
-            sections,
-            named_curves=named_curves,
-            embankment_key=embankment_key,
-            bottom_points_info=bottom_points_info,
-        )
-        parallel_points = get_parallel_points(
-            pavement_info=pavement_info,
-            bottom_points_info=bottom_points_info,
-            abut_points_dict=abut_points_dict,
-        )
-        edge_curves = get_edge_curve_points(
-            pavement_info=pavement_info,
-            sections=sections,
-            named_curves=named_curves,
-            wall_points_dict=wall_points_dict,
-            abut_points_dict=abut_points_dict,
-            parallel_points=parallel_points,
-        )
-
-        abut_wing_points = {}
-        for edge in ["start", "end"]:
-            edge_context = get_edge_abut_context(pavement_info, abut_points_dict, edge)
-            if edge_context is not None:
-                abut_wing_points[edge] = edge_context.wing_points
-        world_embankment_points_dict[embankment_key] = {
-            "sections": get_output_sections(
-                sections,
-                pavement_info,
-                parallel_points,
-                edge_curves,
-            ),
-            "edge_curves": edge_curves,
-            "parallel_points": parallel_points,
-            "abut_wing_points": abut_wing_points,
-        }
-    return world_embankment_points_dict
-
-
-def get_debug_crvs(world_embankment_points_dict: dict) -> list[rg.PolylineCurve]:
-    crvs = []
-    for embankment_info in world_embankment_points_dict.values():
-        for edge_curve in embankment_info.get("edge_curves", {}).values():
-            points = edge_curve["points"]
-            if len(points) < 3:
-                continue
-            rg_points = [const_point_obj(point) for point in points]
-            rg_points.append(rg_points[0])
-            crvs.append(rg.PolylineCurve(rg_points))
-        for parallel_info in embankment_info.get("parallel_points", {}).values():
-            crvs.append(
-                rg.PolylineCurve(
-                    [
-                        const_point_obj(parallel_info["U_point"]),
-                        const_point_obj(parallel_info["D_point"]),
-                    ]
-                )
-            )
-        sections = embankment_info.get("sections", [])
-        if len(sections) == 0:
-            continue
-        max_tier = max(
-            max(len(section.U_points.points), len(section.D_points.points))
-            for section in sections
-        )
-        for tier_index in range(max_tier):
-            for kind in ["shoulder", "toe"]:
-                U_points = []
-                D_points = []
-                for section in sections:
-                    if (
-                        tier_index >= len(section.U_points.points)
-                        or tier_index >= len(section.D_points.points)
-                    ):
-                        continue
-                    if kind == "shoulder":
-                        U_points.append(section.U_points.points[tier_index].top)
-                        D_points.append(section.D_points.points[tier_index].top)
-                    else:
-                        U_points.append(section.U_points.points[tier_index].bottom)
-                        D_points.append(section.D_points.points[tier_index].bottom)
-                if len(U_points) < 2 or len(D_points) < 2:
-                    continue
-                points = U_points + list(reversed(D_points))
-                rg_points = [const_point_obj(point) for point in points]
-                rg_points.append(rg_points[0])
-                crvs.append(rg.PolylineCurve(rg_points))
-    return crvs
-
-
-def get_edge_curve_split_points(edge_curve: dict) -> dict[str, list[Point3D]]:
-    points = edge_curve["points"]
-    sources = edge_curve["point_sources"]
-
-    def find_index(location: str, side: str) -> Optional[int]:
-        for i, source in enumerate(sources):
-            if source.get("location") == location and source.get("side") == side:
-                return i
-        return None
-
-    U_abut_i = find_index("abut", "U")
-    D_abut_i = find_index("abut", "D")
-    if U_abut_i is None or D_abut_i is None:
-        return {
-            "U": points,
-            "U-D": points,
-            "D": points,
-        }
-    if U_abut_i > D_abut_i:
-        U_abut_i, D_abut_i = D_abut_i, U_abut_i
-    return {
-        "U": points[: U_abut_i + 1],
-        "U-D": points[U_abut_i : D_abut_i + 1],
-        "D": points[D_abut_i:],
+    abut_points = {
+        "start": {"U": {}, "D": {}},
+        "end": {"U": {}, "D": {}},
     }
+    if start_edge_structure.structure_type == "abutment":
+        start_abut_points = abut_points_dict[start_edge_structure.structure_name]
+        abut_points["start"]["U"]["wing_soil"] = start_abut_points["wing_duct"]["U_wing_top_points"]["UT"]
+        abut_points["start"]["U"]["wing_bridge"] = start_abut_points["wing_duct"]["U_wing_top_points"]["UN"]
+        abut_points["start"]["D"]["wing_soil"] = start_abut_points["wing_duct"]["D_wing_top_points"]["DT"]
+        abut_points["start"]["D"]["wing_bridge"] = start_abut_points["wing_duct"]["D_wing_top_points"]["DN"]
+    else:
+        raise ValueError(f"Unknown start edge structure: {start_edge_structure}")
+    end_edge_structure = pavement_info.end_edge.structure
+    if end_edge_structure.structure_type == "abutment":
+        end_abut_points = abut_points_dict[end_edge_structure.structure_name]
+        abut_points["end"]["U"]["wing_soil"] = end_abut_points["wing_duct"]["U_wing_top_points"]["UN"]
+        abut_points["end"]["U"]["wing_bridge"] = end_abut_points["wing_duct"]["U_wing_top_points"]["UT"]
+        abut_points["end"]["D"]["wing_soil"] = end_abut_points["wing_duct"]["D_wing_top_points"]["DN"]
+        abut_points["end"]["D"]["wing_bridge"] = end_abut_points["wing_duct"]["D_wing_top_points"]["DT"]
+    else:
+        raise ValueError(f"Unknown end edge structure: {end_edge_structure}")
 
-
-def ensure_tier_dict(parent: dict, tier: int) -> dict:
-    tier_key = str(tier)
-    if tier_key not in parent:
-        parent[tier_key] = {}
-    return parent[tier_key]
-
-
-def build_saved_parallel_points(
-    sections: list[CrossSectionInfo],
-) -> dict:
-    parallel = {}
-    if not sections:
-        return parallel
-    max_tier = max(
-        max(len(section.U_points.points), len(section.D_points.points))
-        for section in sections
+    curves = {get_tier_position_from_curve_name(name): curve for name, curve in named_curves.items() if name.startswith(f"{pavement_info.name}_{pavement_info.num}_")}
+    start_edge_points = (
+        abut_points["start"]["U"]["wing_soil"],
+        abut_points["start"]["D"]["wing_soil"],
     )
-    for tier_index in range(max_tier):
-        tier = tier_index + 1
-        tier_dict = ensure_tier_dict(parallel, tier)
-        U_shoulder_points = []
-        U_toe_points = []
-        D_shoulder_points = []
-        D_toe_points = []
-        for section in sections:
-            if (
-                tier_index >= len(section.U_points.points)
-                or tier_index >= len(section.D_points.points)
-            ):
-                continue
-            U_info = section.U_points.points[tier_index]
-            D_info = section.D_points.points[tier_index]
-            U_shoulder_points.append(U_info.top)
-            U_toe_points.append(U_info.bottom)
-            D_shoulder_points.append(D_info.top)
-            D_toe_points.append(D_info.bottom)
-        tier_dict["U_shoulder_points"] = U_shoulder_points
-        tier_dict["D_shoulder_points"] = D_shoulder_points
-        tier_dict["U_toe_points"] = U_toe_points
-        tier_dict["D_toe_points"] = D_toe_points
-    return parallel
+    end_edge_points = (
+        abut_points["end"]["U"]["wing_soil"],
+        abut_points["end"]["D"]["wing_soil"],
+    )
+    U_parallel_points = (
+        abut_points["start"]["U"]["wing_soil"],
+        abut_points["end"]["U"]["wing_soil"],
+    )
+    D_parallel_points = (
+        abut_points["start"]["D"]["wing_soil"],
+        abut_points["end"]["D"]["wing_soil"],
+    )
+    start_U_abut_points = (
+        abut_points["start"]["U"]["wing_soil"],
+        abut_points["start"]["U"]["wing_bridge"],
+    )
+    start_D_abut_points = (
+        abut_points["start"]["D"]["wing_soil"],
+        abut_points["start"]["D"]["wing_bridge"],
+    )
+    end_U_abut_points = (
+        abut_points["end"]["U"]["wing_soil"],
+        abut_points["end"]["U"]["wing_bridge"],
+    )
+    end_D_abut_points = (
+        abut_points["end"]["D"]["wing_soil"],
+        abut_points["end"]["D"]["wing_bridge"],
+    )
 
+    crv_dict = {}
+    for key, crv in curves.items():
+        tier, kind = key
+        if tier not in crv_dict:
+            crv_dict[tier] = {}
+        crv_dict[tier][kind] = split_embankment_boundary_curve_by_abut_points(
+            curve=crv,
+            start_edge_points=start_edge_points,
+            end_edge_points=end_edge_points,
+            U_parallel_points=U_parallel_points,
+            D_parallel_points=D_parallel_points,
+            start_U_abut_points=start_U_abut_points,
+            start_D_abut_points=start_D_abut_points,
+            end_U_abut_points=end_U_abut_points,
+            end_D_abut_points=end_D_abut_points,
+        )
+    
+    tier_1_sholder_U_crv = const_polycurve_obj([const_point_obj(p) for p in pavement_bottom_points_dict["U_points"]])
+    tier_1_sholder_D_crv = const_polycurve_obj([const_point_obj(p) for p in pavement_bottom_points_dict["D_points"]])
+    tier_1_sholder_U_info = get_curve_between_start_end_lines(
+        curve=tier_1_sholder_U_crv,
+        start_edge_points=start_edge_points,
+        end_edge_points=end_edge_points,
+    )
+    tier_1_sholder_D_info = get_curve_between_start_end_lines(
+        curve=tier_1_sholder_D_crv,
+        start_edge_points=start_edge_points,
+        end_edge_points=end_edge_points,
+    )
+    crv_dict[1]["shoulder"]["U_parallel"] = tier_1_sholder_U_info["curve"]
+    crv_dict[1]["shoulder"]["D_parallel"] = tier_1_sholder_D_info["curve"]
+    crv_dict[1]["shoulder"]["start_edge_UD"] = const_polycurve_obj([tier_1_sholder_U_info["start_point"], tier_1_sholder_D_info["start_point"]])
+    crv_dict[1]["shoulder"]["end_edge_UD"] = const_polycurve_obj([tier_1_sholder_U_info["end_point"], tier_1_sholder_D_info["end_point"]])
 
-def format_embankment_points_for_save(world_embankment_points_dict: dict) -> dict:
-    formatted = {}
-    for embankment_key, embankment_info in world_embankment_points_dict.items():
-        wing_points_by_edge = embankment_info.get("abut_wing_points", {})
-        embankment_output = {
-            "start_edge": {"U": {}, "U-D": {}, "D": {}},
-            "end_edge": {"U": {}, "U-D": {}, "D": {}},
-            "parallel": build_saved_parallel_points(embankment_info.get("sections", [])),
-        }
-        for edge in ["start", "end"]:
-            edge_key = f"{edge}_edge"
-            wing_points = wing_points_by_edge.get(edge, {})
-            if wing_points:
-                ensure_tier_dict(embankment_output[edge_key]["U"], 1)["shoulder_point"] = wing_points["U_soil"]
-                ensure_tier_dict(embankment_output[edge_key]["D"], 1)["shoulder_point"] = wing_points["D_soil"]
-        for edge_curve in embankment_info.get("edge_curves", {}).values():
-            edge = edge_curve["edge"]
-            edge_key = f"{edge}_edge"
-            wing_points = wing_points_by_edge.get(edge, {})
-            if not wing_points:
-                continue
-            tier = int(edge_curve["tier"])
-            kind = edge_curve["kind"]
-            split_points = get_edge_curve_split_points(edge_curve)
-            for part in ["U", "U-D", "D"]:
-                tier_dict = ensure_tier_dict(embankment_output[edge_key][part], tier)
-                if part in ["U", "D"] and tier == 1 and kind == "shoulder":
-                    tier_dict["shoulder_point"] = wing_points[f"{part}_soil"]
+    crv_rows = []
+    for tier in crv_dict:
+        for kind in crv_dict[tier]:
+            for name, crv in crv_dict[tier][kind].items():
+                points = get_curve_polyline_points(crv)
+                points2D = [Point3D(p.x, p.y, STANDARD_BASE_Z) for p in points]
+                curve2D = const_polycurve_obj(points2D)
+                distance2D = [get_curve_distance(curve2D, p) for p in points2D]
+                crv_rows.append(
+                    {
+                        "tier": tier,
+                        "kind": kind,
+                        "name": name,
+                        "curve": crv,
+                        "points": points,
+                        "2Dcurve": curve2D,
+                        "2Dpoints": points2D,
+                        "2Ddistances": distance2D,
+                    }
+                )
+    crv_df = pd.DataFrame(crv_rows)
+
+    U_points_2D = crv_df[
+        (crv_df["kind"] == "shoulder")
+        & (crv_df["tier"] == 1)
+        & (crv_df["name"] == "U_parallel")
+    ]["2Dpoints"].iloc[0]
+    D_points_2D = crv_df[
+        (crv_df["kind"] == "shoulder")
+        & (crv_df["tier"] == 1)
+        & (crv_df["name"] == "D_parallel")
+    ]["2Dpoints"].iloc[0]
+    if len(U_points_2D) != len(D_points_2D):
+        raise ValueError(
+            f"U/D parallel point count mismatch: U={len(U_points_2D)}, D={len(D_points_2D)}"
+        )
+    center_line_crv_2D = const_polycurve_obj(
+        [center_point_pair(U_points_2D[i], D_points_2D[i]) for i in range(len(U_points_2D))]
+    )
+
+    crv_df["center_match_points"] = None
+    for idx, row in crv_df.iterrows():
+        points2D = row["2Dpoints"]
+        name = row["name"]
+        if name == "U_parallel" or name == "D_parallel":
+            match_points = [
+                get_closest_point_on_curve_2D(center_line_crv_2D, point)
+                for point in points2D
+            ]
+        elif name == "start_edge_U":
+            match_points = [abut_points["start"]["U"]["wing_soil"]] * len(points2D)
+        elif name == "start_edge_D":
+            match_points = [abut_points["start"]["D"]["wing_soil"]] * len(points2D)
+        elif name == "end_edge_U":
+            match_points = [abut_points["end"]["U"]["wing_soil"]] * len(points2D)
+        elif name == "end_edge_D":
+            match_points = [abut_points["end"]["D"]["wing_soil"]] * len(points2D)
+        elif name == "start_edge_UD":
+            match_points = [
+                get_closest_point_on_curve_2D(crv_dict[1]["shoulder"]["start_edge_UD"], point)
+                for point in points2D
+            ]
+        elif name == "end_edge_UD":
+            match_points = [
+                get_closest_point_on_curve_2D(crv_dict[1]["shoulder"]["end_edge_UD"], point)
+                for point in points2D
+            ]
+        else:
+            raise ValueError(f"Unknown curve name for center matching: {name}")
+        crv_df.at[idx, "center_match_points"] = match_points
+
+    def get_new_points(this_2Dpoints, this_match_points, other_2Dcrv):
+        new_points = []
+        new_2Dpoints = []
+        new_2Ddistances = []
+        for k in range(1, len(this_2Dpoints) - 1):  # 両端は切った点
+            point = this_2Dpoints[k]
+            match_point = this_match_points[k]
+            intersection_points = get_intersections_with_vertical_plane(
+                other_2Dcrv,
+                (point, match_point),
+            )
+            if not intersection_points:
+                match_2Dpoint = get_closest_point_on_curve_2D(other_2Dcrv, point)
+            else:
+                match_2Dpoint = min(
+                    intersection_points,
+                    key=lambda p: get_distance_2D(p, point),
+                )
+            match_2Ddistance = get_curve_distance(other_2Dcrv, match_2Dpoint)
+            new_points.append(match_2Dpoint)
+            new_2Dpoints.append(match_2Dpoint)
+            new_2Ddistances.append(match_2Ddistance)
+        return new_points, new_2Dpoints, new_2Ddistances
+
+    edge_names = [
+        "U_parallel",
+        "D_parallel",
+        "start_edge_U",
+        "start_edge_D",
+        "end_edge_U",
+        "end_edge_D",
+        "start_edge_UD",
+        "end_edge_UD",
+    ]
+    for name in edge_names:
+        row_indices = crv_df.index[crv_df["name"] == name].to_list()
+        for i, j in combinations(row_indices, 2):
+            i_new_points, i_new_2Dpoints, i_new_2Ddistances = get_new_points(
+                crv_df.at[i, "2Dpoints"],
+                crv_df.at[i, "center_match_points"],
+                crv_df.at[j, "2Dcurve"],
+            )
+            j_new_points, j_new_2Dpoints, j_new_2Ddistances = get_new_points(
+                crv_df.at[j, "2Dpoints"],
+                crv_df.at[j, "center_match_points"],
+                crv_df.at[i, "2Dcurve"],
+            )
+            crv_df.at[i, "points"] = crv_df.at[i, "points"] + i_new_points
+            crv_df.at[i, "2Dpoints"] = crv_df.at[i, "2Dpoints"] + i_new_2Dpoints
+            crv_df.at[i, "2Ddistances"] = crv_df.at[i, "2Ddistances"] + i_new_2Ddistances
+            crv_df.at[j, "points"] = crv_df.at[j, "points"] + j_new_points
+            crv_df.at[j, "2Dpoints"] = crv_df.at[j, "2Dpoints"] + j_new_2Dpoints
+            crv_df.at[j, "2Ddistances"] = crv_df.at[j, "2Ddistances"] + j_new_2Ddistances
+
+    edge_tier1_shoulder_points = {
+        "start_edge_U": abut_points["start"]["U"]["wing_soil"],
+        "start_edge_D": abut_points["start"]["D"]["wing_soil"],
+        "end_edge_U": abut_points["end"]["U"]["wing_soil"],
+        "end_edge_D": abut_points["end"]["D"]["wing_soil"],
+    }
+    for name, soil_point in edge_tier1_shoulder_points.items():
+        reference_rows = crv_df[
+            (crv_df["name"] == name)
+            & ~((crv_df["tier"] == 1) & (crv_df["kind"] == "shoulder"))
+        ]
+        if reference_rows.empty:
+            raise ValueError(f"No reference points found for {name} tier1 shoulder")
+        point_count = len(reference_rows.iloc[0]["points"])
+        points = [soil_point] * point_count
+        points2D = [Point3D(soil_point.x, soil_point.y, STANDARD_BASE_Z)] * point_count
+        crv_df = pd.concat(
+            [
+                crv_df,
+                pd.DataFrame(
+                    [
+                        {
+                            "tier": 1,
+                            "kind": "shoulder",
+                            "name": name,
+                            "curve": "00000",
+                            "points": points,
+                            "2Dcurve": "00000",
+                            "2Dpoints": points2D,
+                            "2Ddistances": [0.0] * point_count,
+                            "center_match_points": ["00000"] * point_count,
+                        }
+                    ]
+                ),
+            ],
+            ignore_index=True,
+        )
+
+    for name in edge_names:
+        points_counts = []
+        for _, row in crv_df[crv_df["name"] == name].iterrows():
+            points_counts.append(len(row["points"]))
+        if len(set(points_counts)) > 1:
+            raise ValueError(f"Point count mismatch for {name}: {points_counts}")
+    for idx, row in crv_df.iterrows():
+        sorted_items = sorted(
+            zip(row["2Ddistances"], row["points"], row["2Dpoints"]),
+            key=lambda item: item[0],
+        )
+        crv_df.at[idx, "2Ddistances"] = [item[0] for item in sorted_items]
+        crv_df.at[idx, "points"] = [item[1] for item in sorted_items]
+        crv_df.at[idx, "2Dpoints"] = [item[2] for item in sorted_items]
+    
+
+    # 次にwallの点から高さを追加する。
+    wall_infos = {}
+    for wall_interference in pavement_info.wall_interferences or []:
+        wall_main_name = wall_interference.wall_main_name
+        wall_name = wall_interference.wall_name
+        wall_unique_key = f"{wall_main_name}_{wall_name}"
+        wall_points = wall_points_dict[wall_unique_key]
+
+        def get_wall_info(small_info):
+            if small_info is None:
+                return None
+            target_tier = small_info.target_tier
+            target_position = small_info.target_position
+            return (target_tier, target_position)
+
+        def match_wall_info(small_info, location):
+            wall_info = get_wall_info(small_info)
+            if wall_info is None:
+                return {}
+            points = wall_points[location]
+            polyline = const_polycurve_obj(points)
+            return {wall_info: {
+                "points": points,
+                "polyline": polyline,
+            }}
+
+        for matched_info in [
+            match_wall_info(wall_interference.berm, "berm"),
+            match_wall_info(wall_interference.top, "top"),
+            match_wall_info(wall_interference.bottom, "bottom"),
+        ]:
+            for emb_location, wall_info in matched_info.items():
+                if emb_location not in wall_infos:
+                    wall_infos[emb_location] = []
+                wall_infos[emb_location].append(wall_info)
+    
+    for emb_location, wall_info_list in wall_infos.items():
+        target_tier, target_position = emb_location
+        for wall_info in wall_info_list:
+            for points in [start_edge_points, end_edge_points, U_parallel_points, D_parallel_points, start_U_abut_points, start_D_abut_points, end_U_abut_points, end_D_abut_points]:
+                intersection_points = get_intersections_with_vertical_plane(wall_info["polyline"], points)
+                if intersection_points:
+                    for intersection_point in intersection_points:
+                        wall_info["points"].append(intersection_point)
+
+        this_tier_position_df = crv_df[(crv_df["tier"] == target_tier) & (crv_df["kind"] == target_position)]
+        wall_height_points = [
+            wall_point
+            for wall_info in wall_info_list
+            for wall_point in wall_info["points"]
+        ]
+        for idx, row in this_tier_position_df.iterrows():
+            points = row["points"]
+            for i, point in enumerate(points):
+                for wall_point in wall_height_points:
+                    if get_distance_2D(point, wall_point) < DISTANCE_TOL:
+                        points[i] = Point3D(point.x, point.y, wall_point.z)
+                        break
+            crv_df.at[idx, "points"] = points
+    
+    def get_cross_section_height_with_slope(name_df, slope):
+        name_df = name_df.copy()
+        tier1_shoulder_points = name_df[(name_df["tier"] == 1) & (name_df["kind"] == "shoulder")]["points"].iloc[0]
+        for i in range(len(tier1_shoulder_points)):
+            tier1_shoulder_point = tier1_shoulder_points[i]
+            # 全てのtier, kindの点の中でzがstandard_base_z以外の点があるかと、距離の一覧を作る。
+            has_known_z_points = []
+            cross_section_distances = [0]
+            max_tier = name_df["tier"].max()
+            ordered_keys = [(1, "shoulder")]
+            for tier in range(1, max_tier + 1):
+                for kind in ["shoulder", "toe"]:
+                    if kind == "shoulder" and tier == 1:
+                        continue
+                    row_mask = (name_df["tier"] == tier) & (name_df["kind"] == kind)
+                    if name_df[row_mask].empty:
+                        continue
+                    this_point = name_df[row_mask]["points"].iloc[0][i]
+                    this_distance = get_distance_2D(tier1_shoulder_point, this_point)
+                    cross_section_distances.append(this_distance)
+                    ordered_keys.append((tier, kind))
+                    if abs(this_point.z - STANDARD_BASE_Z) > DISTANCE_TOL:
+                        has_known_z_points.append((tier, kind, this_point))
+            # cross_section_distancesは、法肩→のり尻→…の順に入っているが、スロープを持つのは法肩から法尻までのみ。
+            section_distances = [
+                cross_section_distances[2 * j + 1] - cross_section_distances[2 * j]
+                for j in range((len(cross_section_distances) - 1) // 2)
+            ]
+            section_slopes = [slope] * len(section_distances)
+            has_known_z_points = sorted(
+                has_known_z_points,
+                key=lambda x: ordered_keys.index((x[0], x[1])),
+            )
+            if len(has_known_z_points) > 0:
+                start_tier = 1
+                start_point = tier1_shoulder_point
+                for tier, kind, point in has_known_z_points:
+                    if kind == "shoulder":
+                        last_tier = tier - 1
+                    else:
+                        last_tier = tier
+                    sum_section_distance = sum(section_distances[start_tier - 1:last_tier])
+                    if abs(sum_section_distance) < DISTANCE_TOL:
+                        continue
+                    z_gap = start_point.z - point.z
+                    this_slope = z_gap / sum_section_distance
+                    section_slopes[start_tier - 1:last_tier] = [this_slope] * (last_tier - start_tier + 1)
+                    start_tier = tier
+                    start_point = point
+
+            for tier in range(1, max_tier + 1):
+                shoulder_mask = (name_df["tier"] == tier) & (name_df["kind"] == "shoulder")
+                toe_mask = (name_df["tier"] == tier) & (name_df["kind"] == "toe")
+                if name_df[shoulder_mask].empty or name_df[toe_mask].empty:
                     continue
-                tier_dict[f"{kind}_points"] = split_points[part]
-        formatted[embankment_key] = embankment_output
-    return formatted
+                shoulder_idx = name_df[shoulder_mask].index[0]
+                toe_idx = name_df[toe_mask].index[0]
+                shoulder_points = list(name_df.at[shoulder_idx, "points"])
+                toe_points = list(name_df.at[toe_idx, "points"])
+                shoulder_point = shoulder_points[i]
+                toe_point = toe_points[i]
+                z_drop_to_shoulder = sum(
+                    section_slope * section_distance
+                    for section_slope, section_distance in zip(
+                        section_slopes[: tier - 1],
+                        section_distances[: tier - 1],
+                    )
+                )
+                shoulder_z = tier1_shoulder_point.z - z_drop_to_shoulder
+                toe_z = shoulder_z - section_slopes[tier - 1] * section_distances[tier - 1]
+                shoulder_points[i] = Point3D(shoulder_point.x, shoulder_point.y, shoulder_z)
+                toe_points[i] = Point3D(toe_point.x, toe_point.y, toe_z)
+                name_df.at[shoulder_idx, "points"] = shoulder_points
+                name_df.at[toe_idx, "points"] = toe_points
+        return name_df
+
+    return crv_df
+                        
+
+        
+        
+        
+    
+
+    
+    
+
+
+
+            
+
+
+
+    
+
+
+
+
+
+
+
+    
+
+            
+
+        
+    
+
+
+    
 
 
 def main(initial_or_final: str, debug: bool = False):
@@ -1541,11 +666,8 @@ def main(initial_or_final: str, debug: bool = False):
     pavement_infos = load_from_pickle(
         file_path=DIR / f"{Filenames.INPUT}_{Filenames.EMBANKMENT}_{Filenames.PAVEMENT}.pickle",
     )
-    local_embankment_points_dict = load_from_pickle(
-        file_path=DIR / f"{Filenames.INPUT}_{Filenames.LOCAL}_{Filenames.EMBANKMENT}_{Filenames.POINTS}.pickle",
-    )
     pavement_bottom_points_dict = load_from_pickle(
-        file_path=DIR / f"{Filenames.INPUT}_{Filenames.WORLD}_{Filenames.EMBANKMENT}_{Filenames.PAVEMENT}_{Filenames.BOTTOM}_{Filenames.POINTS}.pickle",
+        file_path=DIR / f"{Filenames.WORLD}_{Filenames.EMBANKMENT}_{Filenames.PAVEMENT}_{Filenames.BOTTOM}_{Filenames.POINTS}.pickle",
     )
     wall_points_dict = load_from_pickle(
         file_path=DIR / f"{Filenames.WORLD}_{Filenames.WALL}_{Filenames.POINTS}.pickle",
@@ -1554,23 +676,30 @@ def main(initial_or_final: str, debug: bool = False):
         file_path=DIR / f"{Filenames.WORLD}_{Filenames.ABUT}_{Filenames.POINTS}.pickle",
     )
     named_curves = get_named_curves_on_layer(layer_index)
-    world_embankment_points_dict = get_world_embankment_points(
-        pavement_infos=pavement_infos,
-        local_embankment_points_dict=local_embankment_points_dict,
-        pavement_bottom_points_dict=pavement_bottom_points_dict,
-        named_curves=named_curves,
-        wall_points_dict=wall_points_dict,
-        abut_points_dict=abut_points_dict,
-    )
+
+    world_embankment_points_dict = {}
+    for info in pavement_infos:
+        name = info.name
+        num = info.num
+        unique_key = f"{name}_{num}"
+
+
+        indiv_dict = get_world_embankment_points(
+            pavement_info=info,
+            pavement_bottom_points_dict=pavement_bottom_points_dict[unique_key],
+            named_curves=named_curves,
+            wall_points_dict=wall_points_dict,
+            abut_points_dict=abut_points_dict,
+        )
+        world_embankment_points_dict[unique_key] = indiv_dict
     save_json_and_pickle(
-        data=format_embankment_points_for_save(world_embankment_points_dict),
+        data=world_embankment_points_dict,
         folder_path=DIR,
-        name=f"{Filenames.INPUT}_{Filenames.WORLD}_{Filenames.EMBANKMENT}_{Filenames.POINTS}",
+        name=f"{Filenames.EMBANKMENT}_{Filenames.POINTS}",
     )
 
     if debug:
-        point_debug_dict = format_embankment_points_for_save(world_embankment_points_dict)
-        bake_keys, bake_objs = get_keys_and_values_for_bake(point_debug_dict)
+        bake_keys, bake_objs = get_keys_and_values_for_bake(world_embankment_points_dict)
         if len(bake_objs) == 0:
             raise ValueError("No embankment points were generated for debug bake")
         crvs = get_debug_crvs(world_embankment_points_dict)
