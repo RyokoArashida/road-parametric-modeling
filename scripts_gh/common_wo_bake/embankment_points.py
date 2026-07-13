@@ -602,14 +602,78 @@ def get_world_embankment_points(
             crv_df.at[idx, "points"] = points
     
     def get_cross_section_slope(name_df, start_slope, end_slope):
-        # tier1のtoeを使う。
         tier1_toe_distances = name_df[(name_df["tier"] == 1) & (name_df["kind"] == "toe")]["2Ddistances"].iloc[0]
-        all_distance = tier1_toe_distances[-1]
-        slopes = []
-        for i in range(len(tier1_toe_distances)):
-            distance_ratio = 0 if abs(all_distance) < DISTANCE_TOL else tier1_toe_distances[i] / all_distance
-            this_slope = start_slope + (end_slope - start_slope) * distance_ratio
-            slopes.append(this_slope)
+        tier1_shoulder_points = name_df[(name_df["tier"] == 1) & (name_df["kind"] == "shoulder")]["points"].iloc[0]
+        point_count = len(tier1_toe_distances)
+        max_tier = int(name_df["tier"].max())
+        slope_anchors = [
+            {0: start_slope, point_count - 1: end_slope}
+            for _ in range(max_tier)
+        ]
+
+        for i in range(1, point_count - 1):
+            tier1_shoulder_point = tier1_shoulder_points[i]
+            known_z_points = []
+            ordered_keys = [(1, "shoulder")]
+            cross_section_distances = [0]
+            for tier in range(1, max_tier + 1):
+                for kind in ["shoulder", "toe"]:
+                    if tier == 1 and kind == "shoulder":
+                        continue
+                    row_mask = (name_df["tier"] == tier) & (name_df["kind"] == kind)
+                    if name_df[row_mask].empty:
+                        continue
+                    point = name_df[row_mask]["points"].iloc[0][i]
+                    cross_section_distances.append(
+                        get_distance_2D(tier1_shoulder_point, point)
+                    )
+                    ordered_keys.append((tier, kind))
+                    if abs(point.z - STANDARD_BASE_Z) > DISTANCE_TOL:
+                        known_z_points.append((tier, kind, point))
+
+            section_distances = [
+                cross_section_distances[2 * j + 1] - cross_section_distances[2 * j]
+                for j in range(len(cross_section_distances) // 2)
+            ]
+            known_z_points.sort(
+                key=lambda item: ordered_keys.index((item[0], item[1]))
+            )
+            start_tier = 1
+            start_point = tier1_shoulder_point
+            for tier, kind, point in known_z_points:
+                last_tier = tier - 1 if kind == "shoulder" else tier
+                if last_tier >= start_tier:
+                    horizontal_distance = sum(
+                        section_distances[start_tier - 1:last_tier]
+                    )
+                    z_gap = start_point.z - point.z
+                    if (
+                        abs(horizontal_distance) > DISTANCE_TOL
+                        and abs(z_gap) > DISTANCE_TOL
+                    ):
+                        inferred_slope = horizontal_distance / z_gap
+                        for tier_index in range(start_tier - 1, last_tier):
+                            slope_anchors[tier_index][i] = inferred_slope
+                start_tier = tier if kind == "shoulder" else tier + 1
+                start_point = point
+
+        slopes = [[0.0] * max_tier for _ in range(point_count)]
+        for tier_index, anchors in enumerate(slope_anchors):
+            anchor_indices = sorted(anchors)
+            for start_index, end_index in zip(anchor_indices, anchor_indices[1:]):
+                start_distance = tier1_toe_distances[start_index]
+                end_distance = tier1_toe_distances[end_index]
+                distance_span = end_distance - start_distance
+                for i in range(start_index, end_index + 1):
+                    distance_ratio = (
+                        0
+                        if abs(distance_span) < DISTANCE_TOL
+                        else (tier1_toe_distances[i] - start_distance) / distance_span
+                    )
+                    slopes[i][tier_index] = (
+                        anchors[start_index]
+                        + (anchors[end_index] - anchors[start_index]) * distance_ratio
+                    )
         return slopes
 
     def get_cross_section_height_with_slope(name_df, slopes):
@@ -617,12 +681,8 @@ def get_world_embankment_points(
         tier1_shoulder_points = name_df[(name_df["tier"] == 1) & (name_df["kind"] == "shoulder")]["points"].iloc[0]
         for i in range(len(tier1_shoulder_points)):
             tier1_shoulder_point = tier1_shoulder_points[i]
-            slope = slopes[i]
-            # 全てのtier, kindの点の中でzがstandard_base_z以外の点があるかと、距離の一覧を作る。
-            has_known_z_points = []
             cross_section_distances = [0]
-            max_tier = name_df["tier"].max()
-            ordered_keys = [(1, "shoulder")]
+            max_tier = int(name_df["tier"].max())
             for tier in range(1, max_tier + 1):
                 for kind in ["shoulder", "toe"]:
                     if kind == "shoulder" and tier == 1:
@@ -633,35 +693,11 @@ def get_world_embankment_points(
                     this_point = name_df[row_mask]["points"].iloc[0][i]
                     this_distance = get_distance_2D(tier1_shoulder_point, this_point)
                     cross_section_distances.append(this_distance)
-                    ordered_keys.append((tier, kind))
-                    if abs(this_point.z - STANDARD_BASE_Z) > DISTANCE_TOL:
-                        has_known_z_points.append((tier, kind, this_point))
-            # cross_section_distancesは、法肩→のり尻→…の順に入っているが、スロープを持つのは法肩から法尻までのみ。
             section_distances = [
                 cross_section_distances[2 * j + 1] - cross_section_distances[2 * j]
                 for j in range(len(cross_section_distances) // 2)
             ]
-            section_slopes = [slope] * len(section_distances)
-            has_known_z_points = sorted(
-                has_known_z_points,
-                key=lambda x: ordered_keys.index((x[0], x[1])),
-            )
-            if len(has_known_z_points) > 0:
-                start_tier = 1
-                start_point = tier1_shoulder_point
-                for tier, kind, point in has_known_z_points:
-                    if kind == "shoulder":
-                        last_tier = tier - 1
-                    else:
-                        last_tier = tier
-                    sum_section_distance = sum(section_distances[start_tier - 1:last_tier])
-                    if abs(sum_section_distance) < DISTANCE_TOL:
-                        continue
-                    z_gap = start_point.z - point.z
-                    this_slope = sum_section_distance / z_gap
-                    section_slopes[start_tier - 1:last_tier] = [this_slope] * (last_tier - start_tier + 1)
-                    start_tier = tier
-                    start_point = point
+            section_slopes = slopes[i]
 
             for tier in range(1, max_tier + 1):
                 shoulder_mask = (name_df["tier"] == tier) & (name_df["kind"] == "shoulder")
