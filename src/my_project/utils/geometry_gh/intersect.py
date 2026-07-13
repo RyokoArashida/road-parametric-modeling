@@ -44,12 +44,14 @@ def get_intersections_with_vertical_plane(
     curve: Union[rg.Curve, rg.Line, rg.PolylineCurve],
     plane_points: tuple[Point3D, Point3D],
     z: float = STANDARD_BASE_Z,
+    cutter_length: float = 100000,
 ) -> list[Point3D]:
     curve = const_curve_obj(curve)
     reference_z = STANDARD_BASE_Z if curve_points_are_on_z(curve, 0) else z
     plane_srf = const_vertical_srf_from_two_points(
         Point3D(plane_points[0].x, plane_points[0].y, reference_z),
         Point3D(plane_points[1].x, plane_points[1].y, reference_z),
+        length=cutter_length,
     )
     curve_on_reference_z = curve.DuplicateCurve()
     curve_on_reference_z.Transform(rg.Transform.PlanarProjection(rg.Plane.WorldXY))
@@ -69,6 +71,7 @@ def split_curve_by_lines_and_match_endpoints(
     split_line_points: list[tuple[Point3D, Point3D]],
     target_line_points: dict[str, tuple[Point3D, Point3D]],
     expected_count: int,
+    cutter_length: float = 100000,
 ) -> list[dict]:
     curve = const_curve_obj(curve)
     curve_on_reference_z = curve.DuplicateCurve()
@@ -78,14 +81,21 @@ def split_curve_by_lines_and_match_endpoints(
     )
     extended_target_line_points = {}
     for key, points in target_line_points.items():
-        extended_line = const_extended_line_from_two_points(*points)
+        extended_line = const_extended_line_from_two_points(
+            *points,
+            length=cutter_length,
+        )
         extended_target_line_points[key] = (
             point3d_from_rg(extended_line.PointAtStart),
             point3d_from_rg(extended_line.PointAtEnd),
         )
     split_params = []
     for line_points in split_line_points:
-        for point in get_intersections_with_vertical_plane(curve, line_points):
+        for point in get_intersections_with_vertical_plane(
+            curve,
+            line_points,
+            cutter_length=cutter_length,
+        ):
             ok, t = curve_on_reference_z.ClosestPoint(const_point_obj(point))
             if not ok:
                 raise ValueError(f"Failed to get curve parameter at split point: {point}")
