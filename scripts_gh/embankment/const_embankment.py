@@ -37,6 +37,7 @@ from my_project.utils.geometry_gh.const import (
     const_planer_srf_obj_from_points,
     const_polycurve_obj,
     const_brep_from_two_closed_point_lists,
+    const_srf_from_2crvs,
     join_breps_or_raise,
 )
 from my_project.utils.geometry_gh.document import get_named_curves_on_layer
@@ -990,11 +991,19 @@ def get_brep_from_points(point_dict) -> dict[str, rg.Brep]:
         breps = []
         for i in range(len(this_points) - 1):
             next_points = this_points[(i + 1)]
-            brep = const_brep_from_two_closed_point_lists(
-                this_points[i],
-                next_points,
-                cap=False,
-            )
+            if name in edge_names:
+                brep = const_srf_from_2crvs(
+                    [
+                        const_polycurve_obj(this_points[i]),
+                        const_polycurve_obj(next_points),
+                    ]
+                )
+            else:
+                brep = const_brep_from_two_closed_point_lists(
+                    this_points[i],
+                    next_points,
+                    cap=False,
+                )
             breps.append(brep)
         end_caps = [
             const_planer_srf_obj_from_points(this_points[0]),
