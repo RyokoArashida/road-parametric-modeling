@@ -671,7 +671,7 @@ def get_world_embankment_points(
                     if abs(sum_section_distance) < DISTANCE_TOL:
                         continue
                     z_gap = start_point.z - point.z
-                    this_slope = z_gap / sum_section_distance
+                    this_slope = sum_section_distance / z_gap
                     section_slopes[start_tier - 1:last_tier] = [this_slope] * (last_tier - start_tier + 1)
                     start_tier = tier
                     start_point = point
@@ -688,14 +688,14 @@ def get_world_embankment_points(
                 shoulder_point = shoulder_points[i]
                 toe_point = toe_points[i]
                 z_drop_to_shoulder = sum(
-                    section_slope * section_distance
+                    section_distance / section_slope
                     for section_slope, section_distance in zip(
                         section_slopes[: tier - 1],
                         section_distances[: tier - 1],
                     )
                 )
                 shoulder_z = tier1_shoulder_point.z - z_drop_to_shoulder
-                toe_z = shoulder_z - section_slopes[tier - 1] * section_distances[tier - 1]
+                toe_z = shoulder_z - section_distances[tier - 1] / section_slopes[tier - 1]
                 shoulder_points[i] = Point3D(shoulder_point.x, shoulder_point.y, shoulder_z)
                 toe_points[i] = Point3D(toe_point.x, toe_point.y, toe_z)
                 name_df.at[shoulder_idx, "points"] = shoulder_points
