@@ -1087,31 +1087,37 @@ def get_brep_from_points(point_dict) -> dict[str, rg.Brep]:
             )
             if not cutter_brep.IsSolid:
                 raise ValueError(f"UD trim cutter is not solid ({name})")
-            split_breps = list(brep.Split(cutter_brep, DISTANCE_TOL))
-            if len(split_breps) < 2:
-                raise ValueError(f"UD trim did not split embankment brep ({name})")
-
             bridge_mid_x = (trim_points[0].x + trim_points[3].x) / 2
             bridge_mid_y = (trim_points[0].y + trim_points[3].y) / 2
             soil_mid_x = (trim_points[1].x + trim_points[2].x) / 2
             soil_mid_y = (trim_points[1].y + trim_points[2].y) / 2
             soil_axis_x = soil_mid_x - bridge_mid_x
             soil_axis_y = soil_mid_y - bridge_mid_y
+
+            base_brep = brep.DuplicateBrep()
+            cutter = cutter_brep.DuplicateBrep()
+            if base_brep.SolidOrientation == rg.BrepSolidOrientation.Inward:
+                base_brep.Flip()
+            if cutter.SolidOrientation == rg.BrepSolidOrientation.Inward:
+                cutter.Flip()
+            difference_breps = list(
+                rg.Brep.CreateBooleanDifference(
+                    base_brep,
+                    cutter,
+                    DISTANCE_TOL,
+                )
+                or []
+            )
+            solid_breps = [piece for piece in difference_breps if piece.IsSolid]
+            if not solid_breps:
+                raise ValueError(f"UD boolean difference produced no solid brep ({name})")
             brep = max(
-                split_breps,
+                solid_breps,
                 key=lambda piece: (
                     (piece.GetBoundingBox(True).Center.X - bridge_mid_x) * soil_axis_x
                     + (piece.GetBoundingBox(True).Center.Y - bridge_mid_y) * soil_axis_y
                 ),
             )
-            capped_brep = brep.CapPlanarHoles(DISTANCE_TOL)
-            if capped_brep is None:
-                naked_edge_count = len(brep.DuplicateNakedEdgeCurves(True, True))
-                raise ValueError(
-                    f"Failed to cap trimmed UD embankment brep ({name}). "
-                    f"naked_edge_count={naked_edge_count}"
-                )
-            brep = capped_brep
             if not brep.IsSolid:
                 raise ValueError(f"Trimmed UD embankment brep is not solid ({name})")
         brep_dict[name] = brep
