@@ -36,6 +36,7 @@ from my_project.utils.geometry_gh.const import (
     const_point_obj,
     const_polycurve_obj,
     const_brep_from_two_closed_point_lists,
+    join_breps_or_raise,
 )
 from my_project.utils.geometry_gh.document import get_named_curves_on_layer
 from my_project.utils.geometry_gh.intersect import (
@@ -953,17 +954,14 @@ def get_brep_from_points(point_dict) -> dict[str, rg.Brep]:
             brep = const_brep_from_two_closed_point_lists(
                 this_points[i],
                 next_points,
-                cap=True,
+                cap=False,
             )
             breps.append(brep)
-        unioned = rg.Brep.CreateBooleanUnion(breps, DISTANCE_TOL)
-        if not unioned or len(unioned) != 1:
-            result_count = 0 if not unioned else len(unioned)
-            raise ValueError(
-                f"Failed to union embankment breps ({name}). "
-                f"input_count={len(breps)}, result_count={result_count}"
-            )
-        brep_dict[name] = unioned[0]
+        brep_dict[name] = join_breps_or_raise(
+            breps,
+            context=name,
+            cap=True,
+        )
 
     return brep_dict
 

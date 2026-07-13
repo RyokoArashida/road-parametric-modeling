@@ -281,15 +281,23 @@ def join_breps_or_raise(
     cap: bool = False,
 ) -> rg.Brep:
     joined = rg.Brep.JoinBreps(breps, tol)
-    if not joined or len(joined) == 0:
+    if not joined or len(joined) != 1:
         suffix = f" ({context})" if context else ""
-        raise ValueError(f"Failed to join breps{suffix}. count={len(breps)}, tol={tol}")
+        result_count = 0 if not joined else len(joined)
+        raise ValueError(
+            f"Failed to join breps into one brep{suffix}. "
+            f"input_count={len(breps)}, result_count={result_count}, tol={tol}"
+        )
     brep = joined[0]
     if cap:
         capped = brep.CapPlanarHoles(tol)
         if capped is None:
             suffix = f" ({context})" if context else ""
-            raise ValueError(f"Failed to cap joined brep{suffix}. tol={tol}")
+            naked_edge_count = len(brep.DuplicateNakedEdgeCurves(True, True))
+            raise ValueError(
+                f"Failed to cap joined brep{suffix}. "
+                f"naked_edge_count={naked_edge_count}, tol={tol}"
+            )
         brep = capped
     return brep
 
