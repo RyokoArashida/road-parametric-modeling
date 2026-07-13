@@ -83,8 +83,8 @@ def split_curve_by_lines_and_match_endpoints(
     expected_split_point_count = expected_count if curve.IsClosed else expected_count - 1
     if len(split_params) != expected_split_point_count:
         raise ValueError(f"Expected {expected_split_point_count} split points, got {len(split_params)}")
+    split_curve_items = []
     if curve.IsClosed:
-        split_curves = []
         domain = curve.Domain
         for i, t0 in enumerate(split_params):
             t1 = split_params[(i + 1) % len(split_params)]
@@ -97,15 +97,31 @@ def split_curve_by_lines_and_match_endpoints(
                 split_curve = joined[0] if joined and len(joined) == 1 else None
             if split_curve is None:
                 raise ValueError(f"Failed to trim closed curve between parameters: {t0}, {t1}")
-            split_curves.append(split_curve)
+            split_curve_items.append(
+                {
+                    "curve": split_curve,
+                    "start": point3d_from_rg(curve.PointAt(t0)),
+                    "end": point3d_from_rg(curve.PointAt(t1)),
+                }
+            )
     else:
         split_curves = curve.Split(split_params)
-    if not split_curves or len(split_curves) != expected_count:
-        raise ValueError(f"Expected {expected_count} split curves, got {0 if not split_curves else len(split_curves)}")
+        if split_curves:
+            split_curve_items = [
+                {
+                    "curve": split_curve,
+                    "start": point3d_from_rg(split_curve.PointAtStart),
+                    "end": point3d_from_rg(split_curve.PointAtEnd),
+                }
+                for split_curve in split_curves
+            ]
+    if not split_curve_items or len(split_curve_items) != expected_count:
+        raise ValueError(f"Expected {expected_count} split curves, got {len(split_curve_items)}")
     items = []
-    for split_curve in split_curves:
-        start = point3d_from_rg(split_curve.PointAtStart)
-        end = point3d_from_rg(split_curve.PointAtEnd)
+    for split_curve_item in split_curve_items:
+        split_curve = split_curve_item["curve"]
+        start = split_curve_item["start"]
+        end = split_curve_item["end"]
         items.append(
             {
                 "curve": const_curve_obj(split_curve).DuplicateCurve(),
