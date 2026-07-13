@@ -331,10 +331,15 @@ def get_world_embankment_points(
         start_edge_points=start_edge_points,
         end_edge_points=end_edge_points,
     )
-    crv_dict[1]["shoulder"]["U_parallel"] = tier_1_sholder_U_info["curve"]
-    crv_dict[1]["shoulder"]["D_parallel"] = tier_1_sholder_D_info["curve"]
-    crv_dict[1]["shoulder"]["start_edge_UD"] = const_polycurve_obj([tier_1_sholder_U_info["start_point"], tier_1_sholder_D_info["start_point"]])
-    crv_dict[1]["shoulder"]["end_edge_UD"] = const_polycurve_obj([tier_1_sholder_U_info["end_point"], tier_1_sholder_D_info["end_point"]])
+    tier_1_shoulder_curves = crv_dict.setdefault(1, {}).setdefault("shoulder", {})
+    tier_1_shoulder_curves["U_parallel"] = tier_1_sholder_U_info["curve"]
+    tier_1_shoulder_curves["D_parallel"] = tier_1_sholder_D_info["curve"]
+    tier_1_shoulder_curves["start_edge_UD"] = const_polycurve_obj(
+        [tier_1_sholder_U_info["start_point"], tier_1_sholder_D_info["start_point"]]
+    )
+    tier_1_shoulder_curves["end_edge_UD"] = const_polycurve_obj(
+        [tier_1_sholder_U_info["end_point"], tier_1_sholder_D_info["end_point"]]
+    )
 
     crv_rows = []
     for tier in crv_dict:
