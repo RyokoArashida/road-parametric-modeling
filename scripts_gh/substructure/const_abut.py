@@ -53,10 +53,18 @@ def get_named_footing_top_points(
         raise ValueError(f"Need 4 footing top points, got {len(footing_top_points)}")
 
     wing_dict = abut_points["wing_dict"]
-    U_base = wing_dict["U_wing_top_points"]["DB"]
-    D_base = wing_dict["D_wing_top_points"]["UB"]
-    U_wing = wing_dict["U_wing_top_points"]["DS"]
-    D_wing = wing_dict["D_wing_top_points"]["US"]
+    U_top_points = wing_dict["U_wing_top_points"]
+    D_top_points = wing_dict["D_wing_top_points"]
+    if isinstance(U_top_points, dict):
+        U_base = U_top_points["DB"]
+        U_wing = U_top_points["DS"]
+        D_base = D_top_points["UB"]
+        D_wing = D_top_points["US"]
+    else:
+        U_base = U_top_points.DB
+        U_wing = U_top_points.DS
+        D_base = D_top_points.UB
+        D_wing = D_top_points.US
 
     def center(point1: Point3D, point2: Point3D) -> Point3D:
         return Point3D(
