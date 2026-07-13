@@ -1,3 +1,4 @@
+# ruff: noqa: E402
 from my_project.config.file_names import Filenames
 from my_project.config.locale_compat import normalize_lc_time
 

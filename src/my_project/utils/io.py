@@ -1,3 +1,4 @@
+# ruff: noqa: E402
 import json
 import pickle
 from dataclasses import asdict, is_dataclass

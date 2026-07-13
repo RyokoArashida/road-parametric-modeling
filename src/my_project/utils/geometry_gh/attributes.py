@@ -3,7 +3,7 @@ from typing import Union
 
 import Rhino.Geometry as rg
 
-from my_project.config.constants import DISTANCE_TOL
+from my_project.config.constants import DISTANCE_TOL, STANDARD_BASE_Z
 from my_project.config.util_schemas import (
     Point2D,
     Point3D,
@@ -31,6 +31,39 @@ def get_curve_distance(
     return curve.GetLength(rg.Interval(curve.Domain.Min, t))
 
 
+def get_closest_point_on_curve_2D(
+    curve: Union[rg.Curve, rg.Line, rg.PolylineCurve, rg.Circle],
+    point: Union[rg.Point3d, Point3D, Point2D],
+) -> Point3D:
+    curve = const_curve_obj(curve)
+    point_obj = const_point_obj(point)
+    curve_points = [curve.PointAtStart, curve.PointAtEnd]
+    ok, polyline = curve.TryGetPolyline()
+    if ok:
+        curve_points.extend(polyline)
+    elif isinstance(curve, rg.PolyCurve):
+        for segment in curve.DuplicateSegments():
+            curve_points.extend([segment.PointAtStart, segment.PointAtEnd])
+    else:
+        nurbs_curve = curve.ToNurbsCurve()
+        if nurbs_curve is not None:
+            curve_points.extend(
+                nurbs_curve.Points[i].Location
+                for i in range(nurbs_curve.Points.Count)
+            )
+    reference_z = point_obj.Z
+    if any(abs(curve_point.Z - point_obj.Z) > DISTANCE_TOL for curve_point in curve_points):
+        reference_z = STANDARD_BASE_Z
+    curve_2D = curve.DuplicateCurve()
+    curve_2D.Transform(rg.Transform.PlanarProjection(rg.Plane.WorldXY))
+    curve_2D.Transform(rg.Transform.Translation(rg.Vector3d(0, 0, reference_z)))
+    point_2D = rg.Point3d(point_obj.X, point_obj.Y, reference_z)
+    ok, t = curve_2D.ClosestPoint(point_2D)
+    if not ok:
+        raise ValueError("ClosestPoint on 2D curve failed")
+    return point3d_from_rg(curve_2D.PointAt(t), z=reference_z)
+
+
 def get_polyline_distances(points: list[Point3D]) -> list[float]:
     distances = [0.0]
     for point1, point2 in zip(points, points[1:]):
@@ -53,7 +86,10 @@ def get_value_at_point_on_polyline(
     )
 
 
-def get_curve_polyline_points(curve: rg.Curve) -> list[Point3D]:
+def get_curve_polyline_points(
+    curve: rg.Curve,
+    return_distances: bool = False,
+) -> Union[list[Point3D], tuple[list[Point3D], list[float]]]:
     curve = const_curve_obj(curve)
     ok, polyline = curve.TryGetPolyline()
     if ok:
@@ -74,6 +110,8 @@ def get_curve_polyline_points(curve: rg.Curve) -> list[Point3D]:
         ]
     if len(points) >= 2 and const_point_obj(points[0]).DistanceTo(const_point_obj(points[-1])) < DISTANCE_TOL:
         points = points[:-1]
+    if return_distances:
+        return points, get_polyline_distances(points)
     return points
 
 

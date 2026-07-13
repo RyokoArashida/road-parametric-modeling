@@ -1,3 +1,4 @@
+# ruff: noqa: E402
 from typing import Any
 
 from my_project.config.file_names import Filenames

@@ -1,4 +1,4 @@
-
+# ruff: noqa: E402
 from my_project.config.locale_compat import normalize_lc_time
 
 normalize_lc_time()
@@ -424,7 +424,7 @@ def main(initial_or_final: str, debug: bool = False) -> tuple[list[str], list[rg
     wall_points2D = get_named_points_on_layer(layer_index) # layer_indexはGrasshopperから直接入力する
     print(wall_points2D)
 
-    wall_points_dict = {}
+    wall_points_dict: dict[str, dict[str, list[Point3D]]] = {}
     world_items_dict_for_bake = {}
     world_items_dict_for_bake_2 = {}
     world_items_dict_for_bake_3 = {}
@@ -468,12 +468,11 @@ def main(initial_or_final: str, debug: bool = False) -> tuple[list[str], list[rg
             context=f"{fullname}_小段",
         )
         wall_brep_dict, top_points3D, bottom_points3D, berm_points3D = get_indiv_wall(wall_info, top_points2D, bottom_points2D, berm_points2D)
-        for i, pt in enumerate(top_points3D):
-            wall_points_dict[f"{fullname}_上_{i}"] = const_3Dpoint(pt)
-        for i, pt in enumerate(bottom_points3D):
-            wall_points_dict[f"{fullname}_下_{i}"] = const_3Dpoint(pt)
-        for i, pt in enumerate(berm_points3D):
-            wall_points_dict[f"{fullname}_小段_{i}"] = const_3Dpoint(pt)
+        wall_points_dict[fullname] = {
+            "top": [const_3Dpoint(pt) for pt in top_points3D],
+            "bottom": [const_3Dpoint(pt) for pt in bottom_points3D],
+            "berm": [const_3Dpoint(pt) for pt in berm_points3D],
+        }
         
         world_items_dict_for_bake[fullname] = wall_brep_dict
     

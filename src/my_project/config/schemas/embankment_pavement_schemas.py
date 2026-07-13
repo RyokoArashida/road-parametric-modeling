@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional
+from typing import Literal, Optional
 
 from my_project.config.util_schemas import MonoSlope, Point3D
 
@@ -21,12 +21,11 @@ class EdgeSideInfo:
 
 @dataclass(frozen=True)
 class WallTargetInfo:
-    target_name: str
-    target_num: int
-    target_type: str
-    target_edge_name: Optional[str]
+    target_type: Literal["edge", "parallel"]
+    target_edge_name: Optional[Literal["start", "end"]]
+    target_parallel_name: Optional[Literal["U", "D"]]
     target_tier: Optional[int]
-    target_position: Optional[str]
+    target_position: Optional[Literal["toe", "shoulder"]]
 
 
 @dataclass(frozen=True)
@@ -56,5 +55,3 @@ class EmbankmentPaveInfo:
     start_edge: Optional[EdgeSideInfo] = None
     end_edge: Optional[EdgeSideInfo] = None
     wall_interferences: Optional[list[WallInterferenceInfo]] = None
-    start_edge_structure: Optional[EdgeStructureInfo] = None
-    end_edge_structure: Optional[EdgeStructureInfo] = None

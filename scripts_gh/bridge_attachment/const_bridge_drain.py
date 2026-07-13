@@ -1,3 +1,4 @@
+# ruff: noqa: E402
 from numbers import Number
 from typing import Union
 

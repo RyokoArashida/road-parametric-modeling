@@ -1,3 +1,4 @@
+# ruff: noqa: E402
 from typing import Union
 
 from my_project.config.locale_compat import normalize_lc_time

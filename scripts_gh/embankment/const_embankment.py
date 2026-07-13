@@ -1,3 +1,4 @@
+# ruff: noqa: E402
 # 今のところ橋台で区切られる土工部しか扱っていない。
 
 
@@ -44,7 +45,10 @@ from my_project.utils.geometry_gh.intersect import (
 )
 from my_project.utils.io import load_from_pickle, save_json_and_pickle
 
+
 def get_indiv_brep(points):
+    start_edge_info = points["start_edge"]
+    
     
 
 
