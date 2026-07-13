@@ -618,7 +618,7 @@ def get_world_embankment_points(
             for _ in range(max_tier)
         ]
 
-        for i in range(1, point_count - 1):
+        for i in range(point_count):
             tier1_shoulder_point = tier1_shoulder_points[i]
             cross_section_distances = [0]
             known_toe_z = {}
@@ -744,9 +744,31 @@ def get_world_embankment_points(
             name_points_dict[tier][kind] = points
         return name_points_dict
     
+    U_parallel_result = get_points_with_name_df(
+        crv_df[crv_df["name"] == "U_parallel"], slope, slope
+    )
+    D_parallel_result = get_points_with_name_df(
+        crv_df[crv_df["name"] == "D_parallel"], slope, slope
+    )
+    for edge_name, parallel_result in {
+        "start_edge_U": U_parallel_result,
+        "start_edge_D": D_parallel_result,
+        "end_edge_U": U_parallel_result,
+        "end_edge_D": D_parallel_result,
+    }.items():
+        for idx, row in crv_df[crv_df["name"] == edge_name].iterrows():
+            points = list(row["points"])
+            parallel_points = parallel_result[row["tier"]][row["kind"]]
+            for i, point in enumerate(points):
+                for parallel_point in parallel_points:
+                    if get_distance_2D(point, parallel_point) < DISTANCE_TOL:
+                        points[i] = Point3D(point.x, point.y, parallel_point.z)
+                        break
+            crv_df.at[idx, "points"] = points
+
     return {
-        "U_parallel": get_points_with_name_df(crv_df[crv_df["name"] == "U_parallel"],slope,slope),
-        "D_parallel": get_points_with_name_df(crv_df[crv_df["name"] == "D_parallel"],slope,slope),
+        "U_parallel": U_parallel_result,
+        "D_parallel": D_parallel_result,
         "start_edge_U": get_points_with_name_df(crv_df[crv_df["name"] == "start_edge_U"],slope,start_U_slope),
         "start_edge_UD": get_points_with_name_df(crv_df[crv_df["name"] == "start_edge_UD"],start_U_slope,start_D_slope),
         "start_edge_D": get_points_with_name_df(crv_df[crv_df["name"] == "start_edge_D"],start_D_slope,slope),
