@@ -71,6 +71,13 @@ def split_curve_by_lines_and_match_endpoints(
     expected_count: int,
 ) -> list[dict]:
     curve = const_curve_obj(curve)
+    extended_target_line_points = {}
+    for key, points in target_line_points.items():
+        extended_line = const_extended_line_from_two_points(*points)
+        extended_target_line_points[key] = (
+            point3d_from_rg(extended_line.PointAtStart),
+            point3d_from_rg(extended_line.PointAtEnd),
+        )
     split_params = []
     for line_points in split_line_points:
         for point in get_intersections_with_vertical_plane(curve, line_points):
@@ -133,12 +140,12 @@ def split_curve_by_lines_and_match_endpoints(
                 "end": end,
                 "start_matches": {
                     key
-                    for key, points in target_line_points.items()
+                    for key, points in extended_target_line_points.items()
                     if get_xy_distance_to_segment(start, points) <= DISTANCE_TOL
                 },
                 "end_matches": {
                     key
-                    for key, points in target_line_points.items()
+                    for key, points in extended_target_line_points.items()
                     if get_xy_distance_to_segment(end, points) <= DISTANCE_TOL
                 },
             }
