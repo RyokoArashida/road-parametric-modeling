@@ -1104,6 +1104,14 @@ def get_brep_from_points(point_dict) -> dict[str, rg.Brep]:
                     + (piece.GetBoundingBox(True).Center.Y - bridge_mid_y) * soil_axis_y
                 ),
             )
+            capped_brep = brep.CapPlanarHoles(DISTANCE_TOL)
+            if capped_brep is None:
+                naked_edge_count = len(brep.DuplicateNakedEdgeCurves(True, True))
+                raise ValueError(
+                    f"Failed to cap trimmed UD embankment brep ({name}). "
+                    f"naked_edge_count={naked_edge_count}"
+                )
+            brep = capped_brep
             if not brep.IsSolid:
                 raise ValueError(f"Trimmed UD embankment brep is not solid ({name})")
         brep_dict[name] = brep
