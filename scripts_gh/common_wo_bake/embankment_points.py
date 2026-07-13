@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import re
 from typing import Optional
-from itertools import combinations
 
 import Rhino.Geometry as rg
 
@@ -456,23 +455,25 @@ def get_world_embankment_points(
     }
     for name in edge_names:
         row_indices = crv_df.index[crv_df["name"] == name].to_list()
-        for i, j in combinations(row_indices, 2):
-            i_new_points, i_new_2Dpoints, i_new_2Ddistances = get_new_points(
-                original_curve_data[j]["2Dpoints"],
-                original_curve_data[j]["center_match_points"],
-                original_curve_data[i]["2Dcurve"],
-            )
-            j_new_points, j_new_2Dpoints, j_new_2Ddistances = get_new_points(
-                original_curve_data[i]["2Dpoints"],
-                original_curve_data[i]["center_match_points"],
-                original_curve_data[j]["2Dcurve"],
-            )
-            crv_df.at[i, "points"] = crv_df.at[i, "points"] + i_new_points
-            crv_df.at[i, "2Dpoints"] = crv_df.at[i, "2Dpoints"] + i_new_2Dpoints
-            crv_df.at[i, "2Ddistances"] = crv_df.at[i, "2Ddistances"] + i_new_2Ddistances
-            crv_df.at[j, "points"] = crv_df.at[j, "points"] + j_new_points
-            crv_df.at[j, "2Dpoints"] = crv_df.at[j, "2Dpoints"] + j_new_2Dpoints
-            crv_df.at[j, "2Ddistances"] = crv_df.at[j, "2Ddistances"] + j_new_2Ddistances
+        for source_idx in row_indices:
+            source_data = original_curve_data[source_idx]
+            for target_idx in row_indices:
+                if target_idx == source_idx:
+                    continue
+                new_points, new_2Dpoints, new_2Ddistances = get_new_points(
+                    source_data["2Dpoints"],
+                    source_data["center_match_points"],
+                    original_curve_data[target_idx]["2Dcurve"],
+                )
+                crv_df.at[target_idx, "points"] = (
+                    crv_df.at[target_idx, "points"] + new_points
+                )
+                crv_df.at[target_idx, "2Dpoints"] = (
+                    crv_df.at[target_idx, "2Dpoints"] + new_2Dpoints
+                )
+                crv_df.at[target_idx, "2Ddistances"] = (
+                    crv_df.at[target_idx, "2Ddistances"] + new_2Ddistances
+                )
 
     edge_tier1_shoulder_points = {
         "start_edge_U": abut_points["start"]["U"]["wing_soil"],
