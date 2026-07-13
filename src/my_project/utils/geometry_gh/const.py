@@ -278,12 +278,20 @@ def join_breps_or_raise(
     breps: list[rg.Brep],
     tol: float = 0.01,
     context: str = "",
+    cap: bool = False,
 ) -> rg.Brep:
     joined = rg.Brep.JoinBreps(breps, tol)
     if not joined or len(joined) == 0:
         suffix = f" ({context})" if context else ""
         raise ValueError(f"Failed to join breps{suffix}. count={len(breps)}, tol={tol}")
-    return joined[0]
+    brep = joined[0]
+    if cap:
+        capped = brep.CapPlanarHoles(tol)
+        if capped is None:
+            suffix = f" ({context})" if context else ""
+            raise ValueError(f"Failed to cap joined brep{suffix}. tol={tol}")
+        brep = capped
+    return brep
 
 def const_arc_half_from_center_edge_points(
     center: Union[Point3D, Point2D, rg.Point3d],
