@@ -1066,13 +1066,13 @@ def get_brep_from_points(point_dict) -> dict[str, rg.Brep]:
                 trim_points[2],
             )
             keep_point = Point3D(
-                soil_mid_point.x,
-                soil_mid_point.y,
+                2 * bridge_mid_point.x - soil_mid_point.x,
+                2 * bridge_mid_point.y - soil_mid_point.y,
                 STANDARD_BASE_Z,
             )
             cut_point = Point3D(
-                2 * bridge_mid_point.x - soil_mid_point.x,
-                2 * bridge_mid_point.y - soil_mid_point.y,
+                soil_mid_point.x,
+                soil_mid_point.y,
                 STANDARD_BASE_Z,
             )
             brep = split_brep_by_vertical_srf_from_two_points_keep_near_point(
