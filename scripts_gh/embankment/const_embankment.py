@@ -882,12 +882,8 @@ def get_world_embankment_points(
         tiers = sorted(key for key in name_result if isinstance(key, int))
         section_count = len(name_result[1]["shoulder"])
         for section_index in range(section_count):
-            line_start = name_result[1]["shoulder"][section_index]
-            line_end = (
-                name_result["closure_points"]["top"][section_index]
-                if name in ["U_parallel", "D_parallel"]
-                else name_result[1]["toe"][section_index]
-            )
+            line_start = name_result["closure_points"]["bottom"][section_index]
+            line_end = name_result[1]["toe"][section_index]
             dx = line_end.x - line_start.x
             dy = line_end.y - line_start.y
             length_squared = dx ** 2 + dy ** 2
