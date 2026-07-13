@@ -34,6 +34,7 @@ from my_project.utils.geometry_gh.attributes import (
 from my_project.utils.geometry_gh.const import (
     const_curve_obj,
     const_point_obj,
+    const_planer_srf_obj_from_points,
     const_polycurve_obj,
     const_brep_from_two_closed_point_lists,
     join_breps_or_raise,
@@ -957,11 +958,17 @@ def get_brep_from_points(point_dict) -> dict[str, rg.Brep]:
                 cap=False,
             )
             breps.append(brep)
-        brep_dict[name] = join_breps_or_raise(
-            breps,
+        end_caps = [
+            const_planer_srf_obj_from_points(this_points[0]),
+            const_planer_srf_obj_from_points(this_points[-1]),
+        ]
+        brep = join_breps_or_raise(
+            breps + end_caps,
             context=name,
-            cap=True,
         )
+        if not brep.IsSolid:
+            raise ValueError(f"Joined embankment brep is not solid ({name})")
+        brep_dict[name] = brep
 
     return brep_dict
 
