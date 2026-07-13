@@ -31,6 +31,7 @@ from my_project.utils.geometry.points import (
     get_distance_2D,
     get_distance_3D,
     get_xy_distance_to_segment,
+    interpolate_value_by_distance,
     interpolate_point_3d,
     is_unknown_z_marker,
     point_with_unknown_z_marker,
@@ -40,7 +41,6 @@ from my_project.utils.geometry.points import (
 from my_project.utils.geometry_gh.attributes import (
     get_curve_distance,
     get_curve_polyline_points,
-    get_value_at_point_on_polyline,
     get_closest_point_on_curve_2D,
 )
 from my_project.utils.geometry_gh.const import (
@@ -453,7 +453,11 @@ def get_world_embankment_points(
     ]
     original_curve_data = {
         idx: {
+            "tier": row["tier"],
+            "kind": row["kind"],
+            "points": list(row["points"]),
             "2Dpoints": list(row["2Dpoints"]),
+            "2Ddistances": list(row["2Ddistances"]),
             "center_match_points": list(row["center_match_points"]),
             "2Dcurve": row["2Dcurve"],
         }
@@ -471,6 +475,21 @@ def get_world_embankment_points(
                     source_data["center_match_points"],
                     original_curve_data[target_idx]["2Dcurve"],
                 )
+                target_data = original_curve_data[target_idx]
+                if target_data["tier"] == 1 and target_data["kind"] == "shoulder":
+                    target_z_values = [point.z for point in target_data["points"]]
+                    new_points = [
+                        Point3D(
+                            point.x,
+                            point.y,
+                            interpolate_value_by_distance(
+                                target_data["2Ddistances"],
+                                target_z_values,
+                                distance,
+                            ),
+                        )
+                        for point, distance in zip(new_2Dpoints, new_2Ddistances)
+                    ]
                 crv_df.at[target_idx, "points"] = (
                     crv_df.at[target_idx, "points"] + new_points
                 )
