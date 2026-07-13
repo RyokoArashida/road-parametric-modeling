@@ -319,12 +319,8 @@ def get_world_embankment_points(
     tier_1_shoulder_curves = crv_dict.setdefault(1, {}).setdefault("shoulder", {})
     tier_1_shoulder_curves["U_parallel"] = tier_1_sholder_U_info["curve"]
     tier_1_shoulder_curves["D_parallel"] = tier_1_sholder_D_info["curve"]
-    tier_1_shoulder_curves["start_edge_UD"] = const_polycurve_obj(
-        [tier_1_sholder_U_info["start_point"], tier_1_sholder_D_info["start_point"]]
-    )
-    tier_1_shoulder_curves["end_edge_UD"] = const_polycurve_obj(
-        [tier_1_sholder_U_info["end_point"], tier_1_sholder_D_info["end_point"]]
-    )
+    tier_1_shoulder_curves["start_edge_UD"] = const_polycurve_obj(start_edge_points)
+    tier_1_shoulder_curves["end_edge_UD"] = const_polycurve_obj(end_edge_points)
 
     crv_rows = []
     for tier in crv_dict:
@@ -606,6 +602,17 @@ def get_world_embankment_points(
         tier1_shoulder_points = name_df[(name_df["tier"] == 1) & (name_df["kind"] == "shoulder")]["points"].iloc[0]
         point_count = len(tier1_toe_distances)
         max_tier = int(name_df["tier"].max())
+        all_distance = tier1_toe_distances[-1]
+        prescribed_slopes = [
+            start_slope
+            + (end_slope - start_slope)
+            * (
+                0
+                if abs(all_distance) < DISTANCE_TOL
+                else distance / all_distance
+            )
+            for distance in tier1_toe_distances
+        ]
         slope_anchors = [
             {0: start_slope, point_count - 1: end_slope}
             for _ in range(max_tier)
@@ -613,9 +620,9 @@ def get_world_embankment_points(
 
         for i in range(1, point_count - 1):
             tier1_shoulder_point = tier1_shoulder_points[i]
-            known_z_points = []
-            ordered_keys = [(1, "shoulder")]
             cross_section_distances = [0]
+            known_toe_z = {}
+            known_shoulder_z = {}
             for tier in range(1, max_tier + 1):
                 for kind in ["shoulder", "toe"]:
                     if tier == 1 and kind == "shoulder":
@@ -627,35 +634,32 @@ def get_world_embankment_points(
                     cross_section_distances.append(
                         get_distance_2D(tier1_shoulder_point, point)
                     )
-                    ordered_keys.append((tier, kind))
                     if abs(point.z - STANDARD_BASE_Z) > DISTANCE_TOL:
-                        known_z_points.append((tier, kind, point))
+                        if kind == "toe":
+                            known_toe_z[tier] = point.z
+                        elif tier > 1:
+                            known_shoulder_z[tier] = point.z
+                            known_toe_z[tier - 1] = point.z
 
             section_distances = [
                 cross_section_distances[2 * j + 1] - cross_section_distances[2 * j]
                 for j in range(len(cross_section_distances) // 2)
             ]
-            known_z_points.sort(
-                key=lambda item: ordered_keys.index((item[0], item[1]))
-            )
-            start_tier = 1
-            start_point = tier1_shoulder_point
-            for tier, kind, point in known_z_points:
-                last_tier = tier - 1 if kind == "shoulder" else tier
-                if last_tier >= start_tier:
-                    horizontal_distance = sum(
-                        section_distances[start_tier - 1:last_tier]
-                    )
-                    z_gap = start_point.z - point.z
+            shoulder_z = tier1_shoulder_point.z
+            for tier in range(1, max_tier + 1):
+                if tier in known_shoulder_z:
+                    shoulder_z = known_shoulder_z[tier]
+                section_distance = section_distances[tier - 1]
+                if tier in known_toe_z:
+                    z_gap = shoulder_z - known_toe_z[tier]
                     if (
-                        abs(horizontal_distance) > DISTANCE_TOL
+                        abs(section_distance) > DISTANCE_TOL
                         and abs(z_gap) > DISTANCE_TOL
                     ):
-                        inferred_slope = horizontal_distance / z_gap
-                        for tier_index in range(start_tier - 1, last_tier):
-                            slope_anchors[tier_index][i] = inferred_slope
-                start_tier = tier if kind == "shoulder" else tier + 1
-                start_point = point
+                        slope_anchors[tier - 1][i] = section_distance / z_gap
+                    shoulder_z = known_toe_z[tier]
+                else:
+                    shoulder_z -= section_distance / prescribed_slopes[i]
 
         slopes = [[0.0] * max_tier for _ in range(point_count)]
         for tier_index, anchors in enumerate(slope_anchors):
