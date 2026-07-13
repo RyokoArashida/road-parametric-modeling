@@ -36,7 +36,6 @@ from my_project.utils.geometry_gh.const import (
     const_point_obj,
     const_polycurve_obj,
     const_brep_from_two_closed_point_lists,
-    join_breps_or_raise
 )
 from my_project.utils.geometry_gh.document import get_named_curves_on_layer
 from my_project.utils.geometry_gh.intersect import (
@@ -954,11 +953,17 @@ def get_brep_from_points(point_dict) -> dict[str, rg.Brep]:
             brep = const_brep_from_two_closed_point_lists(
                 this_points[i],
                 next_points,
-                cap=False,
+                cap=True,
             )
             breps.append(brep)
-        brep = join_breps_or_raise(breps, context=name, cap=True)
-        brep_dict[name] = brep
+        unioned = rg.Brep.CreateBooleanUnion(breps, DISTANCE_TOL)
+        if not unioned or len(unioned) != 1:
+            result_count = 0 if not unioned else len(unioned)
+            raise ValueError(
+                f"Failed to union embankment breps ({name}). "
+                f"input_count={len(breps)}, result_count={result_count}"
+            )
+        brep_dict[name] = unioned[0]
 
     return brep_dict
 
@@ -980,6 +985,7 @@ def main(initial_or_final: str, debug: bool = False):
     named_curves = get_named_curves_on_layer(layer_index)
 
     world_embankment_points_dict = {}
+    embankment_brep_dict = {}
     for info in pavement_infos:
         name = info.name
         num = info.num
@@ -992,19 +998,21 @@ def main(initial_or_final: str, debug: bool = False):
             abut_points_dict=abut_points_dict,
         )
         world_embankment_points_dict[unique_key] = indiv_dict
+        embankment_brep_dict[unique_key] = get_brep_from_points(indiv_dict)
     save_json_and_pickle(
         data=world_embankment_points_dict,
         folder_path=DIR,
         name=f"{Filenames.EMBANKMENT}_{Filenames.POINTS}",
     )
-
+    bake_keys, bake_objs = get_keys_and_values_for_bake(embankment_brep_dict)
     if debug:
-        bake_keys, bake_objs = get_keys_and_values_for_bake(world_embankment_points_dict)
+        bake_keys2, bake_objs2 = get_keys_and_values_for_bake(embankment_brep_dict)
         if len(bake_objs) == 0:
             raise ValueError("No embankment points were generated for debug bake")
-        return bake_keys, bake_objs
-    return None
+        return bake_keys, bake_objs, bake_keys2, bake_objs2
+    return bake_keys, bake_objs
 
 
 if __name__ == "__main__":
-    bake_keys, bake_objs = main("initial", debug=True)
+    # bake_keys, bake_objs, bake_keys2, bake_objs2 = main("initial", debug=True)
+    bake_keys, bake_objs = main("initial", debug=False)
