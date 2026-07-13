@@ -23,7 +23,6 @@ from my_project.utils.bake import get_keys_and_values_for_bake
 from my_project.utils.geometry.points import (
     center_point_pair,
     get_distance_2D,
-    get_point_by_xy_offset,
     get_xy_distance_to_segment,
     interpolate_value_by_distance,
 )
@@ -33,9 +32,7 @@ from my_project.utils.geometry_gh.attributes import (
     get_curve_polyline_points,
 )
 from my_project.utils.geometry_gh.const import (
-    const_closed_polycurve_obj,
     const_curve_obj,
-    const_extrude_brep_from_curve,
     const_point_obj,
     const_planer_srf_obj_from_points,
     const_polycurve_obj,
@@ -46,6 +43,7 @@ from my_project.utils.geometry_gh.const import (
 from my_project.utils.geometry_gh.document import get_named_curves_on_layer
 from my_project.utils.geometry_gh.intersect import (
     get_intersections_with_vertical_plane,
+    split_brep_by_vertical_srf_from_two_points_keep_near_point,
     split_curve_by_lines_and_match_endpoints,
 )
 from my_project.utils.io import load_from_pickle, save_json_and_pickle
@@ -1059,64 +1057,31 @@ def get_brep_from_points(point_dict) -> dict[str, rg.Brep]:
             raise ValueError(f"Joined embankment brep is not solid ({name})")
         if name in UD_edge_names:
             trim_points = list(name_dict["trim_points"])
-            trim_points[1] = get_point_by_xy_offset(
-                trim_points[1],
+            bridge_mid_point = center_point_pair(
                 trim_points[0],
-                -DISTANCE_TOL * 100,
-            )
-            trim_points[2] = get_point_by_xy_offset(
-                trim_points[2],
                 trim_points[3],
-                -DISTANCE_TOL * 100,
             )
-            bbox = brep.GetBoundingBox(True)
-            margin = bbox.Diagonal.Length
-            cutter_bottom_z = bbox.Min.Z - margin
-            cutter_top_z = bbox.Max.Z + margin
-            cutter_curve = const_closed_polycurve_obj(
-                [
-                    Point3D(point.x, point.y, cutter_bottom_z)
-                    for point in trim_points
-                ]
+            soil_mid_point = center_point_pair(
+                trim_points[1],
+                trim_points[2],
             )
-            cutter_brep = const_extrude_brep_from_curve(
-                cutter_curve,
-                rg.Vector3d(0, 0, cutter_top_z - cutter_bottom_z),
+            keep_point = Point3D(
+                soil_mid_point.x,
+                soil_mid_point.y,
+                STANDARD_BASE_Z,
+            )
+            cut_point = Point3D(
+                2 * bridge_mid_point.x - soil_mid_point.x,
+                2 * bridge_mid_point.y - soil_mid_point.y,
+                STANDARD_BASE_Z,
+            )
+            brep = split_brep_by_vertical_srf_from_two_points_keep_near_point(
+                target_brep=brep,
+                cutter_points=[trim_points[0], trim_points[3]],
+                keep_point=keep_point,
+                cut_point=cut_point,
                 cap=True,
                 tol=DISTANCE_TOL,
-            )
-            if not cutter_brep.IsSolid:
-                raise ValueError(f"UD trim cutter is not solid ({name})")
-            bridge_mid_x = (trim_points[0].x + trim_points[3].x) / 2
-            bridge_mid_y = (trim_points[0].y + trim_points[3].y) / 2
-            soil_mid_x = (trim_points[1].x + trim_points[2].x) / 2
-            soil_mid_y = (trim_points[1].y + trim_points[2].y) / 2
-            soil_axis_x = soil_mid_x - bridge_mid_x
-            soil_axis_y = soil_mid_y - bridge_mid_y
-
-            base_brep = brep.DuplicateBrep()
-            cutter = cutter_brep.DuplicateBrep()
-            if base_brep.SolidOrientation == rg.BrepSolidOrientation.Inward:
-                base_brep.Flip()
-            if cutter.SolidOrientation == rg.BrepSolidOrientation.Inward:
-                cutter.Flip()
-            difference_breps = list(
-                rg.Brep.CreateBooleanDifference(
-                    base_brep,
-                    cutter,
-                    DISTANCE_TOL,
-                )
-                or []
-            )
-            solid_breps = [piece for piece in difference_breps if piece.IsSolid]
-            if not solid_breps:
-                raise ValueError(f"UD boolean difference produced no solid brep ({name})")
-            brep = max(
-                solid_breps,
-                key=lambda piece: (
-                    (piece.GetBoundingBox(True).Center.X - bridge_mid_x) * soil_axis_x
-                    + (piece.GetBoundingBox(True).Center.Y - bridge_mid_y) * soil_axis_y
-                ),
             )
             if not brep.IsSolid:
                 raise ValueError(f"Trimmed UD embankment brep is not solid ({name})")
