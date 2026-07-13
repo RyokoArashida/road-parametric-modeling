@@ -93,8 +93,12 @@ def split_curve_by_lines_and_match_endpoints(
             else:
                 part1 = curve.Trim(t0, domain.T1)
                 part2 = curve.Trim(domain.T0, t1)
-                joined = rg.Curve.JoinCurves([part1, part2], DISTANCE_TOL)
-                split_curve = joined[0] if joined and len(joined) == 1 else None
+                if part1 is None or part2 is None:
+                    split_curve = None
+                else:
+                    split_curve = rg.PolyCurve()
+                    split_curve.Append(part1)
+                    split_curve.Append(part2)
             if split_curve is None:
                 raise ValueError(f"Failed to trim closed curve between parameters: {t0}, {t1}")
             split_curve_items.append(
