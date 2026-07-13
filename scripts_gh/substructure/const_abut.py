@@ -45,26 +45,15 @@ from my_project.utils.geometry_gh.transform import place_obj
 from my_project.utils.io import load_from_pickle, save_json_and_pickle
 
 
-def get_named_footing_top_points(
-    footing_top_points: list[Point3D],
-    abut_points: dict,
+def get_named_BS_corners(
+    points: list[Point3D],
+    U_bridge_reference: Point3D,
+    D_bridge_reference: Point3D,
+    U_soil_reference: Point3D,
+    D_soil_reference: Point3D,
 ) -> dict[str, Point3D]:
-    if len(footing_top_points) != 4:
-        raise ValueError(f"Need 4 footing top points, got {len(footing_top_points)}")
-
-    wing_dict = abut_points["wing_dict"]
-    U_top_points = wing_dict["U_wing_top_points"]
-    D_top_points = wing_dict["D_wing_top_points"]
-    if isinstance(U_top_points, dict):
-        U_base = U_top_points["DB"]
-        U_wing = U_top_points["DS"]
-        D_base = D_top_points["UB"]
-        D_wing = D_top_points["US"]
-    else:
-        U_base = U_top_points.DB
-        U_wing = U_top_points.DS
-        D_base = D_top_points.UB
-        D_wing = D_top_points.US
+    if len(points) != 4:
+        raise ValueError(f"Need 4 corner points, got {len(points)}")
 
     def center(point1: Point3D, point2: Point3D) -> Point3D:
         return Point3D(
@@ -79,11 +68,11 @@ def get_named_footing_top_points(
             + (point.y - origin.y) * (axis_end.y - origin.y)
         )
 
-    base_center = center(U_base, D_base)
-    wing_center = center(U_wing, D_wing)
+    bridge_center = center(U_bridge_reference, D_bridge_reference)
+    soil_center = center(U_soil_reference, D_soil_reference)
     sorted_by_base_to_wing = sorted(
-        footing_top_points,
-        key=lambda point: xy_projection(point, base_center, wing_center),
+        points,
+        key=lambda point: xy_projection(point, bridge_center, soil_center),
     )
     bridge_points = sorted_by_base_to_wing[:2]
     soil_points = sorted_by_base_to_wing[2:]
@@ -91,18 +80,17 @@ def get_named_footing_top_points(
     def split_UD(points: list[Point3D]) -> tuple[Point3D, Point3D]:
         sorted_by_U_to_D = sorted(
             points,
-            key=lambda point: xy_projection(point, U_base, D_base),
+            key=lambda point: xy_projection(
+                point,
+                U_bridge_reference,
+                D_bridge_reference,
+            ),
         )
         return sorted_by_U_to_D[0], sorted_by_U_to_D[1]
 
     U_bridge, D_bridge = split_UD(bridge_points)
     U_soil, D_soil = split_UD(soil_points)
-    return {
-        "U_bridge": U_bridge,
-        "D_bridge": D_bridge,
-        "U_soil": U_soil,
-        "D_soil": D_soil,
-    }
+    return {"DB": D_bridge, "DS": D_soil, "US": U_soil, "UB": U_bridge}
 
 
 def get_box_from_SquareCorners(
@@ -921,15 +909,18 @@ def get_each_abut(
         if isinstance(obj, (Point2D, Point3D, rg.Point3d)):
             return place_point_setting(obj)
         if isinstance(obj, Square_Corners):
-            named_points = get_named_footing_top_points(
+            U_top_points = wing_dict["U_wing_top_points"]
+            D_top_points = wing_dict["D_wing_top_points"]
+            named_points = get_named_BS_corners(
                 [obj.DT, obj.DN, obj.UN, obj.UT],
-                {"wing_dict": wing_dict},
+                U_bridge_reference=U_top_points.DB,
+                D_bridge_reference=D_top_points.UB,
+                U_soil_reference=U_top_points.DS,
+                D_soil_reference=D_top_points.US,
             )
             return {
-                "DB": place_point_setting(named_points["D_bridge"]),
-                "DS": place_point_setting(named_points["D_soil"]),
-                "US": place_point_setting(named_points["U_soil"]),
-                "UB": place_point_setting(named_points["U_bridge"]),
+                key: place_point_setting(point)
+                for key, point in named_points.items()
             }
         if isinstance(obj, dict):
             return {
@@ -1055,10 +1046,15 @@ def main(initial_or_final: str):
             "points": barrier_base_point_dict,
         } # ここはpickel用
         if abut_name in abut_footing_top_points_dict:
+            U_top_points = abut_points["wing_dict"]["U_wing_top_points"]
+            D_top_points = abut_points["wing_dict"]["D_wing_top_points"]
             abut_points["footing_dict"] = {
-                "footing_top_points": get_named_footing_top_points(
-                    footing_top_points=abut_footing_top_points_dict[abut_name],
-                    abut_points=abut_points,
+                "footing_top_points": get_named_BS_corners(
+                    points=abut_footing_top_points_dict[abut_name],
+                    U_bridge_reference=U_top_points["DB"],
+                    D_bridge_reference=D_top_points["UB"],
+                    U_soil_reference=U_top_points["DS"],
+                    D_soil_reference=D_top_points["US"],
                 )
             }
         abut_points_dict[abut_name] = abut_points

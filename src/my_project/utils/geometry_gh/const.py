@@ -231,7 +231,14 @@ def boolean_difference_or_raise(
     context: str = "",
     tol: float = 0.01,
 ) -> rg.Brep:
-    diff = rg.Brep.CreateBooleanDifference(base_brep, cutter_brep, tol)
+    base = base_brep.DuplicateBrep()
+    cutter = cutter_brep.DuplicateBrep()
+    if base.SolidOrientation == rg.BrepSolidOrientation.Inward:
+        base.Flip()
+    if cutter.SolidOrientation == rg.BrepSolidOrientation.Inward:
+        cutter.Flip()
+
+    diff = rg.Brep.CreateBooleanDifference(base, cutter, tol)
     if not diff or len(diff) == 0:
         suffix = f" ({context})" if context else ""
         raise ValueError(f"Failed to subtract brep{suffix}")
