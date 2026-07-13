@@ -354,7 +354,11 @@ def get_world_embankment_points(
                         "kind": kind,
                         "name": name,
                         "curve": crv,
-                        "points": points,
+                        "points": (
+                            points
+                            if tier == 1 and kind == "shoulder"
+                            else list(points2D)
+                        ),
                         "2Dcurve": curve2D,
                         "2Dpoints": points2D,
                         "2Ddistances": distance2D,
