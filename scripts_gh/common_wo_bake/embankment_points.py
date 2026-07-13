@@ -120,6 +120,7 @@ def split_embankment_boundary_curve_by_abut_points(
     start_D_abut_points: tuple[Point3D, Point3D],
     end_U_abut_points: tuple[Point3D, Point3D],
     end_D_abut_points: tuple[Point3D, Point3D],
+    context: str,
 ) -> dict[str, rg.Curve]:
     curve = const_curve_obj(curve)
     split_items = split_curve_by_lines_and_match_endpoints(
@@ -186,9 +187,31 @@ def split_embankment_boundary_curve_by_abut_points(
                 oriented_curve.Reverse()
             result[key] = oriented_curve
         else:
+            def line_distances(point: Point3D) -> dict[str, float]:
+                return {
+                    "start_edge": get_xy_distance_to_segment(point, start_edge_points),
+                    "end_edge": get_xy_distance_to_segment(point, end_edge_points),
+                    "U_parallel": get_xy_distance_to_segment(point, U_parallel_points),
+                    "D_parallel": get_xy_distance_to_segment(point, D_parallel_points),
+                    "start_U_abut": get_xy_distance_to_segment(point, start_U_abut_points),
+                    "start_D_abut": get_xy_distance_to_segment(point, start_D_abut_points),
+                    "end_U_abut": get_xy_distance_to_segment(point, end_U_abut_points),
+                    "end_D_abut": get_xy_distance_to_segment(point, end_D_abut_points),
+                }
+
             raise ValueError(
-                "Split curve endpoints are not on expected abutment edge lines: "
-                f"start={start}, end={end}"
+                f"[FAILED EMBANKMENT SPLIT] {context}: "
+                f"start={start}, end={end}, "
+                f"start_matches={sorted(split_item['start_matches'])}, "
+                f"end_matches={sorted(split_item['end_matches'])}, "
+                f"start_distances={line_distances(start)}, "
+                f"end_distances={line_distances(end)}, "
+                f"start_edge_points={start_edge_points}, "
+                f"end_edge_points={end_edge_points}, "
+                f"start_U_abut_points={start_U_abut_points}, "
+                f"start_D_abut_points={start_D_abut_points}, "
+                f"end_U_abut_points={end_U_abut_points}, "
+                f"end_D_abut_points={end_D_abut_points}"
             )
 
     expected_keys = {
@@ -293,6 +316,7 @@ def get_world_embankment_points(
             start_D_abut_points=start_D_abut_points,
             end_U_abut_points=end_U_abut_points,
             end_D_abut_points=end_D_abut_points,
+            context=f"{pavement_info.name}_{pavement_info.num}/tier={tier}/kind={kind}",
         )
     
     tier_1_sholder_U_crv = const_polycurve_obj([const_point_obj(p) for p in pavement_bottom_points_dict["U_points"]])
