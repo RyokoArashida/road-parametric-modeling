@@ -83,7 +83,23 @@ def split_curve_by_lines_and_match_endpoints(
     expected_split_point_count = expected_count if curve.IsClosed else expected_count - 1
     if len(split_params) != expected_split_point_count:
         raise ValueError(f"Expected {expected_split_point_count} split points, got {len(split_params)}")
-    split_curves = curve.Split(split_params)
+    if curve.IsClosed:
+        split_curves = []
+        domain = curve.Domain
+        for i, t0 in enumerate(split_params):
+            t1 = split_params[(i + 1) % len(split_params)]
+            if t0 < t1:
+                split_curve = curve.Trim(t0, t1)
+            else:
+                part1 = curve.Trim(t0, domain.T1)
+                part2 = curve.Trim(domain.T0, t1)
+                joined = rg.Curve.JoinCurves([part1, part2], DISTANCE_TOL)
+                split_curve = joined[0] if joined and len(joined) == 1 else None
+            if split_curve is None:
+                raise ValueError(f"Failed to trim closed curve between parameters: {t0}, {t1}")
+            split_curves.append(split_curve)
+    else:
+        split_curves = curve.Split(split_params)
     if not split_curves or len(split_curves) != expected_count:
         raise ValueError(f"Expected {expected_count} split curves, got {0 if not split_curves else len(split_curves)}")
     items = []
