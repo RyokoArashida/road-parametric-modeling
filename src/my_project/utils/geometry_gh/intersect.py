@@ -4,7 +4,7 @@ import Rhino.Geometry as rg
 
 from my_project.config.constants import DISTANCE_TOL, STANDARD_BASE_Z
 from my_project.config.util_schemas import Point2D, Point3D, Vector2D
-from my_project.utils.geometry.points import get_distance_3D
+from my_project.utils.geometry.points import get_distance_3D, get_xy_distance_to_segment
 from my_project.utils.geometry_gh.attributes import point3d_from_rg
 from my_project.utils.geometry_gh.const import (
     const_curve_obj,
@@ -17,19 +17,43 @@ from my_project.utils.geometry_gh.const import (
 )
 
 
+def curve_points_are_on_z(
+    curve: Union[rg.Curve, rg.Line, rg.PolylineCurve],
+    z: float,
+    tol: float = DISTANCE_TOL,
+) -> bool:
+    curve = const_curve_obj(curve)
+    points = [curve.PointAtStart, curve.PointAtEnd]
+    ok, polyline = curve.TryGetPolyline()
+    if ok:
+        points.extend(polyline)
+    elif isinstance(curve, rg.PolyCurve):
+        for segment in curve.DuplicateSegments():
+            points.extend([segment.PointAtStart, segment.PointAtEnd])
+    else:
+        nurbs_curve = curve.ToNurbsCurve()
+        if nurbs_curve is not None:
+            points.extend(
+                nurbs_curve.Points[i].Location
+                for i in range(nurbs_curve.Points.Count)
+            )
+    return all(abs(point.Z - z) <= tol for point in points)
+
+
 def get_intersections_with_vertical_plane(
     curve: Union[rg.Curve, rg.Line, rg.PolylineCurve],
     plane_points: tuple[Point3D, Point3D],
     z: float = STANDARD_BASE_Z,
 ) -> list[Point3D]:
-    plane_srf = const_vertical_srf_from_two_points(
-        Point3D(plane_points[0].x, plane_points[0].y, z),
-        Point3D(plane_points[1].x, plane_points[1].y, z),
-    )
     curve = const_curve_obj(curve)
+    reference_z = STANDARD_BASE_Z if curve_points_are_on_z(curve, 0) else z
+    plane_srf = const_vertical_srf_from_two_points(
+        Point3D(plane_points[0].x, plane_points[0].y, reference_z),
+        Point3D(plane_points[1].x, plane_points[1].y, reference_z),
+    )
     curve_on_reference_z = curve.DuplicateCurve()
     curve_on_reference_z.Transform(rg.Transform.PlanarProjection(rg.Plane.WorldXY))
-    curve_on_reference_z.Transform(rg.Transform.Translation(rg.Vector3d(0, 0, z)))
+    curve_on_reference_z.Transform(rg.Transform.Translation(rg.Vector3d(0, 0, reference_z)))
     intersection_events = rg.Intersect.Intersection.CurveBrep(
         curve_on_reference_z,
         plane_srf,
@@ -37,7 +61,54 @@ def get_intersections_with_vertical_plane(
     )
     if not intersection_events or len(intersection_events[2]) == 0:
         return []
-    return [point3d_from_rg(point, z=z) for point in intersection_events[2]]
+    return [point3d_from_rg(point, z=reference_z) for point in intersection_events[2]]
+
+
+def split_curve_by_lines_and_match_endpoints(
+    curve: Union[rg.Curve, rg.Line, rg.PolylineCurve],
+    split_line_points: list[tuple[Point3D, Point3D]],
+    target_line_points: dict[str, tuple[Point3D, Point3D]],
+    expected_count: int,
+) -> list[dict]:
+    curve = const_curve_obj(curve)
+    split_params = []
+    for line_points in split_line_points:
+        for point in get_intersections_with_vertical_plane(curve, line_points):
+            ok, t = curve.ClosestPoint(const_point_obj(point))
+            if not ok:
+                raise ValueError(f"Failed to get curve parameter at split point: {point}")
+            if all(abs(t - existing) > DISTANCE_TOL for existing in split_params):
+                split_params.append(t)
+    split_params = sorted(split_params)
+    expected_split_point_count = expected_count if curve.IsClosed else expected_count - 1
+    if len(split_params) != expected_split_point_count:
+        raise ValueError(f"Expected {expected_split_point_count} split points, got {len(split_params)}")
+    split_curves = curve.Split(split_params)
+    if not split_curves or len(split_curves) != expected_count:
+        raise ValueError(f"Expected {expected_count} split curves, got {0 if not split_curves else len(split_curves)}")
+    items = []
+    for split_curve in split_curves:
+        start = point3d_from_rg(split_curve.PointAtStart)
+        end = point3d_from_rg(split_curve.PointAtEnd)
+        items.append(
+            {
+                "curve": const_curve_obj(split_curve).DuplicateCurve(),
+                "start": start,
+                "end": end,
+                "start_matches": {
+                    key
+                    for key, points in target_line_points.items()
+                    if get_xy_distance_to_segment(start, points) <= DISTANCE_TOL
+                },
+                "end_matches": {
+                    key
+                    for key, points in target_line_points.items()
+                    if get_xy_distance_to_segment(end, points) <= DISTANCE_TOL
+                },
+            }
+        )
+    return items
+
 
 
 def get_nearest_projected_intersection_with_vertical_plane(
