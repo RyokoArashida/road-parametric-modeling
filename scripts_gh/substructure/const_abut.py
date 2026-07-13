@@ -18,6 +18,7 @@ from my_project.config.schemas.abut_schemas import (
     InputAbutInfo,
     SeatInfo,
     SlabSeatInfo,
+    WingCorners,
     WingInfo,
 )
 from my_project.config.util_schemas import (
@@ -52,10 +53,10 @@ def get_named_footing_top_points(
         raise ValueError(f"Need 4 footing top points, got {len(footing_top_points)}")
 
     wing_dict = abut_points["wing_dict"]
-    U_base = wing_dict["U_wing_top_points"]["DT"]
-    D_base = wing_dict["D_wing_top_points"]["UT"]
-    U_wing = wing_dict["U_wing_top_points"]["DN"]
-    D_wing = wing_dict["D_wing_top_points"]["UN"]
+    U_base = wing_dict["U_wing_top_points"]["DB"]
+    D_base = wing_dict["D_wing_top_points"]["UB"]
+    U_wing = wing_dict["U_wing_top_points"]["DS"]
+    D_wing = wing_dict["D_wing_top_points"]["US"]
 
     def center(point1: Point3D, point2: Point3D) -> Point3D:
         return Point3D(
@@ -387,22 +388,22 @@ def get_wings(
         z_gap = out_B_top_point.z - in_B_top_point.z
         out_E_top_point = Point3D(x=out_B_top_point.x, y=out_B_top_point.y - ab_y, z=out_edge_z)
         in_E_top_point = Point3D(x=in_B_top_point.x, y=in_B_top_point.y - ab_y, z=out_edge_z - z_gap) # 同じ差をキープ
-        top_points = Square_Corners( # ここではDが外、Uが内、Nが土工側、Tが橋側
-            DT=out_B_top_point,
-            DN=out_E_top_point,
-            UN=in_E_top_point,
-            UT=in_B_top_point,
+        top_points = WingCorners( # ここではDが外、Uが内、Sが土工側、Bが橋側
+            DB=out_B_top_point,
+            DS=out_E_top_point,
+            US=in_E_top_point,
+            UB=in_B_top_point,
         )
         # 下面
         out_B_bottom_point = Point3D(x=out_B_top_point.x, y=out_B_top_point.y, z=foundation_top_z)
         in_B_bottom_point = Point3D(x=in_B_top_point.x, y=in_B_top_point.y, z=foundation_top_z)
         out_E_bottom_point = Point3D(x=out_E_top_point.x, y=out_B_top_point.y - bl_y , z=foundation_top_z)
         in_E_bottom_point = Point3D(x=in_E_top_point.x, y=in_B_top_point.y - bl_y , z=foundation_top_z)
-        bottom_points = Square_Corners(
-            DT=out_B_bottom_point,
-            DN=out_E_bottom_point,
-            UN=in_E_bottom_point,
-            UT=in_B_bottom_point,
+        bottom_points = WingCorners(
+            DB=out_B_bottom_point,
+            DS=out_E_bottom_point,
+            US=in_E_bottom_point,
+            UB=in_B_bottom_point,
         )
         if ab_height == 0 and bl_height == 0:
             out_curve = const_closed_polycurve_obj([out_B_top_point, out_E_top_point, out_E_bottom_point, out_B_bottom_point])
@@ -412,21 +413,21 @@ def get_wings(
             return capped_brep, top_points, top_points, bottom_points, bottom_points
 
         # 上面の下
-        middle_wide_points = Square_Corners(
-            DT = Point3D(x=top_points.DT.x, y=top_points.DT.y, z=top_points.DT.z - ab_height),
-            DN = Point3D(x=top_points.DN.x, y=top_points.DN.y, z=top_points.DN.z - ab_height),
-            UN = Point3D(x=top_points.UN.x, y=top_points.UN.y, z=top_points.UN.z - ab_height),
-            UT = Point3D(x=top_points.UT.x, y=top_points.UT.y, z=top_points.UT.z - ab_height),
+        middle_wide_points = WingCorners(
+            DB = Point3D(x=top_points.DB.x, y=top_points.DB.y, z=top_points.DB.z - ab_height),
+            DS = Point3D(x=top_points.DS.x, y=top_points.DS.y, z=top_points.DS.z - ab_height),
+            US = Point3D(x=top_points.US.x, y=top_points.US.y, z=top_points.US.z - ab_height),
+            UB = Point3D(x=top_points.UB.x, y=top_points.UB.y, z=top_points.UB.z - ab_height),
         )
         #下面の上
-        middle_narrow_points = Square_Corners(
-            DT = Point3D(x=bottom_points.DT.x, y=bottom_points.DT.y, z=middle_wide_points.DT.z - bl_height),
-            DN = Point3D(x=bottom_points.DN.x, y=bottom_points.DN.y, z=middle_wide_points.DN.z - bl_height),
-            UN = Point3D(x=bottom_points.UN.x, y=bottom_points.UN.y, z=middle_wide_points.UN.z - bl_height),
-            UT = Point3D(x=bottom_points.UT.x, y=bottom_points.UT.y, z=middle_wide_points.UT.z - bl_height),
+        middle_narrow_points = WingCorners(
+            DB = Point3D(x=bottom_points.DB.x, y=bottom_points.DB.y, z=middle_wide_points.DB.z - bl_height),
+            DS = Point3D(x=bottom_points.DS.x, y=bottom_points.DS.y, z=middle_wide_points.DS.z - bl_height),
+            US = Point3D(x=bottom_points.US.x, y=bottom_points.US.y, z=middle_wide_points.US.z - bl_height),
+            UB = Point3D(x=bottom_points.UB.x, y=bottom_points.UB.y, z=middle_wide_points.UB.z - bl_height),
         )
-        out_curve = const_closed_polycurve_obj([top_points.DT, top_points.DN, middle_wide_points.DN, middle_narrow_points.DN, bottom_points.DN, bottom_points.DT])
-        in_curve = const_closed_polycurve_obj([top_points.UT, top_points.UN, middle_wide_points.UN, middle_narrow_points.UN, bottom_points.UN, bottom_points.UT])
+        out_curve = const_closed_polycurve_obj([top_points.DB, top_points.DS, middle_wide_points.DS, middle_narrow_points.DS, bottom_points.DS, bottom_points.DB])
+        in_curve = const_closed_polycurve_obj([top_points.UB, top_points.US, middle_wide_points.US, middle_narrow_points.US, bottom_points.US, bottom_points.UB])
         brep = const_srf_from_2crvs([out_curve, in_curve])
         capped_brep = brep.CapPlanarHoles(0.01)
         return capped_brep, top_points, middle_wide_points, middle_narrow_points, bottom_points
@@ -449,12 +450,12 @@ def get_wings(
         ab_height = wing_info.Uab_height,
         bl_height = wing_info.Ubl_height,
     )
-    def reverse_UD(corners: Square_Corners) -> Square_Corners:
-        return Square_Corners(
-            UT=corners.DT,
-            UN=corners.DN,
-            DN=corners.UN,
-            DT=corners.UT,
+    def reverse_UD(corners: WingCorners) -> WingCorners:
+        return WingCorners(
+            UB=corners.DB,
+            US=corners.DS,
+            DS=corners.US,
+            DB=corners.UB,
         )
 
     #U側はUとDが逆になっている
@@ -717,8 +718,8 @@ def get_each_abut(
     slabseat_dict = get_slabseat(
         double = double,
         slabseat_info = input_indiv_info.slab_seat,
-        Uwing_in_top_point = wing_dict["U_wing_top_points"].DT, 
-        Dwing_in_top_point = wing_dict["D_wing_top_points"].UT, 
+        Uwing_in_top_point = wing_dict["U_wing_top_points"].DB,
+        Dwing_in_top_point = wing_dict["D_wing_top_points"].UB,
         Ubackwall_top_point_DN = backwall_dict["U_backwall_top_corners"].DN if double else None,
         Dbackwall_top_point_UN = backwall_dict["D_backwall_top_corners"].UN if double else None,
     )
@@ -731,14 +732,14 @@ def get_each_abut(
         DB_backwall_top_out_point = backwall_dict["D_backwall_top_corners"].DT if double else backwall_dict["backwall_top_corners"].DT,
         UE_backwall_top_out_point = backwall_dict["U_backwall_top_corners"].UN if double else backwall_dict["backwall_top_corners"].UN,
         DE_backwall_top_out_point = backwall_dict["D_backwall_top_corners"].DN if double else backwall_dict["backwall_top_corners"].DN,
-        UE_wing_top_out_point = wing_dict["U_wing_top_points"].UN,
-        DE_wing_top_out_point = wing_dict["D_wing_top_points"].DN,
+        UE_wing_top_out_point = wing_dict["U_wing_top_points"].US,
+        DE_wing_top_out_point = wing_dict["D_wing_top_points"].DS,
         UB_backwall_top_in_point = backwall_dict["U_backwall_top_corners"].DT if double else backwall_dict["backwall_top_corners"].DT,
         DB_backwall_top_in_point = backwall_dict["D_backwall_top_corners"].UT if double else backwall_dict["backwall_top_corners"].UT,
         UE_backwall_top_in_point = backwall_dict["U_backwall_top_corners"].DN if double else backwall_dict["backwall_top_corners"].DN,
         DE_backwall_top_in_point = backwall_dict["D_backwall_top_corners"].UN if double else backwall_dict["backwall_top_corners"].UN,
-        UE_wing_top_in_point = wing_dict["U_wing_top_points"].DN,
-        DE_wing_top_in_point = wing_dict["D_wing_top_points"].UN,
+        UE_wing_top_in_point = wing_dict["U_wing_top_points"].DS,
+        DE_wing_top_in_point = wing_dict["D_wing_top_points"].US,
     )
 
     beamseat = beamseat_dict["beamseat"]
@@ -756,10 +757,10 @@ def get_each_abut(
     DE_backwall_base_bottom = barrier_dict["DE_backwall_base_bottom"]
     UE_wing_base_bottom = barrier_dict["UE_wing_base_bottom"]
     DE_wing_base_bottom = barrier_dict["DE_wing_base_bottom"]
-    U_wing_inside_bridge_point = wing_dict["U_wing_top_points"].DT
-    U_wing_inside_soil_point = wing_dict["U_wing_top_points"].DN
-    D_wing_inside_soil_point = wing_dict["D_wing_top_points"].UN
-    D_wing_inside_bridge_point = wing_dict["D_wing_top_points"].UT
+    U_wing_inside_bridge_point = wing_dict["U_wing_top_points"].DB
+    U_wing_inside_soil_point = wing_dict["U_wing_top_points"].DS
+    D_wing_inside_soil_point = wing_dict["D_wing_top_points"].US
+    D_wing_inside_bridge_point = wing_dict["D_wing_top_points"].UB
     def get_center_soil_points(bridge_point, soil_point):
         return [
             bridge_point,
@@ -864,26 +865,26 @@ def get_each_abut(
 
     U_wing_under_soil_brep = get_wing_under_soil_brep(
         U_inside_points=get_wing_under_soil_points(
-            wing_dict["U_wing_middle_wide_points"].DN,
-            wing_dict["U_wing_middle_narrow_points"].DN,
-            wing_dict["U_wing_bottom_points"].DN,
+            wing_dict["U_wing_middle_wide_points"].DS,
+            wing_dict["U_wing_middle_narrow_points"].DS,
+            wing_dict["U_wing_bottom_points"].DS,
         ),
         D_inside_points=get_wing_under_soil_points(
-            wing_dict["U_wing_middle_wide_points"].UN,
-            wing_dict["U_wing_middle_narrow_points"].UN,
-            wing_dict["U_wing_bottom_points"].UN,
+            wing_dict["U_wing_middle_wide_points"].US,
+            wing_dict["U_wing_middle_narrow_points"].US,
+            wing_dict["U_wing_bottom_points"].US,
         ),
     )
     D_wing_under_soil_brep = get_wing_under_soil_brep(
         U_inside_points=get_wing_under_soil_points(
-            wing_dict["D_wing_middle_wide_points"].UN,
-            wing_dict["D_wing_middle_narrow_points"].UN,
-            wing_dict["D_wing_bottom_points"].UN,
+            wing_dict["D_wing_middle_wide_points"].US,
+            wing_dict["D_wing_middle_narrow_points"].US,
+            wing_dict["D_wing_bottom_points"].US,
         ),
         D_inside_points=get_wing_under_soil_points(
-            wing_dict["D_wing_middle_wide_points"].DN,
-            wing_dict["D_wing_middle_narrow_points"].DN,
-            wing_dict["D_wing_bottom_points"].DN,
+            wing_dict["D_wing_middle_wide_points"].DS,
+            wing_dict["D_wing_middle_narrow_points"].DS,
+            wing_dict["D_wing_bottom_points"].DS,
         ),
     )
     soil_dict = {

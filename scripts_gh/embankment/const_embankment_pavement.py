@@ -164,15 +164,10 @@ def get_abut_cut_line(
 
     abut_points = abut_points_dict[edge_structure.structure_name]
     wing_dict = abut_points["wing_dict"]
-    if edge == "start":
+    if edge in {"start", "end"}:
         return [
-            wing_dict["U_wing_top_points"]["UT"],
-            wing_dict["D_wing_top_points"]["DT"],
-        ]
-    if edge == "end":
-        return [
-            wing_dict["U_wing_top_points"]["UN"],
-            wing_dict["D_wing_top_points"]["DN"],
+            wing_dict["U_wing_top_points"]["US"],
+            wing_dict["D_wing_top_points"]["DS"],
         ]
     raise ValueError(f"Unknown edge: {edge}")
 

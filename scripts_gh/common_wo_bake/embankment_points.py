@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import re
-from typing import Optional
 
 import Rhino.Geometry as rg
 
@@ -13,35 +12,24 @@ normalize_lc_time()
 
 import pandas as pd
 
+from my_project.config.constants import DISTANCE_TOL, STANDARD_BASE_Z
 from my_project.config.paths import get_output_dir
 from my_project.config.schemas.embankment_pavement_schemas import EmbankmentPaveInfo
 from my_project.config.schemas.embankment_schemas import (
-    CrossSectionInfo,
     EdgePoints,
-    LocalTopBottomPointInfo,
 )
 from my_project.config.util_schemas import Point3D
 from my_project.utils.bake import get_keys_and_values_for_bake
-from my_project.domain.embankment import (
-    get_edge_info,
-    get_edge_structure,
-)
 from my_project.utils.geometry.points import (
     center_point_pair,
     get_distance_2D,
-    get_distance_3D,
     get_xy_distance_to_segment,
     interpolate_value_by_distance,
-    interpolate_point_3d,
-    is_unknown_z_marker,
-    point_with_unknown_z_marker,
-    remove_near_duplicate_points,
-    transform_local_point_to_world_vertical_plane,
 )
 from my_project.utils.geometry_gh.attributes import (
+    get_closest_point_on_curve_2D,
     get_curve_distance,
     get_curve_polyline_points,
-    get_closest_point_on_curve_2D,
 )
 from my_project.utils.geometry_gh.const import (
     const_curve_obj,
@@ -50,11 +38,10 @@ from my_project.utils.geometry_gh.const import (
 )
 from my_project.utils.geometry_gh.document import get_named_curves_on_layer
 from my_project.utils.geometry_gh.intersect import (
-    split_curve_by_lines_and_match_endpoints,
     get_intersections_with_vertical_plane,
+    split_curve_by_lines_and_match_endpoints,
 )
 from my_project.utils.io import load_from_pickle, save_json_and_pickle
-from my_project.config.constants import STANDARD_BASE_Z, DISTANCE_TOL
 
 CURVE_NAME_RE = re.compile(r"^(?P<embankment_key>.+_\d+)_(?P<tier>\d+)_(?P<kind>shoulder|toe)$")
 
@@ -248,20 +235,20 @@ def get_world_embankment_points(
     if start_edge_structure.structure_type == "abutment":
         start_abut_points = abut_points_dict[start_edge_structure.structure_name]
         start_wing_dict = start_abut_points["wing_dict"]
-        abut_points["start"]["U"]["wing_soil"] = start_wing_dict["U_wing_top_points"]["UT"]
-        abut_points["start"]["U"]["wing_bridge"] = start_wing_dict["U_wing_top_points"]["UN"]
-        abut_points["start"]["D"]["wing_soil"] = start_wing_dict["D_wing_top_points"]["DT"]
-        abut_points["start"]["D"]["wing_bridge"] = start_wing_dict["D_wing_top_points"]["DN"]
+        abut_points["start"]["U"]["wing_soil"] = start_wing_dict["U_wing_top_points"]["US"]
+        abut_points["start"]["U"]["wing_bridge"] = start_wing_dict["U_wing_top_points"]["UB"]
+        abut_points["start"]["D"]["wing_soil"] = start_wing_dict["D_wing_top_points"]["DS"]
+        abut_points["start"]["D"]["wing_bridge"] = start_wing_dict["D_wing_top_points"]["DB"]
     else:
         raise ValueError(f"Unknown start edge structure: {start_edge_structure}")
     end_edge_structure = pavement_info.end_edge.structure
     if end_edge_structure.structure_type == "abutment":
         end_abut_points = abut_points_dict[end_edge_structure.structure_name]
         end_wing_dict = end_abut_points["wing_dict"]
-        abut_points["end"]["U"]["wing_soil"] = end_wing_dict["U_wing_top_points"]["UN"]
-        abut_points["end"]["U"]["wing_bridge"] = end_wing_dict["U_wing_top_points"]["UT"]
-        abut_points["end"]["D"]["wing_soil"] = end_wing_dict["D_wing_top_points"]["DN"]
-        abut_points["end"]["D"]["wing_bridge"] = end_wing_dict["D_wing_top_points"]["DT"]
+        abut_points["end"]["U"]["wing_soil"] = end_wing_dict["U_wing_top_points"]["US"]
+        abut_points["end"]["U"]["wing_bridge"] = end_wing_dict["U_wing_top_points"]["UB"]
+        abut_points["end"]["D"]["wing_soil"] = end_wing_dict["D_wing_top_points"]["DS"]
+        abut_points["end"]["D"]["wing_bridge"] = end_wing_dict["D_wing_top_points"]["DB"]
     else:
         raise ValueError(f"Unknown end edge structure: {end_edge_structure}")
 
@@ -688,7 +675,7 @@ def get_world_embankment_points(
                 shoulder_point = shoulder_points[i]
                 toe_point = toe_points[i]
                 z_drop_to_shoulder = sum(
-                    section_distance / section_slope
+                    section_distance / section_slope # 1:1.8とかだから。
                     for section_slope, section_distance in zip(
                         section_slopes[: tier - 1],
                         section_distances[: tier - 1],
