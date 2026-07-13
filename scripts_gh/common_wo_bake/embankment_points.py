@@ -446,18 +446,26 @@ def get_world_embankment_points(
         "start_edge_UD",
         "end_edge_UD",
     ]
+    original_curve_data = {
+        idx: {
+            "2Dpoints": list(row["2Dpoints"]),
+            "center_match_points": list(row["center_match_points"]),
+            "2Dcurve": row["2Dcurve"],
+        }
+        for idx, row in crv_df.iterrows()
+    }
     for name in edge_names:
         row_indices = crv_df.index[crv_df["name"] == name].to_list()
         for i, j in combinations(row_indices, 2):
             i_new_points, i_new_2Dpoints, i_new_2Ddistances = get_new_points(
-                crv_df.at[i, "2Dpoints"],
-                crv_df.at[i, "center_match_points"],
-                crv_df.at[j, "2Dcurve"],
+                original_curve_data[j]["2Dpoints"],
+                original_curve_data[j]["center_match_points"],
+                original_curve_data[i]["2Dcurve"],
             )
             j_new_points, j_new_2Dpoints, j_new_2Ddistances = get_new_points(
-                crv_df.at[j, "2Dpoints"],
-                crv_df.at[j, "center_match_points"],
-                crv_df.at[i, "2Dcurve"],
+                original_curve_data[i]["2Dpoints"],
+                original_curve_data[i]["center_match_points"],
+                original_curve_data[j]["2Dcurve"],
             )
             crv_df.at[i, "points"] = crv_df.at[i, "points"] + i_new_points
             crv_df.at[i, "2Dpoints"] = crv_df.at[i, "2Dpoints"] + i_new_2Dpoints
