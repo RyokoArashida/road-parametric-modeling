@@ -878,6 +878,48 @@ def get_world_embankment_points(
             ]
         }
 
+    for name, name_result in result.items():
+        tiers = sorted(key for key in name_result if isinstance(key, int))
+        section_count = len(name_result[1]["shoulder"])
+        for section_index in range(section_count):
+            line_start = name_result[1]["shoulder"][section_index]
+            line_end = (
+                name_result["closure_points"]["top"][section_index]
+                if name in ["U_parallel", "D_parallel"]
+                else name_result[1]["toe"][section_index]
+            )
+            dx = line_end.x - line_start.x
+            dy = line_end.y - line_start.y
+            length_squared = dx ** 2 + dy ** 2
+            if length_squared < DISTANCE_TOL ** 2:
+                raise ValueError(
+                    f"Cannot define vertical section plane ({name}, section={section_index})"
+                )
+            for tier in tiers:
+                for kind in ["shoulder", "toe"]:
+                    points = name_result[tier][kind]
+                    point = points[section_index]
+                    distance_ratio = (
+                        (point.x - line_start.x) * dx
+                        + (point.y - line_start.y) * dy
+                    ) / length_squared
+                    points[section_index] = Point3D(
+                        line_start.x + distance_ratio * dx,
+                        line_start.y + distance_ratio * dy,
+                        point.z,
+                    )
+            for points in name_result["closure_points"].values():
+                point = points[section_index]
+                distance_ratio = (
+                    (point.x - line_start.x) * dx
+                    + (point.y - line_start.y) * dy
+                ) / length_squared
+                points[section_index] = Point3D(
+                    line_start.x + distance_ratio * dx,
+                    line_start.y + distance_ratio * dy,
+                    point.z,
+                )
+
     return result
 
 def get_brep_from_points(point_dict) -> dict[str, rg.Brep]:
