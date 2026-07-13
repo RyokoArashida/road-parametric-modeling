@@ -757,6 +757,8 @@ def get_world_embankment_points(
         "end_edge_D": D_parallel_result,
     }.items():
         for idx, row in crv_df[crv_df["name"] == edge_name].iterrows():
+            if row["tier"] == 1 and row["kind"] == "shoulder":
+                continue
             points = list(row["points"])
             parallel_points = parallel_result[row["tier"]][row["kind"]]
             for i, point in enumerate(points):
