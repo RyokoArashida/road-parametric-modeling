@@ -4,7 +4,7 @@ from typing import Any, Optional, Union
 
 from Rhino import Geometry as rg
 
-from my_project.config.constants import STANDARD_BASE_Z, EPS
+from my_project.config.constants import DEFAULT_GEOMETRY_EXTENT, EPS, STANDARD_BASE_Z
 from my_project.config.util_schemas import (
     Point2D,
     Point3D,
@@ -377,7 +377,7 @@ def const_vertical_srf_from_point_and_axis(
     point: Union[Point3D, rg.Point3d],
     axis_vector: Vector2D,
     height: float = 500000, # 500m
-    length: float = 100000, # 100m
+    length: float = DEFAULT_GEOMETRY_EXTENT,
 ) -> rg.Brep:
     point = const_point_obj(point)
     plus_pt = rg.Point3d(
@@ -399,7 +399,7 @@ def const_vertical_srf_from_point_and_axis(
 def const_extended_line_from_two_points(
     point1: Union[Point2D, Point3D, rg.Point3d],
     point2: Union[Point2D, Point3D, rg.Point3d],
-    length: float = 100000, # 100m
+    length: float = DEFAULT_GEOMETRY_EXTENT,
 ) -> rg.LineCurve:
     point1 = const_point_obj(point1)
     point2 = const_point_obj(point2)
@@ -424,8 +424,8 @@ def const_extended_line_from_two_points(
 def const_vertical_srf_from_two_points(
     point1: Union[Point3D, rg.Point3d],
     point2: Union[Point3D, rg.Point3d],
-    height: float = 100000, # 100m
-    length: float = 100000, # 100m
+    height: float = DEFAULT_GEOMETRY_EXTENT,
+    length: float = DEFAULT_GEOMETRY_EXTENT,
 ) -> rg.Brep:
     point1 = const_point_obj(point1)
     point2 = const_point_obj(point2)
@@ -442,7 +442,7 @@ def const_vertical_srf_from_two_points(
 
 def const_vertical_srf_from_closed_curve(
     curve: Union[rg.Curve, rg.Line, rg.PolylineCurve],
-    height: float = 100000, # 100m
+    height: float = DEFAULT_GEOMETRY_EXTENT,
 ) -> rg.Brep:
     curve = const_curve_obj(curve)
     if not curve.IsClosed:
@@ -507,8 +507,8 @@ def get_normal_vector_on_curve_2d(
 def const_normal_srf_from_curve_and_point(
     curve: Union[rg.Curve, rg.Line, rg.PolylineCurve, rg.Circle], 
     point: Union[Point3D, rg.Point3d], 
-    height: float = 100000, # 100m
-    length: float = 100000, # 100m
+    height: float = DEFAULT_GEOMETRY_EXTENT,
+    length: float = DEFAULT_GEOMETRY_EXTENT,
 ) -> rg.Brep:
     point = const_point_obj(point)
     curve = const_curve_obj(curve)

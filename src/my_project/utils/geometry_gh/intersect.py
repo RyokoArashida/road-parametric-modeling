@@ -2,7 +2,11 @@ from typing import Optional, Union
 
 import Rhino.Geometry as rg
 
-from my_project.config.constants import DISTANCE_TOL, STANDARD_BASE_Z
+from my_project.config.constants import (
+    DEFAULT_GEOMETRY_EXTENT,
+    DISTANCE_TOL,
+    STANDARD_BASE_Z,
+)
 from my_project.config.util_schemas import Point2D, Point3D, Vector2D
 from my_project.utils.geometry.points import get_distance_3D, get_xy_distance_to_segment
 from my_project.utils.geometry_gh.attributes import point3d_from_rg
@@ -44,7 +48,7 @@ def get_intersections_with_vertical_plane(
     curve: Union[rg.Curve, rg.Line, rg.PolylineCurve],
     plane_points: tuple[Point3D, Point3D],
     z: float = STANDARD_BASE_Z,
-    cutter_length: float = 100000,
+    cutter_length: float = DEFAULT_GEOMETRY_EXTENT,
 ) -> list[Point3D]:
     curve = const_curve_obj(curve)
     reference_z = STANDARD_BASE_Z if curve_points_are_on_z(curve, 0) else z
@@ -71,7 +75,7 @@ def split_curve_by_lines_and_match_endpoints(
     split_line_points: list[tuple[Point3D, Point3D]],
     target_line_points: dict[str, tuple[Point3D, Point3D]],
     expected_count: int,
-    cutter_length: float = 100000,
+    cutter_length: float = DEFAULT_GEOMETRY_EXTENT,
 ) -> list[dict]:
     curve = const_curve_obj(curve)
     curve_on_reference_z = curve.DuplicateCurve()
