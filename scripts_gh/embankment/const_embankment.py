@@ -992,19 +992,27 @@ def get_brep_from_points(point_dict) -> dict[str, rg.Brep]:
         for i in range(len(this_points) - 1):
             next_points = this_points[(i + 1)]
             if name in edge_names:
-                brep = const_srf_from_2crvs(
+                slope_brep = const_srf_from_2crvs(
                     [
-                        const_polycurve_obj(this_points[i]),
-                        const_polycurve_obj(next_points),
+                        const_polycurve_obj(this_points[i][:-1]),
+                        const_polycurve_obj(next_points[:-1]),
                     ]
                 )
+                bottom_brep = const_planer_srf_obj_from_points(
+                    [
+                        this_points[i][-2],
+                        next_points[-2],
+                        this_points[i][-1],
+                    ]
+                )
+                breps.extend([slope_brep, bottom_brep])
             else:
                 brep = const_brep_from_two_closed_point_lists(
                     this_points[i],
                     next_points,
                     cap=False,
                 )
-            breps.append(brep)
+                breps.append(brep)
         end_caps = [
             const_planer_srf_obj_from_points(this_points[0]),
             const_planer_srf_obj_from_points(this_points[-1]),
