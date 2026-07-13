@@ -32,7 +32,10 @@ from my_project.utils.geometry_gh.attributes import (
     get_curve_polyline_points,
 )
 from my_project.utils.geometry_gh.const import (
+    boolean_difference_or_raise,
+    const_closed_polycurve_obj,
     const_curve_obj,
+    const_extrude_brep_from_curve,
     const_point_obj,
     const_planer_srf_obj_from_points,
     const_polycurve_obj,
@@ -863,7 +866,10 @@ def get_world_embankment_points(
             ]
         }
 
-    for edge_name in ["start_edge_UD", "end_edge_UD"]:
+    for edge_name, edge_position in [
+        ("start_edge_UD", "start"),
+        ("end_edge_UD", "end"),
+    ]:
         lowest_tier = max(result[edge_name])
         top_points = result[edge_name][1]["shoulder"]
         bottom_points = result[edge_name][lowest_tier]["toe"]
@@ -878,6 +884,12 @@ def get_world_embankment_points(
                 for top_point, bottom_point in zip(top_points, bottom_points)
             ]
         }
+        result[edge_name]["trim_points"] = [
+            abut_points[edge_position]["U"]["wing_bridge"],
+            abut_points[edge_position]["U"]["wing_soil"],
+            abut_points[edge_position]["D"]["wing_soil"],
+            abut_points[edge_position]["D"]["wing_bridge"],
+        ]
 
     for name, name_result in result.items():
         tiers = sorted(key for key in name_result if isinstance(key, int))
@@ -1023,6 +1035,33 @@ def get_brep_from_points(point_dict) -> dict[str, rg.Brep]:
         )
         if not brep.IsSolid:
             raise ValueError(f"Joined embankment brep is not solid ({name})")
+        if name in UD_edge_names:
+            bbox = brep.GetBoundingBox(True)
+            margin = bbox.Diagonal.Length
+            cutter_bottom_z = bbox.Min.Z - margin
+            cutter_top_z = bbox.Max.Z + margin
+            cutter_curve = const_closed_polycurve_obj(
+                [
+                    Point3D(point.x, point.y, cutter_bottom_z)
+                    for point in name_dict["trim_points"]
+                ]
+            )
+            cutter_brep = const_extrude_brep_from_curve(
+                cutter_curve,
+                rg.Vector3d(0, 0, cutter_top_z - cutter_bottom_z),
+                cap=True,
+                tol=DISTANCE_TOL,
+            )
+            if not cutter_brep.IsSolid:
+                raise ValueError(f"UD trim cutter is not solid ({name})")
+            brep = boolean_difference_or_raise(
+                base_brep=brep,
+                cutter_brep=cutter_brep,
+                context=name,
+                tol=DISTANCE_TOL,
+            )
+            if not brep.IsSolid:
+                raise ValueError(f"Trimmed UD embankment brep is not solid ({name})")
         brep_dict[name] = brep
 
     return brep_dict
