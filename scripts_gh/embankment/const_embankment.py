@@ -798,83 +798,66 @@ def get_world_embankment_points(
         "end_edge_D": get_points_with_name_df(crv_df[crv_df["name"] == "end_edge_D"],end_D_slope,slope),
     }
 
-    lowest_tier = max(U_parallel_result)
-    U_parallel_top_points = U_parallel_result[1]["shoulder"]
-    D_parallel_top_points = D_parallel_result[1]["shoulder"]
-    U_parallel_bottom_points = U_parallel_result[lowest_tier]["toe"]
-    D_parallel_bottom_points = D_parallel_result[lowest_tier]["toe"]
-    parallel_point_counts = {
-        len(U_parallel_top_points),
-        len(D_parallel_top_points),
-        len(U_parallel_bottom_points),
-        len(D_parallel_bottom_points),
-    }
-    if len(parallel_point_counts) != 1:
-        raise ValueError(
-            "Parallel closure point count mismatch: "
-            f"U_top={len(U_parallel_top_points)}, "
-            f"D_top={len(D_parallel_top_points)}, "
-            f"U_bottom={len(U_parallel_bottom_points)}, "
-            f"D_bottom={len(D_parallel_bottom_points)}"
-        )
-    parallel_center_top_points = []
-    for U_point, D_point in zip(U_parallel_top_points, D_parallel_top_points):
-        intersection_points = get_intersections_with_vertical_plane(
-            center_line_crv_2D,
-            (U_point, D_point),
-        )
-        if not intersection_points:
+    parallel_center_bottom_points = {}
+    for parallel_name, parallel_result in {
+        "U_parallel": U_parallel_result,
+        "D_parallel": D_parallel_result,
+    }.items():
+        lowest_tier = max(parallel_result)
+        top_points = parallel_result[1]["shoulder"]
+        lowest_toe_points = parallel_result[lowest_tier]["toe"]
+        if len(top_points) != len(lowest_toe_points):
             raise ValueError(
-                "Parallel cross section does not intersect pavement center polyline: "
-                f"U={U_point}, D={D_point}"
+                f"{parallel_name} closure point count mismatch: "
+                f"top={len(top_points)}, bottom={len(lowest_toe_points)}"
             )
-        center_point_2D = min(
-            intersection_points,
-            key=lambda point: get_distance_2D(
-                point,
-                center_point_pair(U_point, D_point),
-            ),
-        )
-        center_distance = get_curve_distance(center_line_crv_2D, center_point_2D)
-        parallel_center_top_points.append(
-            Point3D(
-                center_point_2D.x,
-                center_point_2D.y,
-                interpolate_value_by_distance(
-                    center_line_distances,
-                    [point.z for point in center_line_points],
-                    center_distance,
-                ),
-            )
-        )
-    parallel_center_bottom_points = [
-        Point3D(top_point.x, top_point.y, (U_point.z + D_point.z) / 2)
-        for top_point, U_point, D_point in zip(
-            parallel_center_top_points,
-            U_parallel_bottom_points,
-            D_parallel_bottom_points,
-        )
-    ]
 
-    closure_points = {
-        "parallel_center": {
-            "top": parallel_center_top_points,
-            "bottom": parallel_center_bottom_points,
-        },
-    }
-    for edge_name, soil_point, endpoint_index in [
-        ("start_edge_U", abut_points["start"]["U"]["wing_soil"], 0),
-        ("start_edge_D", abut_points["start"]["D"]["wing_soil"], 0),
-        ("end_edge_U", abut_points["end"]["U"]["wing_soil"], -1),
-        ("end_edge_D", abut_points["end"]["D"]["wing_soil"], -1),
+        center_top_points = []
+        for top_point in top_points:
+            center_point_2D = get_closest_point_on_curve_2D(
+                center_line_crv_2D,
+                top_point,
+            )
+            center_distance = get_curve_distance(center_line_crv_2D, center_point_2D)
+            center_top_points.append(
+                Point3D(
+                    center_point_2D.x,
+                    center_point_2D.y,
+                    interpolate_value_by_distance(
+                        center_line_distances,
+                        [point.z for point in center_line_points],
+                        center_distance,
+                    ),
+                )
+            )
+        center_bottom_points = [
+            Point3D(center_point.x, center_point.y, toe_point.z)
+            for center_point, toe_point in zip(center_top_points, lowest_toe_points)
+        ]
+        parallel_result["closure_points"] = {
+            "top": center_top_points,
+            "bottom": center_bottom_points,
+        }
+        parallel_center_bottom_points[parallel_name] = center_bottom_points
+
+    for edge_name, parallel_name, soil_point, endpoint_index in [
+        ("start_edge_U", "U_parallel", abut_points["start"]["U"]["wing_soil"], 0),
+        ("start_edge_D", "D_parallel", abut_points["start"]["D"]["wing_soil"], 0),
+        ("end_edge_U", "U_parallel", abut_points["end"]["U"]["wing_soil"], -1),
+        ("end_edge_D", "D_parallel", abut_points["end"]["D"]["wing_soil"], -1),
     ]:
-        closure_points[edge_name] = Point3D(
-            soil_point.x,
-            soil_point.y,
-            parallel_center_bottom_points[endpoint_index].z,
-        )
+        result[edge_name]["closure_points"] = {
+            "bottom": [
+                Point3D(
+                    soil_point.x,
+                    soil_point.y,
+                    parallel_center_bottom_points[parallel_name][endpoint_index].z,
+                )
+            ]
+        }
 
     for edge_name in ["start_edge_UD", "end_edge_UD"]:
+        lowest_tier = max(result[edge_name])
         top_points = result[edge_name][1]["shoulder"]
         bottom_points = result[edge_name][lowest_tier]["toe"]
         if len(top_points) != len(bottom_points):
@@ -882,16 +865,18 @@ def get_world_embankment_points(
                 f"{edge_name} closure point count mismatch: "
                 f"top={len(top_points)}, bottom={len(bottom_points)}"
             )
-        closure_points[edge_name] = [
-            Point3D(top_point.x, top_point.y, bottom_point.z)
-            for top_point, bottom_point in zip(top_points, bottom_points)
-        ]
+        result[edge_name]["closure_points"] = {
+            "bottom": [
+                Point3D(top_point.x, top_point.y, bottom_point.z)
+                for top_point, bottom_point in zip(top_points, bottom_points)
+            ]
+        }
 
-    result["closure_points"] = closure_points
     return result
 
-def get_brep_from_points(point_dict: dict[str, pd.DataFrame]) -> dict[str, rg.Brep]:
-    pass
+def get_brep_from_points(point_dict) -> dict[str, rg.Brep]:
+    def get_parallel_brep(parallel_dict):
+        pass
 
 
 def main(initial_or_final: str, debug: bool = False):
