@@ -912,6 +912,17 @@ def get_each_abut(
             return None
         if isinstance(obj, (Point2D, Point3D, rg.Point3d)):
             return place_point_setting(obj)
+        if isinstance(obj, Square_Corners):
+            named_points = get_named_footing_top_points(
+                [obj.DT, obj.DN, obj.UN, obj.UT],
+                {"wing_dict": wing_dict},
+            )
+            return {
+                "DB": place_point_setting(named_points["D_bridge"]),
+                "DS": place_point_setting(named_points["D_soil"]),
+                "US": place_point_setting(named_points["U_soil"]),
+                "UB": place_point_setting(named_points["U_bridge"]),
+            }
         if isinstance(obj, dict):
             return {
                 key: place_point_data(value)
