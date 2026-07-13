@@ -243,20 +243,26 @@ def get_world_embankment_points(
     if start_edge_structure.structure_type == "abutment":
         start_abut_points = abut_points_dict[start_edge_structure.structure_name]
         start_wing_dict = start_abut_points["wing_dict"]
+        start_barrier_dict = start_abut_points["barrier_dict"]
         abut_points["start"]["U"]["wing_soil"] = start_wing_dict["U_wing_top_points"]["US"]
         abut_points["start"]["U"]["wing_bridge"] = start_wing_dict["U_wing_top_points"]["UB"]
+        abut_points["start"]["U"]["parapet"] = start_barrier_dict["UB_backwall_base_bottom"]
         abut_points["start"]["D"]["wing_soil"] = start_wing_dict["D_wing_top_points"]["DS"]
         abut_points["start"]["D"]["wing_bridge"] = start_wing_dict["D_wing_top_points"]["DB"]
+        abut_points["start"]["D"]["parapet"] = start_barrier_dict["DB_backwall_base_bottom"]
     else:
         raise ValueError(f"Unknown start edge structure: {start_edge_structure}")
     end_edge_structure = pavement_info.end_edge.structure
     if end_edge_structure.structure_type == "abutment":
         end_abut_points = abut_points_dict[end_edge_structure.structure_name]
         end_wing_dict = end_abut_points["wing_dict"]
+        end_barrier_dict = end_abut_points["barrier_dict"]
         abut_points["end"]["U"]["wing_soil"] = end_wing_dict["U_wing_top_points"]["US"]
         abut_points["end"]["U"]["wing_bridge"] = end_wing_dict["U_wing_top_points"]["UB"]
+        abut_points["end"]["U"]["parapet"] = end_barrier_dict["UB_backwall_base_bottom"]
         abut_points["end"]["D"]["wing_soil"] = end_wing_dict["D_wing_top_points"]["DS"]
         abut_points["end"]["D"]["wing_bridge"] = end_wing_dict["D_wing_top_points"]["DB"]
+        abut_points["end"]["D"]["parapet"] = end_barrier_dict["DB_backwall_base_bottom"]
     else:
         raise ValueError(f"Unknown end edge structure: {end_edge_structure}")
 
@@ -886,10 +892,10 @@ def get_world_embankment_points(
             ]
         }
         result[edge_name]["trim_points"] = [
-            abut_points[edge_position]["U"]["wing_bridge"],
+            abut_points[edge_position]["U"]["parapet"],
             abut_points[edge_position]["U"]["wing_soil"],
             abut_points[edge_position]["D"]["wing_soil"],
-            abut_points[edge_position]["D"]["wing_bridge"],
+            abut_points[edge_position]["D"]["parapet"],
         ]
 
     for name, name_result in result.items():
