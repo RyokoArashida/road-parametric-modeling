@@ -226,19 +226,21 @@ def get_world_embankment_points(
     }
     if start_edge_structure.structure_type == "abutment":
         start_abut_points = abut_points_dict[start_edge_structure.structure_name]
-        abut_points["start"]["U"]["wing_soil"] = start_abut_points["wing_duct"]["U_wing_top_points"]["UT"]
-        abut_points["start"]["U"]["wing_bridge"] = start_abut_points["wing_duct"]["U_wing_top_points"]["UN"]
-        abut_points["start"]["D"]["wing_soil"] = start_abut_points["wing_duct"]["D_wing_top_points"]["DT"]
-        abut_points["start"]["D"]["wing_bridge"] = start_abut_points["wing_duct"]["D_wing_top_points"]["DN"]
+        start_wing_points = get_abut_wing_named_points(start_abut_points["wing_dict"])
+        abut_points["start"]["U"]["wing_soil"] = start_wing_points["U_soil"]
+        abut_points["start"]["U"]["wing_bridge"] = start_wing_points["U_bridge"]
+        abut_points["start"]["D"]["wing_soil"] = start_wing_points["D_soil"]
+        abut_points["start"]["D"]["wing_bridge"] = start_wing_points["D_bridge"]
     else:
         raise ValueError(f"Unknown start edge structure: {start_edge_structure}")
     end_edge_structure = pavement_info.end_edge.structure
     if end_edge_structure.structure_type == "abutment":
         end_abut_points = abut_points_dict[end_edge_structure.structure_name]
-        abut_points["end"]["U"]["wing_soil"] = end_abut_points["wing_duct"]["U_wing_top_points"]["UN"]
-        abut_points["end"]["U"]["wing_bridge"] = end_abut_points["wing_duct"]["U_wing_top_points"]["UT"]
-        abut_points["end"]["D"]["wing_soil"] = end_abut_points["wing_duct"]["D_wing_top_points"]["DN"]
-        abut_points["end"]["D"]["wing_bridge"] = end_abut_points["wing_duct"]["D_wing_top_points"]["DT"]
+        end_wing_points = get_abut_wing_named_points(end_abut_points["wing_dict"])
+        abut_points["end"]["U"]["wing_soil"] = end_wing_points["U_soil"]
+        abut_points["end"]["U"]["wing_bridge"] = end_wing_points["U_bridge"]
+        abut_points["end"]["D"]["wing_soil"] = end_wing_points["D_soil"]
+        abut_points["end"]["D"]["wing_bridge"] = end_wing_points["D_bridge"]
     else:
         raise ValueError(f"Unknown end edge structure: {end_edge_structure}")
 
