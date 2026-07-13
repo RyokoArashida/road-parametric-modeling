@@ -627,7 +627,7 @@ def get_world_embankment_points(
             # cross_section_distancesは、法肩→のり尻→…の順に入っているが、スロープを持つのは法肩から法尻までのみ。
             section_distances = [
                 cross_section_distances[2 * j + 1] - cross_section_distances[2 * j]
-                for j in range((len(cross_section_distances) - 1) // 2)
+                for j in range(len(cross_section_distances) // 2)
             ]
             section_slopes = [slope] * len(section_distances)
             has_known_z_points = sorted(
