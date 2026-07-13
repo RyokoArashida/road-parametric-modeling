@@ -343,7 +343,10 @@ def get_world_embankment_points(
     for tier in crv_dict:
         for kind in crv_dict[tier]:
             for name, crv in crv_dict[tier][kind].items():
-                points = get_curve_polyline_points(crv)
+                points = get_curve_polyline_points(
+                    crv,
+                    preserve_z=tier == 1 and kind == "shoulder",
+                )
                 points2D = [Point3D(p.x, p.y, STANDARD_BASE_Z) for p in points]
                 curve2D = const_polycurve_obj(points2D)
                 distance2D = [get_curve_distance(curve2D, p) for p in points2D]

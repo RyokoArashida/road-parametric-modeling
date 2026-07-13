@@ -89,23 +89,25 @@ def get_value_at_point_on_polyline(
 def get_curve_polyline_points(
     curve: rg.Curve,
     return_distances: bool = False,
+    preserve_z: bool = False,
 ) -> Union[list[Point3D], tuple[list[Point3D], list[float]]]:
     curve = const_curve_obj(curve)
+    z = None if preserve_z else 0
     ok, polyline = curve.TryGetPolyline()
     if ok:
-        points = [point3d_from_rg(pt, z=0) for pt in polyline]
+        points = [point3d_from_rg(pt, z=z) for pt in polyline]
     elif isinstance(curve, rg.PolyCurve):
         points = []
         for segment in curve.DuplicateSegments():
             if not points:
-                points.append(point3d_from_rg(segment.PointAtStart, z=0))
-            points.append(point3d_from_rg(segment.PointAtEnd, z=0))
+                points.append(point3d_from_rg(segment.PointAtStart, z=z))
+            points.append(point3d_from_rg(segment.PointAtEnd, z=z))
     else:
         nurbs_curve = curve.ToNurbsCurve()
         if nurbs_curve is None or nurbs_curve.Points.Count == 0:
             raise ValueError(f"Input curve has no usable vertices or control points: {curve}")
         points = [
-            point3d_from_rg(nurbs_curve.Points[i].Location, z=0)
+            point3d_from_rg(nurbs_curve.Points[i].Location, z=z)
             for i in range(nurbs_curve.Points.Count)
         ]
     if len(points) >= 2 and const_point_obj(points[0]).DistanceTo(const_point_obj(points[-1])) < DISTANCE_TOL:
