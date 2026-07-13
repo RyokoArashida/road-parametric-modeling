@@ -33,7 +33,6 @@ from my_project.utils.geometry_gh.attributes import (
     get_curve_polyline_points,
 )
 from my_project.utils.geometry_gh.const import (
-    boolean_difference_or_raise,
     const_closed_polycurve_obj,
     const_curve_obj,
     const_extrude_brep_from_curve,
@@ -1088,11 +1087,22 @@ def get_brep_from_points(point_dict) -> dict[str, rg.Brep]:
             )
             if not cutter_brep.IsSolid:
                 raise ValueError(f"UD trim cutter is not solid ({name})")
-            brep = boolean_difference_or_raise(
-                base_brep=brep,
-                cutter_brep=cutter_brep,
-                context=name,
-                tol=DISTANCE_TOL,
+            split_breps = list(brep.Split(cutter_brep, DISTANCE_TOL))
+            if len(split_breps) < 2:
+                raise ValueError(f"UD trim did not split embankment brep ({name})")
+
+            bridge_mid_x = (trim_points[0].x + trim_points[3].x) / 2
+            bridge_mid_y = (trim_points[0].y + trim_points[3].y) / 2
+            soil_mid_x = (trim_points[1].x + trim_points[2].x) / 2
+            soil_mid_y = (trim_points[1].y + trim_points[2].y) / 2
+            soil_axis_x = soil_mid_x - bridge_mid_x
+            soil_axis_y = soil_mid_y - bridge_mid_y
+            brep = max(
+                split_breps,
+                key=lambda piece: (
+                    (piece.GetBoundingBox(True).Center.X - bridge_mid_x) * soil_axis_x
+                    + (piece.GetBoundingBox(True).Center.Y - bridge_mid_y) * soil_axis_y
+                ),
             )
             if not brep.IsSolid:
                 raise ValueError(f"Trimmed UD embankment brep is not solid ({name})")
