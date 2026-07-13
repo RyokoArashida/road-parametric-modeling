@@ -8,7 +8,6 @@ from my_project.config.file_names import Filenames
 from my_project.config.paths import get_output_dir
 from my_project.config.schemas.embankment_pavement_schemas import EmbankmentPaveInfo
 from my_project.config.util_schemas import Point3D
-from my_project.domain.abutment import get_abut_wing_named_points
 from my_project.domain.embankment import get_edge_structure
 from my_project.utils.bake import get_keys_and_values_for_bake
 from my_project.utils.geometry.points import (
@@ -165,8 +164,17 @@ def get_abut_cut_line(
 
     abut_points = abut_points_dict[edge_structure.structure_name]
     wing_dict = abut_points["wing_dict"]
-    named_points = get_abut_wing_named_points(wing_dict)
-    return [named_points["U_soil"], named_points["D_soil"]]
+    if edge == "start":
+        return [
+            wing_dict["U_wing_top_points"]["UT"],
+            wing_dict["D_wing_top_points"]["DT"],
+        ]
+    if edge == "end":
+        return [
+            wing_dict["U_wing_top_points"]["UN"],
+            wing_dict["D_wing_top_points"]["DN"],
+        ]
+    raise ValueError(f"Unknown edge: {edge}")
 
 
 def main(initial_or_final: str, debug: bool = False):

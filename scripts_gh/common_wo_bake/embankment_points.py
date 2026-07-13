@@ -21,7 +21,6 @@ from my_project.config.schemas.embankment_schemas import (
     LocalTopBottomPointInfo,
 )
 from my_project.config.util_schemas import Point3D
-from my_project.domain.abutment import get_abut_wing_named_points
 from my_project.utils.bake import get_keys_and_values_for_bake
 from my_project.domain.embankment import (
     get_edge_info,
@@ -248,21 +247,21 @@ def get_world_embankment_points(
     }
     if start_edge_structure.structure_type == "abutment":
         start_abut_points = abut_points_dict[start_edge_structure.structure_name]
-        start_wing_points = get_abut_wing_named_points(start_abut_points["wing_dict"])
-        abut_points["start"]["U"]["wing_soil"] = start_wing_points["U_soil"]
-        abut_points["start"]["U"]["wing_bridge"] = start_wing_points["U_bridge"]
-        abut_points["start"]["D"]["wing_soil"] = start_wing_points["D_soil"]
-        abut_points["start"]["D"]["wing_bridge"] = start_wing_points["D_bridge"]
+        start_wing_dict = start_abut_points["wing_dict"]
+        abut_points["start"]["U"]["wing_soil"] = start_wing_dict["U_wing_top_points"]["UT"]
+        abut_points["start"]["U"]["wing_bridge"] = start_wing_dict["U_wing_top_points"]["UN"]
+        abut_points["start"]["D"]["wing_soil"] = start_wing_dict["D_wing_top_points"]["DT"]
+        abut_points["start"]["D"]["wing_bridge"] = start_wing_dict["D_wing_top_points"]["DN"]
     else:
         raise ValueError(f"Unknown start edge structure: {start_edge_structure}")
     end_edge_structure = pavement_info.end_edge.structure
     if end_edge_structure.structure_type == "abutment":
         end_abut_points = abut_points_dict[end_edge_structure.structure_name]
-        end_wing_points = get_abut_wing_named_points(end_abut_points["wing_dict"])
-        abut_points["end"]["U"]["wing_soil"] = end_wing_points["U_soil"]
-        abut_points["end"]["U"]["wing_bridge"] = end_wing_points["U_bridge"]
-        abut_points["end"]["D"]["wing_soil"] = end_wing_points["D_soil"]
-        abut_points["end"]["D"]["wing_bridge"] = end_wing_points["D_bridge"]
+        end_wing_dict = end_abut_points["wing_dict"]
+        abut_points["end"]["U"]["wing_soil"] = end_wing_dict["U_wing_top_points"]["UN"]
+        abut_points["end"]["U"]["wing_bridge"] = end_wing_dict["U_wing_top_points"]["UT"]
+        abut_points["end"]["D"]["wing_soil"] = end_wing_dict["D_wing_top_points"]["DN"]
+        abut_points["end"]["D"]["wing_bridge"] = end_wing_dict["D_wing_top_points"]["DT"]
     else:
         raise ValueError(f"Unknown end edge structure: {end_edge_structure}")
 
