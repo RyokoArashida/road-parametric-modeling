@@ -71,6 +71,11 @@ def split_curve_by_lines_and_match_endpoints(
     expected_count: int,
 ) -> list[dict]:
     curve = const_curve_obj(curve)
+    curve_on_reference_z = curve.DuplicateCurve()
+    curve_on_reference_z.Transform(rg.Transform.PlanarProjection(rg.Plane.WorldXY))
+    curve_on_reference_z.Transform(
+        rg.Transform.Translation(rg.Vector3d(0, 0, STANDARD_BASE_Z))
+    )
     extended_target_line_points = {}
     for key, points in target_line_points.items():
         extended_line = const_extended_line_from_two_points(*points)
@@ -81,7 +86,7 @@ def split_curve_by_lines_and_match_endpoints(
     split_params = []
     for line_points in split_line_points:
         for point in get_intersections_with_vertical_plane(curve, line_points):
-            ok, t = curve.ClosestPoint(const_point_obj(point))
+            ok, t = curve_on_reference_z.ClosestPoint(const_point_obj(point))
             if not ok:
                 raise ValueError(f"Failed to get curve parameter at split point: {point}")
             if all(abs(t - existing) > DISTANCE_TOL for existing in split_params):
