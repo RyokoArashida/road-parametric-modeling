@@ -35,6 +35,8 @@ from my_project.utils.geometry_gh.const import (
     const_curve_obj,
     const_point_obj,
     const_polycurve_obj,
+    const_brep_from_two_closed_point_lists,
+    join_breps_or_raise
 )
 from my_project.utils.geometry_gh.document import get_named_curves_on_layer
 from my_project.utils.geometry_gh.intersect import (
@@ -846,13 +848,16 @@ def get_world_embankment_points(
         ("end_edge_U", "U_parallel", abut_points["end"]["U"]["wing_soil"], -1),
         ("end_edge_D", "D_parallel", abut_points["end"]["D"]["wing_soil"], -1),
     ]:
+        point_count = len(result[edge_name][1]["shoulder"])
+        bottom_z = parallel_center_bottom_points[parallel_name][endpoint_index].z
         result[edge_name]["closure_points"] = {
             "bottom": [
                 Point3D(
                     soil_point.x,
                     soil_point.y,
-                    parallel_center_bottom_points[parallel_name][endpoint_index].z,
+                    bottom_z,
                 )
+                for _ in range(point_count)
             ]
         }
 
@@ -875,8 +880,87 @@ def get_world_embankment_points(
     return result
 
 def get_brep_from_points(point_dict) -> dict[str, rg.Brep]:
-    def get_parallel_brep(parallel_dict):
-        pass
+    def get_parallel_crvs(parallel_dict):
+        max_tier = max(key for key in parallel_dict if isinstance(key, int))
+        section_num = len(parallel_dict[1]["shoulder"])
+        parallel_points = [
+            [
+                parallel_dict["closure_points"]["top"][i],
+                *[
+                    point
+                    for tier in range(1, max_tier + 1)
+                    for point in (
+                        parallel_dict[tier]["shoulder"][i],
+                        parallel_dict[tier]["toe"][i],
+                    )
+                ],
+                parallel_dict["closure_points"]["bottom"][i],
+            ]
+            for i in range(section_num)
+        ]
+        return parallel_points
+    def get_edge_crvs(edge_dict):
+        max_tier = max(key for key in edge_dict if isinstance(key, int))
+        section_num = len(edge_dict[1]["shoulder"])
+        edge_points = [
+            [
+                *[
+                    point
+                    for tier in range(1, max_tier + 1)
+                    for point in (
+                        edge_dict[tier]["shoulder"][i],
+                        edge_dict[tier]["toe"][i],
+                    )
+                ],
+                edge_dict["closure_points"]["bottom"][i],
+            ]
+            for i in range(section_num)
+        ]
+        return edge_points
+    def get_UD_edge_crvs(UD_edge_dict):
+        max_tier = max(key for key in UD_edge_dict if isinstance(key, int))
+        section_num = len(UD_edge_dict[1]["shoulder"])
+        UD_edge_points = [
+            [
+                *[
+                    point
+                    for tier in range(1, max_tier + 1)
+                    for point in (
+                        UD_edge_dict[tier]["shoulder"][i],
+                        UD_edge_dict[tier]["toe"][i],
+                    )
+                ],
+                UD_edge_dict["closure_points"]["bottom"][i],
+            ]
+            for i in range(section_num)
+        ]
+        return UD_edge_points
+    parallel_names = ["U_parallel", "D_parallel"]
+    edge_names = ["start_edge_U", "start_edge_D", "end_edge_U", "end_edge_D"]
+    UD_edge_names = ["start_edge_UD", "end_edge_UD"]
+    all_names = parallel_names + edge_names + UD_edge_names
+    brep_dict = {}
+    for name in all_names:
+        name_dict = point_dict[name]
+        if name in parallel_names:
+            this_points = get_parallel_crvs(name_dict)
+        elif name in edge_names:
+            this_points = get_edge_crvs(name_dict)
+        elif name in UD_edge_names:
+            this_points = get_UD_edge_crvs(name_dict)
+        breps = []
+        for i in range(len(this_points) - 1):
+            next_points = this_points[(i + 1)]
+            brep = const_brep_from_two_closed_point_lists(
+                this_points[i],
+                next_points,
+                cap=False,
+            )
+            breps.append(brep)
+        brep = join_breps_or_raise(breps, context=name, cap=True)
+        brep_dict[name] = brep
+
+    return brep_dict
 
 
 def main(initial_or_final: str, debug: bool = False):
