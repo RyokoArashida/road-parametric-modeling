@@ -23,6 +23,7 @@ from my_project.utils.bake import get_keys_and_values_for_bake
 from my_project.utils.geometry.points import (
     center_point_pair,
     get_distance_2D,
+    get_point_by_xy_offset,
     get_xy_distance_to_segment,
     interpolate_value_by_distance,
 )
@@ -1036,6 +1037,17 @@ def get_brep_from_points(point_dict) -> dict[str, rg.Brep]:
         if not brep.IsSolid:
             raise ValueError(f"Joined embankment brep is not solid ({name})")
         if name in UD_edge_names:
+            trim_points = list(name_dict["trim_points"])
+            trim_points[1] = get_point_by_xy_offset(
+                trim_points[1],
+                trim_points[0],
+                -DISTANCE_TOL * 100,
+            )
+            trim_points[2] = get_point_by_xy_offset(
+                trim_points[2],
+                trim_points[3],
+                -DISTANCE_TOL * 100,
+            )
             bbox = brep.GetBoundingBox(True)
             margin = bbox.Diagonal.Length
             cutter_bottom_z = bbox.Min.Z - margin
@@ -1043,7 +1055,7 @@ def get_brep_from_points(point_dict) -> dict[str, rg.Brep]:
             cutter_curve = const_closed_polycurve_obj(
                 [
                     Point3D(point.x, point.y, cutter_bottom_z)
-                    for point in name_dict["trim_points"]
+                    for point in trim_points
                 ]
             )
             cutter_brep = const_extrude_brep_from_curve(
