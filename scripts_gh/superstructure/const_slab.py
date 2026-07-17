@@ -964,4 +964,12 @@ def main(initial_or_final: str):
     )
 
 if __name__ == "__main__":
-    (bake_keys, bake_objs), (bake_keys2, bake_objs2), (bake_keys3, bake_objs3), (bake_keys4, bake_objs4) = main("initial")
+    bake_result = main("initial")
+    bake_keys = bake_result[0][0]
+    bake_objs = bake_result[0][1]
+    bake_keys2 = bake_result[1][0]
+    bake_objs2 = bake_result[1][1]
+    bake_keys3 = bake_result[2][0]
+    bake_objs3 = bake_result[2][1]
+    bake_keys4 = bake_result[3][0]
+    bake_objs4 = bake_result[3][1]
