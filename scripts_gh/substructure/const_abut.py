@@ -26,6 +26,7 @@ from my_project.config.util_schemas import (
     Point3D,
     Square_Corners,
 )
+from my_project.utils.bake import get_keys_and_values_for_bake as get_point_items_for_bake
 from my_project.utils.dataframe import flatten_any
 from my_project.utils.geometry.points import (
     get_point_by_xy_offset,
@@ -1107,7 +1108,13 @@ def main(initial_or_final: str):
         get_keys_and_values_for_bake(world_items_dict_for_bake),
         get_keys_and_values_for_bake(world_items_dict_for_bake_2),
         get_keys_and_values_for_bake(world_items_dict_for_bake_3),
+        get_point_items_for_bake(local_top_surf_corners_dict),
     )
 
 if __name__ == "__main__":
-    (bake_keys, bake_objs), (bake_keys2, bake_objs2), (bake_keys3, bake_objs3) = main("initial")
+    (
+        (bake_keys, bake_objs),
+        (bake_keys2, bake_objs2),
+        (bake_keys3, bake_objs3),
+        (beamseat_edge_point_keys, beamseat_edge_point_objs),
+    ) = main("initial")

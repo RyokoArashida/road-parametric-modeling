@@ -821,10 +821,16 @@ def main(initial_or_final: str, debug: bool = False):
             folder_path = DIR,
             name = f"{Filenames.WORLD}_{Filenames.MG}_{Filenames.POINTS}",
         )
-        return get_keys_and_values_for_bake(world_items_dict_for_bake), points
+        return (
+            get_keys_and_values_for_bake(world_items_dict_for_bake),
+            get_keys_and_values_for_bake(all_MG_points_dict),
+        )
     
 if __name__ == "__main__":
     # points = main("initial", debug=True)
-    (bake_keys, bake_objs), points = main("initial", debug=True)
+    (bake_keys, bake_objs), (MG_section_point_keys, MG_section_point_objs) = main(
+        "initial",
+        debug=True,
+    )
 
 

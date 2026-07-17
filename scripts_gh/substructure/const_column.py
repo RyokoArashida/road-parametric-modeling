@@ -21,6 +21,7 @@ from my_project.config.util_schemas import (
     Point3D,
     Square_and_center_Corners,
 )
+from my_project.utils.bake import get_keys_and_values_for_bake
 from my_project.utils.dataframe import flatten_any
 from my_project.utils.geometry.vectors import get_frame_2D
 from my_project.utils.geometry_gh.const import (
@@ -334,7 +335,20 @@ def main(initial_or_final: str):
     keys = [k for k, _ in items]
     values = [v for _, v in items]
 
-    return keys, values
+    all_top_point_keys, all_top_point_objs = get_keys_and_values_for_bake(world_dict)
+    top_point_items = [
+        (key, obj)
+        for key, obj in zip(all_top_point_keys, all_top_point_objs)
+        if key.rsplit("_", 1)[-1] in {"UT", "DT", "UN", "DN"}
+    ]
+    top_point_keys = [key for key, _ in top_point_items]
+    top_point_objs = [obj for _, obj in top_point_items]
+    return keys, values, top_point_keys, top_point_objs
 
 if __name__ == "__main__":
-    bake_keys, bake_objs = main("initial")
+    (
+        bake_keys,
+        bake_objs,
+        beamseat_edge_point_keys,
+        beamseat_edge_point_objs,
+    ) = main("initial")
