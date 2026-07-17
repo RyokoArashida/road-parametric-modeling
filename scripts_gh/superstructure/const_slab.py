@@ -20,7 +20,7 @@ from my_project.config.schemas.slab_schemas import (
     SlabInfo,
 )
 from my_project.config.util_schemas import MonoSlope, Point2D, Point3D
-from my_project.utils.dataframe import flatten_any
+from my_project.utils.bake import get_keys_and_values_for_bake
 from my_project.utils.geometry.points import (
     get_point_by_xy_offset,
 )
@@ -28,7 +28,6 @@ from my_project.utils.geometry.vectors import get_frame_2D
 from my_project.utils.geometry_gh.attributes import get_distance_along_crv
 from my_project.utils.geometry_gh.const import (
     const_planer_srf_from_points,
-    const_point_obj,
     const_polycurve_obj,
     const_srf_from_2crvs,
 )
@@ -915,24 +914,14 @@ def main(initial_or_final: str):
             name = name
         )
 
-
-    def get_keys_and_values_for_bake(world_items_dict):
-        flatten_dict_for_bake = flatten_any(world_items_dict)
-        items = list(flatten_dict_for_bake.items())
-        # valueがNoneのものはbakeできないので除外
-        items = [(k,v) for k,v in items if v is not None]
-        keys = [k for k, _ in items]
-        values = [v for _, v in items]
-        return keys, values
-
     slab_top_points_for_bake = {}
     for unique_slab_name, L_top_point_dict in all_L_top_point_dict.items():
         slab_top_points_for_bake[unique_slab_name] = {}
         for CG_name, L_top_point in L_top_point_dict.items():
             R_top_point = all_R_top_point_dict[unique_slab_name][CG_name]
             slab_top_points_for_bake[unique_slab_name][CG_name] = {
-                "U": const_point_obj(L_top_point),
-                "D": const_point_obj(R_top_point),
+                "U": L_top_point,
+                "D": R_top_point,
             }
 
     slab_bottom_points_for_bake = {}
@@ -940,8 +929,8 @@ def main(initial_or_final: str):
         slab_bottom_points_for_bake[unique_slab_name] = {}
         for CG_name, edge_points in edge_point_dict.items():
             slab_bottom_points_for_bake[unique_slab_name][CG_name] = {
-                "U": const_point_obj(edge_points.U),
-                "D": const_point_obj(edge_points.D),
+                "U": edge_points.U,
+                "D": edge_points.D,
             }
 
     MG_top_points_for_bake = {}
@@ -951,9 +940,9 @@ def main(initial_or_final: str):
             MG_top_points_for_bake[bridge_name][MG_name] = {}
             for top_flange_point in top_flange_points:
                 MG_top_points_for_bake[bridge_name][MG_name][top_flange_point.CG] = {
-                    "U": const_point_obj(top_flange_point.U),
-                    "C": const_point_obj(top_flange_point.C),
-                    "D": const_point_obj(top_flange_point.D),
+                    "U": top_flange_point.U,
+                    "C": top_flange_point.C,
+                    "D": top_flange_point.D,
                 }
 
     return (
