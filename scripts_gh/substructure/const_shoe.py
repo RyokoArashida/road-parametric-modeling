@@ -861,7 +861,7 @@ if __name__ == "__main__":
     (
         (bake_keys, bake_objs),
         (bake_keys2, bake_objs2),
-        (shoe_center_point_keys, shoe_center_point_objs),
+        (bake_keys3, bake_objs3),
     ) = main("initial")
     # points, breps = main("initial", debug=True)
     # bake_keys, bake_objs = main("initial", debug=False)

@@ -349,6 +349,6 @@ if __name__ == "__main__":
     (
         bake_keys,
         bake_objs,
-        beamseat_edge_point_keys,
-        beamseat_edge_point_objs,
+        bake_keys2,
+        bake_objs2,
     ) = main("initial")

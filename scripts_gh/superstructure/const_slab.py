@@ -951,7 +951,7 @@ if __name__ == "__main__":
     # (bake_keys, bake_objs) = main("initial")
     (
         (bake_keys, bake_objs),
-        (MG_top_point_keys, MG_top_point_objs),
-        (slab_top_point_keys, slab_top_point_objs),
-        (slab_bottom_point_keys, slab_bottom_point_objs),
+        (bake_keys2, bake_objs2),
+        (bake_keys3, bake_objs3),
+        (bake_keys4, bake_objs4),
     ) = main("initial")

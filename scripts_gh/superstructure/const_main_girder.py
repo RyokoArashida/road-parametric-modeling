@@ -828,7 +828,7 @@ def main(initial_or_final: str, debug: bool = False):
     
 if __name__ == "__main__":
     # points = main("initial", debug=True)
-    (bake_keys, bake_objs), (MG_section_point_keys, MG_section_point_objs) = main(
+    (bake_keys, bake_objs), (bake_keys2, bake_objs2) = main(
         "initial",
         debug=True,
     )
