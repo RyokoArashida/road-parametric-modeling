@@ -26,7 +26,7 @@ from my_project.config.util_schemas import (
     Point3D,
     Square_Corners,
 )
-from my_project.utils.dataframe import flatten_any
+from my_project.utils.bake import get_keys_and_values_for_bake
 from my_project.utils.geometry.points import (
     get_point_by_xy_offset,
     interpolate_point_3d,
@@ -1095,19 +1095,20 @@ def main(initial_or_final: str):
         folder_path = DIR,
         name = f"{Filenames.WORLD}_{Filenames.ABUT}_{Filenames.POINTS}",
     )
-    def get_keys_and_values_for_bake(world_items_dict):
-        flatten_dict_for_bake = flatten_any(world_items_dict)
-        items = list(flatten_dict_for_bake.items())
-        # valueがNoneのものはbakeできないので除外
-        items = [(k,v) for k,v in items if v is not None]
-        keys = [k for k, _ in items]
-        values = [v for _, v in items]
-        return keys, values
     return (
         get_keys_and_values_for_bake(world_items_dict_for_bake),
         get_keys_and_values_for_bake(world_items_dict_for_bake_2),
         get_keys_and_values_for_bake(world_items_dict_for_bake_3),
+        get_keys_and_values_for_bake(local_top_surf_corners_dict),
     )
 
 if __name__ == "__main__":
-    (bake_keys, bake_objs), (bake_keys2, bake_objs2), (bake_keys3, bake_objs3) = main("initial")
+    bake_result = main("initial")
+    bake_keys = bake_result[0][0]
+    bake_objs = bake_result[0][1]
+    bake_keys2 = bake_result[1][0]
+    bake_objs2 = bake_result[1][1]
+    bake_keys3 = bake_result[2][0]
+    bake_objs3 = bake_result[2][1]
+    bake_keys4 = bake_result[3][0]
+    bake_objs4 = bake_result[3][1]

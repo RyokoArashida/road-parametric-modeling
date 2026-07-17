@@ -21,6 +21,7 @@ from my_project.config.util_schemas import (
     Point3D,
     Square_and_center_Corners,
 )
+from my_project.utils.bake import get_keys_and_values_for_bake
 from my_project.utils.dataframe import flatten_any
 from my_project.utils.geometry.vectors import get_frame_2D
 from my_project.utils.geometry_gh.const import (
@@ -334,7 +335,11 @@ def main(initial_or_final: str):
     keys = [k for k, _ in items]
     values = [v for _, v in items]
 
-    return keys, values
+    return (keys, values), get_keys_and_values_for_bake(world_dict)
 
 if __name__ == "__main__":
-    bake_keys, bake_objs = main("initial")
+    bake_result = main("initial")
+    bake_keys = bake_result[0][0]
+    bake_objs = bake_result[0][1]
+    bake_keys2 = bake_result[1][0]
+    bake_objs2 = bake_result[1][1]

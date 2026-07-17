@@ -824,7 +824,6 @@ def main(initial_or_final: str, debug: bool = False):
             
     world_items_dict_for_bake = {}
     world_items_dict_for_bake_2 = {}
-    bridge_seat_points_for_bake = {}
 
     if debug:
         all_points = []
@@ -840,9 +839,6 @@ def main(initial_or_final: str, debug: bool = False):
         return all_points, all_breps
             
     else:
-        for substructure_name, top_point_info in substructure_top_point_dict.items():
-            bridge_seat_points_for_bake[substructure_name] = top_point_info["top_corners"]
-
         for shoe_info in all_shoe_infos:
             bridge_name = shoe_info.bridge_name
             MG_name = shoe_info.MG_name
@@ -855,7 +851,6 @@ def main(initial_or_final: str, debug: bool = False):
         return (
             get_keys_and_values_for_bake(world_items_dict_for_bake),
             get_keys_and_values_for_bake(world_items_dict_for_bake_2),
-            get_keys_and_values_for_bake(bridge_seat_points_for_bake),
         )
     
 if __name__ == "__main__":
@@ -864,7 +859,5 @@ if __name__ == "__main__":
     bake_objs = bake_result[0][1]
     bake_keys2 = bake_result[1][0]
     bake_objs2 = bake_result[1][1]
-    bake_keys3 = bake_result[2][0]
-    bake_objs3 = bake_result[2][1]
     # points, breps = main("initial", debug=True)
     # bake_keys, bake_objs = main("initial", debug=False)
