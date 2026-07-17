@@ -877,7 +877,6 @@ def main(initial_or_final: str):
     all_L_top_point_dict = {}
     all_R_top_point_dict = {}
     world_items_dict_for_bake = {}
-    world_items_dict_for_bake_2 = {}
 
     for slab_info in slab_infos:
         unique_slab_name = f"{slab_info.name}_{slab_info.num}"
@@ -900,14 +899,6 @@ def main(initial_or_final: str):
     all_bottom_edge_points = get_all_bottom_edge_points(
         bottom_edge_point_dict = bottom_edge_point_dict,
     )
-
-    # debug
-    points = []
-    for bridge_name, edge_point_lists in all_bottom_edge_points.items():
-        for edge_point_list in edge_point_lists:
-            for edge_points in edge_point_list:
-                points.append(const_point_obj(edge_points.U))
-                points.append(const_point_obj(edge_points.D))
 
     all_MG_top_flange_point_dict_name = f"{Filenames.WORLD}_{Filenames.MG}_{Filenames.TOP}_{Filenames.POINTS}"
     all_bottom_edge_points_dict_name = f"{Filenames.WORLD}_{Filenames.SLAB}_{Filenames.BOTTOM}_{Filenames.POINTS}"
@@ -933,10 +924,44 @@ def main(initial_or_final: str):
         keys = [k for k, _ in items]
         values = [v for _, v in items]
         return keys, values
-    # return get_keys_and_values_for_bake(world_items_dict_for_bake)
-    # debug
-    return get_keys_and_values_for_bake(world_items_dict_for_bake), points
+
+    slab_top_points_for_bake = {}
+    for unique_slab_name, L_top_point_dict in all_L_top_point_dict.items():
+        slab_top_points_for_bake[unique_slab_name] = {}
+        for CG_name, L_top_point in L_top_point_dict.items():
+            R_top_point = all_R_top_point_dict[unique_slab_name][CG_name]
+            slab_top_points_for_bake[unique_slab_name][CG_name] = {
+                "U": const_point_obj(L_top_point),
+                "D": const_point_obj(R_top_point),
+            }
+
+    slab_bottom_points_for_bake = {}
+    for unique_slab_name, edge_point_dict in bottom_edge_point_dict.items():
+        slab_bottom_points_for_bake[unique_slab_name] = {}
+        for CG_name, edge_points in edge_point_dict.items():
+            slab_bottom_points_for_bake[unique_slab_name][CG_name] = {
+                "U": const_point_obj(edge_points.U),
+                "D": const_point_obj(edge_points.D),
+            }
+
+    MG_top_points_for_bake = {}
+    for bridge_name, MG_dict in all_MG_top_flange_point_dict.items():
+        MG_top_points_for_bake[bridge_name] = {}
+        for MG_name, top_flange_points in MG_dict.items():
+            MG_top_points_for_bake[bridge_name][MG_name] = {}
+            for top_flange_point in top_flange_points:
+                MG_top_points_for_bake[bridge_name][MG_name][top_flange_point.CG] = {
+                    "U": const_point_obj(top_flange_point.U),
+                    "C": const_point_obj(top_flange_point.C),
+                    "D": const_point_obj(top_flange_point.D),
+                }
+
+    return (
+        get_keys_and_values_for_bake(world_items_dict_for_bake),
+        get_keys_and_values_for_bake(slab_top_points_for_bake),
+        get_keys_and_values_for_bake(slab_bottom_points_for_bake),
+        get_keys_and_values_for_bake(MG_top_points_for_bake),
+    )
 
 if __name__ == "__main__":
-    # (bake_keys, bake_objs) = main("initial")
-    (bake_keys, bake_objs), points = main("initial")
+    (bake_keys, bake_objs), (bake_keys2, bake_objs2), (bake_keys3, bake_objs3), (bake_keys4, bake_objs4) = main("initial")
