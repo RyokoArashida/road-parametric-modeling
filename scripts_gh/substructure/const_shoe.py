@@ -24,7 +24,6 @@ from my_project.config.util_schemas import (
     Square_Corners,
 )
 from my_project.domain.main_girder import get_MG_polylines
-from my_project.utils.bake import get_keys_and_values_for_bake as get_point_items_for_bake
 from my_project.utils.dataframe import flatten_any
 from my_project.utils.geometry.vectors import (
     get_frame_2D,
@@ -811,13 +810,6 @@ def main(initial_or_final: str, debug: bool = False):
     MG_point_IO_dict = load_from_pickle(DIR / f"{Filenames.WORLD}_{Filenames.MG}_{Filenames.POINTS}_IO.pickle")
 
     all_shoe_infos = load_from_pickle(DIR / f"{Filenames.INPUT}_{Filenames.SHOE}.pickle")
-    shoe_center_points = {
-        f"{shoe_info.bridge_name}_{shoe_info.MG_name}_{shoe_info.CG_name}": shoe_info.center_point
-        for shoe_info in all_shoe_infos
-    }
-    shoe_center_items = get_point_items_for_bake(shoe_center_points)
-    if debug:
-        return shoe_center_items
 
     substructure_top_point_dict = {**abut_top_point_dict, **pier_top_point_dict}
     for _, value in substructure_top_point_dict.items():
@@ -833,7 +825,20 @@ def main(initial_or_final: str, debug: bool = False):
     world_items_dict_for_bake = {}
     world_items_dict_for_bake_2 = {}
 
-    if not debug:
+    if debug:
+        all_points = []
+        all_breps = []
+        for shoe_info in all_shoe_infos:
+            bridge_name = shoe_info.bridge_name
+            MG_name = shoe_info.MG_name
+            MG_bottom_srf = MG_bottom_srf_dict[bridge_name][MG_name]
+            points, breps = get_indiv_shoe_brep(shoe_info, substructure_top_point_dict, MG_bottom_srf)
+ 
+            all_points.extend(points)
+            all_breps.extend(breps)
+        return all_points, all_breps
+            
+    else:
         for shoe_info in all_shoe_infos:
             bridge_name = shoe_info.bridge_name
             MG_name = shoe_info.MG_name
@@ -851,17 +856,9 @@ def main(initial_or_final: str, debug: bool = False):
             keys = [k for k, _ in items]
             values = [v for _, v in items]
             return keys, values
-        return (
-            get_keys_and_values_for_bake(world_items_dict_for_bake),
-            get_keys_and_values_for_bake(world_items_dict_for_bake_2),
-            shoe_center_items,
-        )
+        return get_keys_and_values_for_bake(world_items_dict_for_bake), get_keys_and_values_for_bake(world_items_dict_for_bake_2)
     
 if __name__ == "__main__":
-    (
-        (bake_keys, bake_objs),
-        (bake_keys2, bake_objs2),
-        (bake_keys3, bake_objs3),
-    ) = main("initial")
+    (bake_keys, bake_objs), (bake_keys2, bake_objs2) = main("initial")
     # points, breps = main("initial", debug=True)
     # bake_keys, bake_objs = main("initial", debug=False)

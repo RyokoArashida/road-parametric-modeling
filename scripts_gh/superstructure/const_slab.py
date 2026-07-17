@@ -20,7 +20,6 @@ from my_project.config.schemas.slab_schemas import (
     SlabInfo,
 )
 from my_project.config.util_schemas import MonoSlope, Point2D, Point3D
-from my_project.utils.bake import get_keys_and_values_for_bake as get_point_items_for_bake
 from my_project.utils.dataframe import flatten_any
 from my_project.utils.geometry.points import (
     get_point_by_xy_offset,
@@ -936,22 +935,8 @@ def main(initial_or_final: str):
         return keys, values
     # return get_keys_and_values_for_bake(world_items_dict_for_bake)
     # debug
-    slab_top_points = {
-        "up": all_L_top_point_dict,
-        "down": all_R_top_point_dict,
-    }
-    return (
-        get_keys_and_values_for_bake(world_items_dict_for_bake),
-        get_point_items_for_bake(all_MG_top_flange_point_dict),
-        get_point_items_for_bake(slab_top_points),
-        get_point_items_for_bake(all_bottom_edge_points),
-    )
+    return get_keys_and_values_for_bake(world_items_dict_for_bake), points
 
 if __name__ == "__main__":
     # (bake_keys, bake_objs) = main("initial")
-    (
-        (bake_keys, bake_objs),
-        (bake_keys2, bake_objs2),
-        (bake_keys3, bake_objs3),
-        (bake_keys4, bake_objs4),
-    ) = main("initial")
+    (bake_keys, bake_objs), points = main("initial")
