@@ -210,8 +210,11 @@ def const_indiv_points(
             down_side_name=down_side_name,
         )
     except ValueError as exc:
-        if "out of center line range" in str(exc):
-            print(f"Skip under bridge STA outside center line range: {target_STA}")
+        if (
+            "out of center line range" in str(exc)
+            or "do not intersect" in str(exc)
+        ):
+            print(f"Skip under bridge STA: {target_STA}; {exc}")
             return []
         raise
     return [
@@ -246,6 +249,11 @@ def main(
         down_side_name = infer_side_name(available_names, "down")
 
     center_line_items = make_center_line_items(road_center_infos)
+    crvs = [
+        center_line_items[center_name]["curve"],
+        center_line_items[up_side_name]["curve"],
+        center_line_items[down_side_name]["curve"],
+    ]
     points = []
     for _, group_df in cross_section_df.groupby(["STA大", "STA小"], sort=False):
         points.extend(
@@ -259,9 +267,9 @@ def main(
         )
 
     if debug:
-        return points
+        return points, crvs
 
-    result = {"points": points}
+    result = {"points": points, "crvs": crvs}
     save_json_and_pickle(
         data=result,
         folder_path=DIR,
@@ -271,7 +279,7 @@ def main(
 
 
 if __name__ == "__main__":
-    points = main(
+    points, crvs = main(
         globals().get("initial_or_final", "initial"),
         debug=True,
     )
