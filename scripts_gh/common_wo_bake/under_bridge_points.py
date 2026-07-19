@@ -223,9 +223,9 @@ def main(
     input_dir, _ = get_input_output_dirs(initial_or_final)
     DIR = get_output_dir(initial_or_final)
 
-    center_name = None
-    up_side_name = None
-    down_side_name = None
+    center_name = "本線"
+    up_side_name = "側道上り"
+    down_side_name = "側道下り"
     cross_section_csv_path = input_dir / DEFAULT_CROSS_SECTION_FILE_NAME
 
     cross_section_df = read_file_to_df(cross_section_csv_path)
