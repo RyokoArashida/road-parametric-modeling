@@ -172,13 +172,15 @@ def get_road_center_info(
     type_infos = []
     z_infos = []
     for _, row in plan_road_center_df.iterrows():
-        if pd.isna(row["形式"]):
+        if pd.isna(row["X座標"]) or pd.isna(row["Y座標"]):
             continue
         STA = get_optional_STA(row)
-        shape_type = get_shape_type(row["形式"])
-        direction = get_curve_direction(row["向き"]) if shape_type in ("arc", "clothoid") else None
         STAs.append(STA)
         coord_infos.append(Point2D(x=row["X座標"] * 1000, y=row["Y座標"] * 1000))
+        if pd.isna(row["形式"]):
+            continue
+        shape_type = get_shape_type(row["形式"])
+        direction = get_curve_direction(row["向き"]) if shape_type in ("arc", "clothoid") else None
         type_infos.append(
             typeInfo(
                 type=shape_type,
@@ -187,6 +189,13 @@ def get_road_center_info(
                 start_radius=get_radius(row["クロソイド始点R"]),
                 end_radius=get_radius(row["クロソイド終点R"]),
             )
+        )
+
+    expected_type_count = max(len(coord_infos) - 1, 0)
+    if len(type_infos) != expected_type_count:
+        raise ValueError(
+            "Road center plan data must have one shape type per segment. "
+            f"points={len(coord_infos)}, type_infos={len(type_infos)}"
         )
 
     STAs = fill_missing_plan_STAs(STAs, coord_infos, type_infos)
