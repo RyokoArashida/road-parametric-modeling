@@ -3,6 +3,7 @@
 from typing import Optional
 
 import Rhino.Geometry as rg
+import pandas as pd
 
 from my_project.config.locale_compat import normalize_lc_time
 
@@ -10,24 +11,20 @@ normalize_lc_time()
 
 from my_project.config.constants import DEFAULT_GEOMETRY_EXTENT
 from my_project.config.file_names import Filenames
-from my_project.config.paths import get_output_dir
+from my_project.config.paths import get_input_output_dirs, get_output_dir
 from my_project.config.util_schemas import Point3D
 from my_project.utils.coordinates import get_STA_from_STA_info
 from my_project.utils.geometry.points import get_distance_3D
 from my_project.utils.geometry_gh.const import const_3Dpoint, const_polycurve_obj
 from my_project.utils.geometry_gh.intersect import get_intersections_with_vertical_plane
-from my_project.utils.io import load_from_pickle, save_json_and_pickle
+from my_project.utils.geometry_gh.road_surface import (
+    get_center_sample_at_STA,
+    get_indiv_center_line_points,
+)
+from my_project.utils.io import load_from_pickle, read_file_to_df, save_json_and_pickle
 
-try:
-    from scripts_gh.common_wo_bake.road_surface_points import (
-        get_center_sample_at_STA,
-        get_indiv_center_line_points,
-    )
-except ModuleNotFoundError:
-    from road_surface_points import (
-        get_center_sample_at_STA,
-        get_indiv_center_line_points,
-    )
+
+DEFAULT_CROSS_SECTION_FILE_NAME = "本線横断点.csv"
 
 
 def get_target_STA(
@@ -77,8 +74,8 @@ def infer_center_name(names: list[str]) -> str:
 
 def infer_side_name(names: list[str], side: str) -> str:
     side_keywords = {
-        "up": ["up", "上"],
-        "down": ["down", "下"],
+        "up": ["up", "上", "左"],
+        "down": ["down", "下", "右"],
     }
     candidates = [
         [side, "side"],
@@ -157,6 +154,27 @@ def get_nearest_intersection(
     return Point3D(nearest_point.x, nearest_point.y, anchor_point.z)
 
 
+def point_on_z0(point) -> Point3D:
+    point = const_3Dpoint(point)
+    return Point3D(point.x, point.y, 0.0)
+
+
+def const_indiv_points(group_df: pd.DataFrame) -> list[Point3D]:
+    points = []
+    for _, row in group_df.iterrows():
+        if pd.isna(row["X"]) or pd.isna(row["Y"]):
+            continue
+        points.append(Point3D(row["X"], row["Y"], 0.0))
+    return points
+
+
+def get_first_cross_section_group(cross_section_csv_path) -> tuple[float, pd.DataFrame]:
+    cross_section_df = read_file_to_df(cross_section_csv_path)
+    grouped = cross_section_df.groupby(["STA大", "STA小"], sort=False)
+    (STA_big, STA_small), group_df = next(iter(grouped))
+    return get_STA_from_STA_info(STA_big, STA_small), group_df
+
+
 def get_side_road_intersections_at_STA(
     center_line_items: dict[str, dict],
     target_STA: float,
@@ -208,9 +226,16 @@ def main(
     down_side_name: Optional[str] = None,
     STA_big: Optional[float] = None,
     STA_small: Optional[float] = None,
+    cross_section_csv_path=None,
     debug: bool = False,
 ):
+    input_dir, _ = get_input_output_dirs(initial_or_final)
     DIR = get_output_dir(initial_or_final)
+    if cross_section_csv_path is None:
+        cross_section_csv_path = input_dir / DEFAULT_CROSS_SECTION_FILE_NAME
+    default_STA, first_cross_section_group_df = get_first_cross_section_group(
+        cross_section_csv_path,
+    )
     road_center_infos = load_from_pickle(
         DIR / f"{Filenames.INPUT}_{Filenames.ROAD_SURFACE}.pickle"
     )
@@ -222,7 +247,9 @@ def main(
     if down_side_name is None:
         down_side_name = infer_side_name(available_names, "down")
 
-    STA = get_target_STA(target_STA, STA_big, STA_small)
+    STA = get_target_STA(target_STA, STA_big, STA_small) if (
+        target_STA is not None or (STA_big is not None and STA_small is not None)
+    ) else default_STA
     center_line_items = make_center_line_items(road_center_infos)
     result = get_side_road_intersections_at_STA(
         center_line_items=center_line_items,
@@ -233,13 +260,12 @@ def main(
     )
 
     if debug:
-        return {
-            "available_names": available_names,
-            "center_curve": center_line_items[center_name]["curve"],
-            "up_side_curve": center_line_items[up_side_name]["curve"],
-            "down_side_curve": center_line_items[down_side_name]["curve"],
-            **result,
-        }
+        return [
+            point_on_z0(result["center_point"]),
+            point_on_z0(result["up_side_point"]),
+            point_on_z0(result["down_side_point"]),
+            *const_indiv_points(first_cross_section_group_df),
+        ]
 
     save_json_and_pickle(
         data=result,
@@ -258,14 +284,8 @@ if __name__ == "__main__":
         down_side_name=globals().get("down_side_name"),
         STA_big=globals().get("STA_big"),
         STA_small=globals().get("STA_small"),
+        cross_section_csv_path=globals().get("cross_section_csv_path"),
         debug=True,
     )
-    available_names = debug_result["available_names"]
-    center_curve = debug_result["center_curve"]
-    up_side_curve = debug_result["up_side_curve"]
-    down_side_curve = debug_result["down_side_curve"]
-    center_point = debug_result["center_point"]
-    orthogonal_line_points = debug_result["orthogonal_line_points"]
-    up_side_point = debug_result["up_side_point"]
-    down_side_point = debug_result["down_side_point"]
+    points = debug_result
 
