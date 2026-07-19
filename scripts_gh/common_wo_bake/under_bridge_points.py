@@ -3,7 +3,6 @@
 from typing import Optional
 
 import Rhino.Geometry as rg
-import pandas as pd
 
 from my_project.config.locale_compat import normalize_lc_time
 
@@ -22,7 +21,6 @@ from my_project.utils.geometry_gh.road_surface import (
     get_indiv_center_line_points,
 )
 from my_project.utils.io import load_from_pickle, read_file_to_df, save_json_and_pickle
-
 
 DEFAULT_CROSS_SECTION_FILE_NAME = "本線横断点.csv"
 
@@ -147,7 +145,7 @@ def point_on_z0(point) -> Point3D:
     return Point3D(point.x, point.y, 0.0)
 
 
-def get_group_STA(group_df: pd.DataFrame) -> float:
+def get_group_STA(group_df) -> float:
     first_row = group_df.iloc[0]
     return get_STA_from_STA_info(first_row["STA大"], first_row["STA小"])
 
@@ -196,7 +194,7 @@ def get_side_road_intersections_at_STA(
 
 
 def const_indiv_points(
-    group_df: pd.DataFrame,
+    group_df,
     center_line_items: dict[str, dict],
     center_name: str,
     up_side_name: str,
