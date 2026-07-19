@@ -13,9 +13,10 @@ from my_project.config.file_names import Filenames
 from my_project.config.paths import get_input_output_dirs, get_output_dir
 from my_project.config.util_schemas import Point3D
 from my_project.utils.coordinates import get_STA_from_STA_info
-from my_project.utils.geometry.points import get_distance_3D
 from my_project.utils.geometry_gh.const import const_3Dpoint, const_polycurve_obj
-from my_project.utils.geometry_gh.intersect import get_intersections_with_vertical_plane
+from my_project.utils.geometry_gh.intersect import (
+    get_intersect_point_on_crv_and_points_in_the_same_plane,
+)
 from my_project.utils.geometry_gh.road_surface import get_indiv_center_line_points
 from my_project.utils.io import load_from_pickle, read_file_to_df, save_json_and_pickle
 
@@ -86,11 +87,13 @@ def make_center_line_item(road_center_info) -> dict:
         road_center_info=road_center_info,
     )
     curve = const_polycurve_obj([const_3Dpoint(point) for point in points])
+    curve_z0 = const_polycurve_obj([point_on_z0(point) for point in points])
     return {
         "points": points,
         "left_vectors": left_vectors,
         "STAs": STAs,
         "curve": curve,
+        "curve_z0": curve_z0,
         "length": curve.GetLength(),
     }
 
@@ -100,28 +103,6 @@ def make_center_line_items(road_center_infos: dict) -> dict[str, dict]:
         name: make_center_line_item(road_center_info)
         for name, road_center_info in road_center_infos.items()
     }
-
-
-def get_nearest_intersection(
-    target_curve,
-    cutter_line_points: tuple[Point3D, Point3D],
-    anchor_point: Point3D,
-) -> Point3D:
-    intersection_points = get_intersections_with_vertical_plane(
-        target_curve,
-        cutter_line_points,
-        z=anchor_point.z,
-    )
-    if not intersection_points:
-        raise ValueError(
-            "Target center line and cross section line do not intersect. "
-            f"anchor_point={anchor_point}"
-        )
-    nearest_point = min(
-        intersection_points,
-        key=lambda point: get_distance_3D(point, anchor_point),
-    )
-    return Point3D(nearest_point.x, nearest_point.y, anchor_point.z)
 
 
 def point_on_z0(point) -> rg.Point3d:
@@ -208,24 +189,25 @@ def get_main_intersection_from_side_STAs(
     up_side_STA: float,
     down_side_STA: float,
 ) -> dict:
-    up_side_point = get_center_line_point_at_distance(
+    up_side_point = const_3Dpoint(get_center_line_point_at_distance(
         center_line_items[up_side_name],
         up_side_STA,
-    )
-    down_side_point = get_center_line_point_at_distance(
+    ))
+    down_side_point = const_3Dpoint(get_center_line_point_at_distance(
         center_line_items[down_side_name],
         down_side_STA,
-    )
+    ))
+    up_side_point = Point3D(x=up_side_point.x, y=up_side_point.y, z=0.0)
+    down_side_point = Point3D(x=down_side_point.x, y=down_side_point.y, z=0.0)
     anchor_point = Point3D(
         x=(up_side_point.x + down_side_point.x) / 2,
         y=(up_side_point.y + down_side_point.y) / 2,
-        z=(up_side_point.z + down_side_point.z) / 2,
+        z=0.0,
     )
 
-    center_point = get_nearest_intersection(
-        center_line_items[center_name]["curve"],
-        (up_side_point, down_side_point),
-        anchor_point,
+    center_point = get_intersect_point_on_crv_and_points_in_the_same_plane(
+        center_line_items[center_name]["curve_z0"],
+        [up_side_point, down_side_point],
     )
 
     return {
@@ -267,6 +249,8 @@ def const_indiv_points(
         if (
             "out of center line range" in str(exc)
             or "do not intersect" in str(exc)
+            or "交差が見つかりません" in str(exc)
+            or "交点が見つかりません" in str(exc)
             or "上り and 下り 側道CL rows are required" in str(exc)
             or "Side road STA is missing" in str(exc)
         ):
