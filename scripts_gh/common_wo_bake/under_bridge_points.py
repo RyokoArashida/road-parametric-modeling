@@ -8,6 +8,7 @@ from my_project.config.locale_compat import normalize_lc_time
 
 normalize_lc_time()
 
+from my_project.config.constants import DISTANCE_TOL
 from my_project.config.file_names import Filenames
 from my_project.config.paths import get_input_output_dirs, get_output_dir
 from my_project.config.util_schemas import Point3D
@@ -15,10 +16,7 @@ from my_project.utils.coordinates import get_STA_from_STA_info
 from my_project.utils.geometry.points import get_distance_3D
 from my_project.utils.geometry_gh.const import const_3Dpoint, const_polycurve_obj
 from my_project.utils.geometry_gh.intersect import get_intersections_with_vertical_plane
-from my_project.utils.geometry_gh.road_surface import (
-    get_center_sample_at_STA,
-    get_indiv_center_line_points,
-)
+from my_project.utils.geometry_gh.road_surface import get_indiv_center_line_points
 from my_project.utils.io import load_from_pickle, read_file_to_df, save_json_and_pickle
 
 DEFAULT_CROSS_SECTION_FILE_NAME = "本線横断点.csv"
@@ -87,11 +85,13 @@ def make_center_line_item(road_center_info) -> dict:
     points, left_vectors, STAs = get_indiv_center_line_points(
         road_center_info=road_center_info,
     )
+    curve = const_polycurve_obj([const_3Dpoint(point) for point in points])
     return {
         "points": points,
         "left_vectors": left_vectors,
         "STAs": STAs,
-        "curve": const_polycurve_obj([const_3Dpoint(point) for point in points]),
+        "curve": curve,
+        "length": curve.GetLength(),
     }
 
 
@@ -178,16 +178,25 @@ def get_side_cl_rows(group_df):
     return up_rows.iloc[0], down_rows.iloc[0]
 
 
-def get_center_sample_point(
+def get_center_line_point_at_distance(
     center_line_item: dict,
-    target_STA: float,
+    target_distance: float,
 ) -> Point3D:
-    center_point, _, _ = get_center_sample_at_STA(
-        target_STA=target_STA,
-        center_line_points=center_line_item["points"],
-        left_vectors=center_line_item["left_vectors"],
-        center_line_STAs=center_line_item["STAs"],
+    curve = center_line_item["curve"]
+    curve_length = center_line_item["length"]
+    if target_distance < -DISTANCE_TOL or target_distance > curve_length + DISTANCE_TOL:
+        raise ValueError(
+            f"Target side road STA {target_distance} is out of center line length: "
+            f"0 to {curve_length}"
+        )
+    ok, parameter = curve.LengthParameter(
+        min(max(target_distance, 0.0), curve_length)
     )
+    if not ok:
+        raise ValueError(
+            f"Failed to get center line point by distance: {target_distance}"
+        )
+    center_point = curve.PointAt(parameter)
     return const_3Dpoint(center_point)
 
 
@@ -199,11 +208,11 @@ def get_main_intersection_from_side_STAs(
     up_side_STA: float,
     down_side_STA: float,
 ) -> dict:
-    up_side_point = get_center_sample_point(
+    up_side_point = get_center_line_point_at_distance(
         center_line_items[up_side_name],
         up_side_STA,
     )
-    down_side_point = get_center_sample_point(
+    down_side_point = get_center_line_point_at_distance(
         center_line_items[down_side_name],
         down_side_STA,
     )
