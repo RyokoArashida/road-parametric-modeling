@@ -9,7 +9,7 @@ from my_project.config.locale_compat import normalize_lc_time
 
 normalize_lc_time()
 
-from my_project.config.constants import DEFAULT_GEOMETRY_EXTENT, DISTANCE_TOL
+from my_project.config.constants import DEFAULT_GEOMETRY_EXTENT
 from my_project.config.file_names import Filenames
 from my_project.config.paths import get_input_output_dirs, get_output_dir
 from my_project.config.util_schemas import Point3D
@@ -25,18 +25,6 @@ from my_project.utils.io import load_from_pickle, read_file_to_df, save_json_and
 
 
 DEFAULT_CROSS_SECTION_FILE_NAME = "本線横断点.csv"
-
-
-def get_target_STA(
-    target_STA: Optional[float] = None,
-    STA_big: Optional[float] = None,
-    STA_small: Optional[float] = None,
-) -> float:
-    if target_STA is not None:
-        return float(target_STA)
-    if STA_big is not None and STA_small is not None:
-        return get_STA_from_STA_info(STA_big, STA_small)
-    raise ValueError("target_STA or both STA_big/STA_small is required")
 
 
 def get_available_center_names(road_center_infos: dict) -> list[str]:
@@ -230,12 +218,9 @@ def const_indiv_points(
 
 def main(
     initial_or_final: str = "initial",
-    target_STA: Optional[float] = None,
     center_name: Optional[str] = None,
     up_side_name: Optional[str] = None,
     down_side_name: Optional[str] = None,
-    STA_big: Optional[float] = None,
-    STA_small: Optional[float] = None,
     cross_section_csv_path=None,
     debug: bool = False,
 ):
@@ -256,15 +241,9 @@ def main(
     if down_side_name is None:
         down_side_name = infer_side_name(available_names, "down")
 
-    selected_STA = None
-    if target_STA is not None or (STA_big is not None and STA_small is not None):
-        selected_STA = get_target_STA(target_STA, STA_big, STA_small)
-
     center_line_items = make_center_line_items(road_center_infos)
     points = []
     for _, group_df in cross_section_df.groupby(["STA大", "STA小"], sort=False):
-        if selected_STA is not None and abs(get_group_STA(group_df) - selected_STA) > DISTANCE_TOL:
-            continue
         points.extend(
             const_indiv_points(
                 group_df=group_df,
@@ -290,12 +269,9 @@ def main(
 if __name__ == "__main__":
     points = main(
         globals().get("initial_or_final", "initial"),
-        target_STA=globals().get("target_STA"),
         center_name=globals().get("center_name"),
         up_side_name=globals().get("up_side_name"),
         down_side_name=globals().get("down_side_name"),
-        STA_big=globals().get("STA_big"),
-        STA_small=globals().get("STA_small"),
         cross_section_csv_path=globals().get("cross_section_csv_path"),
         debug=True,
     )
