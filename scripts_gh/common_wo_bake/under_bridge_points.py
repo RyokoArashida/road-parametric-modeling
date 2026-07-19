@@ -200,13 +200,20 @@ def const_indiv_points(
     up_side_name: str,
     down_side_name: str,
 ) -> list[Point3D]:
-    result = get_side_road_intersections_at_STA(
-        center_line_items=center_line_items,
-        target_STA=get_group_STA(group_df),
-        center_name=center_name,
-        up_side_name=up_side_name,
-        down_side_name=down_side_name,
-    )
+    target_STA = get_group_STA(group_df)
+    try:
+        result = get_side_road_intersections_at_STA(
+            center_line_items=center_line_items,
+            target_STA=target_STA,
+            center_name=center_name,
+            up_side_name=up_side_name,
+            down_side_name=down_side_name,
+        )
+    except ValueError as exc:
+        if "out of center line range" in str(exc):
+            print(f"Skip under bridge STA outside center line range: {target_STA}")
+            return []
+        raise
     return [
         point_on_z0(result["center_point"]),
         point_on_z0(result["up_side_point"]),
