@@ -57,6 +57,8 @@ def get_radius(value):
 
 
 def get_optional_STA(row: pd.Series) -> Optional[float]:
+    if "測点大" not in row.index or "測点小" not in row.index:
+        return None
     if pd.isna(row["測点大"]) or pd.isna(row["測点小"]):
         return None
     return get_STA_from_STA_info(row["測点大"], row["測点小"])
