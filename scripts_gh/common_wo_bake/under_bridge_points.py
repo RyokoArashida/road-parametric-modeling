@@ -218,16 +218,15 @@ def const_indiv_points(
 
 def main(
     initial_or_final: str = "initial",
-    center_name: Optional[str] = None,
-    up_side_name: Optional[str] = None,
-    down_side_name: Optional[str] = None,
-    cross_section_csv_path=None,
     debug: bool = False,
 ):
     input_dir, _ = get_input_output_dirs(initial_or_final)
     DIR = get_output_dir(initial_or_final)
-    if cross_section_csv_path is None:
-        cross_section_csv_path = input_dir / DEFAULT_CROSS_SECTION_FILE_NAME
+
+    center_name = None
+    up_side_name = None
+    down_side_name = None
+    cross_section_csv_path = input_dir / DEFAULT_CROSS_SECTION_FILE_NAME
 
     cross_section_df = read_file_to_df(cross_section_csv_path)
     road_center_infos = load_from_pickle(
@@ -269,9 +268,5 @@ def main(
 if __name__ == "__main__":
     points = main(
         globals().get("initial_or_final", "initial"),
-        center_name=globals().get("center_name"),
-        up_side_name=globals().get("up_side_name"),
-        down_side_name=globals().get("down_side_name"),
-        cross_section_csv_path=globals().get("cross_section_csv_path"),
         debug=True,
     )
