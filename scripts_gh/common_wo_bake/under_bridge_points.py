@@ -14,9 +14,6 @@ from my_project.config.paths import get_input_output_dirs, get_output_dir
 from my_project.config.util_schemas import Point3D
 from my_project.utils.coordinates import get_STA_from_STA_info
 from my_project.utils.geometry_gh.const import const_3Dpoint, const_polycurve_obj
-from my_project.utils.geometry_gh.intersect import (
-    get_intersect_point_on_crv_and_points_in_the_same_plane,
-)
 from my_project.utils.geometry_gh.road_surface import get_indiv_center_line_points
 from my_project.utils.io import load_from_pickle, read_file_to_df, save_json_and_pickle
 
@@ -25,6 +22,9 @@ MAIN_STA_BIG_COL = "本線STA大"
 MAIN_STA_SMALL_COL = "本線STA小"
 SIDE_STA_BIG_COL = "側道STA大"
 SIDE_STA_SMALL_COL = "側道STA小"
+X_COL = "X"
+Y_COL = "Y"
+HEIGHT_COL = "高さ"
 
 
 def get_available_center_names(road_center_infos: dict) -> list[str]:
@@ -87,13 +87,11 @@ def make_center_line_item(road_center_info) -> dict:
         road_center_info=road_center_info,
     )
     curve = const_polycurve_obj([const_3Dpoint(point) for point in points])
-    curve_z0 = const_polycurve_obj([point_on_z0(point) for point in points])
     return {
         "points": points,
         "left_vectors": left_vectors,
         "STAs": STAs,
         "curve": curve,
-        "curve_z0": curve_z0,
         "length": curve.GetLength(),
     }
 
@@ -105,9 +103,9 @@ def make_center_line_items(road_center_infos: dict) -> dict[str, dict]:
     }
 
 
-def point_on_z0(point) -> rg.Point3d:
+def point_to_rg(point) -> rg.Point3d:
     point = const_3Dpoint(point)
-    return rg.Point3d(point.x, point.y, 0.0)
+    return rg.Point3d(point.x, point.y, point.z)
 
 
 def is_missing(value) -> bool:
@@ -129,6 +127,9 @@ def validate_cross_section_columns(cross_section_df) -> None:
         MAIN_STA_SMALL_COL,
         "種別",
         "点名",
+        X_COL,
+        Y_COL,
+        HEIGHT_COL,
         SIDE_STA_BIG_COL,
         SIDE_STA_SMALL_COL,
     ]
@@ -148,6 +149,13 @@ def get_optional_STA_from_row(row):
     if is_missing(sta_big) or is_missing(sta_small):
         return None
     return get_STA_from_STA_info(sta_big, sta_small)
+
+
+def get_required_float(row, col: str) -> float:
+    value = row[col]
+    if is_missing(value):
+        raise ValueError(f"Required value is missing: {col}")
+    return float(value)
 
 
 def get_side_cl_rows(group_df):
@@ -181,7 +189,75 @@ def get_center_line_point_at_distance(
     return const_3Dpoint(center_point)
 
 
+def get_side_road_point_with_height(
+    center_line_item: dict,
+    target_distance: float,
+    row,
+) -> Point3D:
+    point = get_center_line_point_at_distance(center_line_item, target_distance)
+    height = get_required_float(row, HEIGHT_COL) * 1000
+    return Point3D(x=point.x, y=point.y, z=height)
+
+
+def transform_section_point_to_vertical_plane(
+    row,
+    source_up_side_row,
+    up_side_point: Point3D,
+    down_side_point: Point3D,
+) -> Point3D:
+    source_x = get_required_float(row, X_COL)
+    source_y = get_required_float(row, Y_COL)
+    source_up_x = get_required_float(source_up_side_row, X_COL)
+    source_up_y = get_required_float(source_up_side_row, Y_COL)
+    horizontal_offset = source_x - source_up_x
+    vertical_offset = source_y - source_up_y
+
+    horizontal_vector = rg.Vector3d(
+        down_side_point.x - up_side_point.x,
+        down_side_point.y - up_side_point.y,
+        0.0,
+    )
+    if not horizontal_vector.Unitize():
+        raise ValueError("Side road CL points have the same XY coordinates.")
+
+    return Point3D(
+        x=up_side_point.x + horizontal_vector.X * horizontal_offset,
+        y=up_side_point.y + horizontal_vector.Y * horizontal_offset,
+        z=up_side_point.z + vertical_offset,
+    )
+
+
+def transform_section_points_to_vertical_plane(
+    group_df,
+    up_side_row,
+    down_side_row,
+    up_side_point: Point3D,
+    down_side_point: Point3D,
+) -> list[Point3D]:
+    points = []
+    for idx, row in group_df.iterrows():
+        if is_missing(row[X_COL]) or is_missing(row[Y_COL]):
+            continue
+        if idx == up_side_row.name:
+            points.append(up_side_point)
+        elif idx == down_side_row.name:
+            points.append(down_side_point)
+        else:
+            points.append(
+                transform_section_point_to_vertical_plane(
+                    row,
+                    up_side_row,
+                    up_side_point,
+                    down_side_point,
+                )
+            )
+    return points
+
+
 def get_main_intersection_from_side_STAs(
+    group_df,
+    up_side_row,
+    down_side_row,
     center_line_items: dict[str, dict],
     center_name: str,
     up_side_name: str,
@@ -189,25 +265,22 @@ def get_main_intersection_from_side_STAs(
     up_side_STA: float,
     down_side_STA: float,
 ) -> dict:
-    up_side_point = const_3Dpoint(get_center_line_point_at_distance(
+    up_side_point = get_side_road_point_with_height(
         center_line_items[up_side_name],
         up_side_STA,
-    ))
-    down_side_point = const_3Dpoint(get_center_line_point_at_distance(
+        up_side_row,
+    )
+    down_side_point = get_side_road_point_with_height(
         center_line_items[down_side_name],
         down_side_STA,
-    ))
-    up_side_point = Point3D(x=up_side_point.x, y=up_side_point.y, z=0.0)
-    down_side_point = Point3D(x=down_side_point.x, y=down_side_point.y, z=0.0)
-    anchor_point = Point3D(
-        x=(up_side_point.x + down_side_point.x) / 2,
-        y=(up_side_point.y + down_side_point.y) / 2,
-        z=0.0,
+        down_side_row,
     )
-
-    center_point = get_intersect_point_on_crv_and_points_in_the_same_plane(
-        center_line_items[center_name]["curve_z0"],
-        [up_side_point, down_side_point],
+    section_points = transform_section_points_to_vertical_plane(
+        group_df,
+        up_side_row,
+        down_side_row,
+        up_side_point,
+        down_side_point,
     )
 
     return {
@@ -216,10 +289,10 @@ def get_main_intersection_from_side_STAs(
         "down_side_name": down_side_name,
         "up_side_STA": up_side_STA,
         "down_side_STA": down_side_STA,
-        "center_point": center_point,
         "cross_section_line_points": (up_side_point, down_side_point),
         "up_side_point": up_side_point,
         "down_side_point": down_side_point,
+        "section_points": section_points,
     }
 
 
@@ -238,6 +311,9 @@ def const_indiv_points(
         if up_side_STA is None or down_side_STA is None:
             raise ValueError("Side road STA is missing.")
         result = get_main_intersection_from_side_STAs(
+            group_df=group_df,
+            up_side_row=up_side_row,
+            down_side_row=down_side_row,
             center_line_items=center_line_items,
             center_name=center_name,
             up_side_name=up_side_name,
@@ -253,14 +329,14 @@ def const_indiv_points(
             or "交点が見つかりません" in str(exc)
             or "上り and 下り 側道CL rows are required" in str(exc)
             or "Side road STA is missing" in str(exc)
+            or "Required value is missing" in str(exc)
         ):
             print(f"Skip under bridge group: {group_label}; {exc}")
             return []
         raise
     return [
-        point_on_z0(result["center_point"]),
-        point_on_z0(result["up_side_point"]),
-        point_on_z0(result["down_side_point"]),
+        point_to_rg(point)
+        for point in result["section_points"]
     ]
 
 
