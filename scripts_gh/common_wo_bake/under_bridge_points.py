@@ -8,7 +8,6 @@ from my_project.config.locale_compat import normalize_lc_time
 
 normalize_lc_time()
 
-from my_project.config.constants import DEFAULT_GEOMETRY_EXTENT
 from my_project.config.file_names import Filenames
 from my_project.config.paths import get_input_output_dirs, get_output_dir
 from my_project.config.util_schemas import Point3D
@@ -23,6 +22,10 @@ from my_project.utils.geometry_gh.road_surface import (
 from my_project.utils.io import load_from_pickle, read_file_to_df, save_json_and_pickle
 
 DEFAULT_CROSS_SECTION_FILE_NAME = "本線横断点.csv"
+MAIN_STA_BIG_COL = "本線STA大"
+MAIN_STA_SMALL_COL = "本線STA小"
+SIDE_STA_BIG_COL = "側道STA大"
+SIDE_STA_SMALL_COL = "側道STA小"
 
 
 def get_available_center_names(road_center_infos: dict) -> list[str]:
@@ -60,8 +63,8 @@ def infer_center_name(names: list[str]) -> str:
 
 def infer_side_name(names: list[str], side: str) -> str:
     side_keywords = {
-        "up": ["up", "上", "左"],
-        "down": ["down", "下", "右"],
+        "up": ["up", "上り"],
+        "down": ["down", "下り"],
     }
     candidates = [
         [side, "side"],
@@ -99,25 +102,6 @@ def make_center_line_items(road_center_infos: dict) -> dict[str, dict]:
     }
 
 
-def make_orthogonal_line_points(
-    center_point: rg.Point3d,
-    left_vector,
-    half_length: float = DEFAULT_GEOMETRY_EXTENT,
-) -> tuple[Point3D, Point3D]:
-    return (
-        Point3D(
-            x=center_point.X - left_vector.x * half_length,
-            y=center_point.Y - left_vector.y * half_length,
-            z=center_point.Z,
-        ),
-        Point3D(
-            x=center_point.X + left_vector.x * half_length,
-            y=center_point.Y + left_vector.y * half_length,
-            z=center_point.Z,
-        ),
-    )
-
-
 def get_nearest_intersection(
     target_curve,
     cutter_line_points: tuple[Point3D, Point3D],
@@ -130,7 +114,7 @@ def get_nearest_intersection(
     )
     if not intersection_points:
         raise ValueError(
-            "Side road center line and orthogonal STA line do not intersect. "
+            "Target center line and cross section line do not intersect. "
             f"anchor_point={anchor_point}"
         )
     nearest_point = min(
@@ -145,51 +129,106 @@ def point_on_z0(point) -> rg.Point3d:
     return rg.Point3d(point.x, point.y, 0.0)
 
 
-def get_group_STA(group_df) -> float:
+def is_missing(value) -> bool:
+    if value is None:
+        return True
+    if value != value:
+        return True
+    return str(value).strip() == ""
+
+
+def get_group_label(group_df) -> str:
     first_row = group_df.iloc[0]
-    return get_STA_from_STA_info(first_row["STA大"], first_row["STA小"])
+    return f'{first_row[MAIN_STA_BIG_COL]}+{first_row[MAIN_STA_SMALL_COL]}'
 
 
-def get_side_road_intersections_at_STA(
-    center_line_items: dict[str, dict],
+def validate_cross_section_columns(cross_section_df) -> None:
+    required_cols = [
+        MAIN_STA_BIG_COL,
+        MAIN_STA_SMALL_COL,
+        "種別",
+        "点名",
+        SIDE_STA_BIG_COL,
+        SIDE_STA_SMALL_COL,
+    ]
+    missing_cols = [
+        col for col in required_cols if col not in cross_section_df.columns
+    ]
+    if missing_cols:
+        raise ValueError(
+            "Required columns are missing in 本線横断点.csv. "
+            f"missing={missing_cols}, columns={list(cross_section_df.columns)}"
+        )
+
+
+def get_optional_STA_from_row(row):
+    sta_big = row[SIDE_STA_BIG_COL]
+    sta_small = row[SIDE_STA_SMALL_COL]
+    if is_missing(sta_big) or is_missing(sta_small):
+        return None
+    return get_STA_from_STA_info(sta_big, sta_small)
+
+
+def get_side_cl_rows(group_df):
+    side_rows = group_df[group_df["種別"] == "側道CL"]
+    up_rows = side_rows[side_rows["点名"].astype(str).str.contains("上り")]
+    down_rows = side_rows[side_rows["点名"].astype(str).str.contains("下り")]
+    if len(up_rows) < 1 or len(down_rows) < 1:
+        raise ValueError("上り and 下り 側道CL rows are required.")
+    return up_rows.iloc[0], down_rows.iloc[0]
+
+
+def get_center_sample_point(
+    center_line_item: dict,
     target_STA: float,
+) -> Point3D:
+    center_point, _, _ = get_center_sample_at_STA(
+        target_STA=target_STA,
+        center_line_points=center_line_item["points"],
+        left_vectors=center_line_item["left_vectors"],
+        center_line_STAs=center_line_item["STAs"],
+    )
+    return const_3Dpoint(center_point)
+
+
+def get_main_intersection_from_side_STAs(
+    center_line_items: dict[str, dict],
     center_name: str,
     up_side_name: str,
     down_side_name: str,
+    up_side_STA: float,
+    down_side_STA: float,
 ) -> dict:
-    center_item = center_line_items[center_name]
-    center_point, left_vector, _ = get_center_sample_at_STA(
-        target_STA=target_STA,
-        center_line_points=center_item["points"],
-        left_vectors=center_item["left_vectors"],
-        center_line_STAs=center_item["STAs"],
+    up_side_point = get_center_sample_point(
+        center_line_items[up_side_name],
+        up_side_STA,
     )
-    anchor_point = const_3Dpoint(center_point)
-    orthogonal_line_points = make_orthogonal_line_points(
-        center_point=center_point,
-        left_vector=left_vector,
+    down_side_point = get_center_sample_point(
+        center_line_items[down_side_name],
+        down_side_STA,
+    )
+    anchor_point = Point3D(
+        x=(up_side_point.x + down_side_point.x) / 2,
+        y=(up_side_point.y + down_side_point.y) / 2,
+        z=(up_side_point.z + down_side_point.z) / 2,
     )
 
-    up_point = get_nearest_intersection(
-        center_line_items[up_side_name]["curve"],
-        orthogonal_line_points,
-        anchor_point,
-    )
-    down_point = get_nearest_intersection(
-        center_line_items[down_side_name]["curve"],
-        orthogonal_line_points,
+    center_point = get_nearest_intersection(
+        center_line_items[center_name]["curve"],
+        (up_side_point, down_side_point),
         anchor_point,
     )
 
     return {
-        "target_STA": target_STA,
         "center_name": center_name,
         "up_side_name": up_side_name,
         "down_side_name": down_side_name,
-        "center_point": anchor_point,
-        "orthogonal_line_points": orthogonal_line_points,
-        "up_side_point": up_point,
-        "down_side_point": down_point,
+        "up_side_STA": up_side_STA,
+        "down_side_STA": down_side_STA,
+        "center_point": center_point,
+        "cross_section_line_points": (up_side_point, down_side_point),
+        "up_side_point": up_side_point,
+        "down_side_point": down_side_point,
     }
 
 
@@ -200,21 +239,29 @@ def const_indiv_points(
     up_side_name: str,
     down_side_name: str,
 ) -> list[rg.Point3d]:
-    target_STA = get_group_STA(group_df)
+    group_label = get_group_label(group_df)
     try:
-        result = get_side_road_intersections_at_STA(
+        up_side_row, down_side_row = get_side_cl_rows(group_df)
+        up_side_STA = get_optional_STA_from_row(up_side_row)
+        down_side_STA = get_optional_STA_from_row(down_side_row)
+        if up_side_STA is None or down_side_STA is None:
+            raise ValueError("Side road STA is missing.")
+        result = get_main_intersection_from_side_STAs(
             center_line_items=center_line_items,
-            target_STA=target_STA,
             center_name=center_name,
             up_side_name=up_side_name,
             down_side_name=down_side_name,
+            up_side_STA=up_side_STA,
+            down_side_STA=down_side_STA,
         )
     except ValueError as exc:
         if (
             "out of center line range" in str(exc)
             or "do not intersect" in str(exc)
+            or "上り and 下り 側道CL rows are required" in str(exc)
+            or "Side road STA is missing" in str(exc)
         ):
-            print(f"Skip under bridge STA: {target_STA}; {exc}")
+            print(f"Skip under bridge group: {group_label}; {exc}")
             return []
         raise
     return [
@@ -254,8 +301,12 @@ def main(
         center_line_items[up_side_name]["curve"],
         center_line_items[down_side_name]["curve"],
     ]
+    validate_cross_section_columns(cross_section_df)
     points = []
-    for _, group_df in cross_section_df.groupby(["STA大", "STA小"], sort=False):
+    for _, group_df in cross_section_df.groupby(
+        [MAIN_STA_BIG_COL, MAIN_STA_SMALL_COL],
+        sort=False,
+    ):
         points.extend(
             const_indiv_points(
                 group_df=group_df,
