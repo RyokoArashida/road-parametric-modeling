@@ -92,7 +92,7 @@ def get_slope_infos(
 
 def get_road_center_info(
     plan_road_center_df: pd.DataFrame,
-    z_road_center_df: pd.DataFrame,
+    z_road_center_df: Optional[pd.DataFrame],
     embankment_target_df: Optional[pd.DataFrame],
     slope_info_df: Optional[pd.DataFrame],
 ) -> RoadSurfaceInfo:
@@ -118,17 +118,18 @@ def get_road_center_info(
             )
         )
 
-    for _, row in z_road_center_df.iterrows():
-        if pd.isna(row["測点大"]) or pd.isna(row["測点小"]):
-            continue
-        z_infos.append(
-            ZInfo(
-                STA=get_STA_from_STA_info(row["測点大"], row["測点小"]),
-                z=row["高さ"] * 1000,
-                pre_slope=row["前縦断勾配"] / 100,
-                post_slope=row["後縦断勾配"] / 100,
+    if z_road_center_df is not None:
+        for _, row in z_road_center_df.iterrows():
+            if pd.isna(row["測点大"]) or pd.isna(row["測点小"]):
+                continue
+            z_infos.append(
+                ZInfo(
+                    STA=get_STA_from_STA_info(row["測点大"], row["測点小"]),
+                    z=row["高さ"] * 1000,
+                    pre_slope=row["前縦断勾配"] / 100,
+                    post_slope=row["後縦断勾配"] / 100,
+                )
             )
-        )
 
     if embankment_target_df is None:
         return RoadSurfaceInfo(
@@ -189,10 +190,16 @@ def main(initial_or_final: str) -> None:
             file_path=plan_road_center_excel_path,
             sheet_name=target_name,
         )
-        z_road_center_df = read_file_to_df(
-            file_path=z_road_center_excel_path,
-            sheet_name=target_name,
-        )
+        z_road_center_df = None
+        if z_road_center_excel_path.exists():
+            try:
+                z_road_center_df = read_file_to_df(
+                    file_path=z_road_center_excel_path,
+                    sheet_name=target_name,
+                )
+            except ValueError as exc:
+                if "Worksheet" not in str(exc):
+                    raise
         embankment_target_df = embankment_master_df[
             embankment_master_df["全体_名称"] == target_name
         ]

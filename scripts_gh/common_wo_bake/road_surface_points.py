@@ -256,7 +256,9 @@ def get_indiv_center_line_points(
     center_line_STAs = []
     left_vectors = []
     for pt_2D, STA in zip(center_line_points_2D, center_line_points_2D_STAs):
-        if STA <= z_STAs[0]:
+        if not z_infos:
+            z = 0.0
+        elif STA <= z_STAs[0]:
             z = zs[0] + z_pre_slopes[0] * (z_STAs[0] - STA)
         elif STA >= z_STAs[-1]:
             z = zs[-1] + z_post_slopes[-1] * (STA - z_STAs[-1])
