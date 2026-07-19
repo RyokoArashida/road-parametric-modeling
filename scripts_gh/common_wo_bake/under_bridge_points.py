@@ -140,9 +140,9 @@ def get_nearest_intersection(
     return Point3D(nearest_point.x, nearest_point.y, anchor_point.z)
 
 
-def point_on_z0(point) -> Point3D:
+def point_on_z0(point) -> rg.Point3d:
     point = const_3Dpoint(point)
-    return Point3D(point.x, point.y, 0.0)
+    return rg.Point3d(point.x, point.y, 0.0)
 
 
 def get_group_STA(group_df) -> float:
@@ -199,7 +199,7 @@ def const_indiv_points(
     center_name: str,
     up_side_name: str,
     down_side_name: str,
-) -> list[Point3D]:
+) -> list[rg.Point3d]:
     target_STA = get_group_STA(group_df)
     try:
         result = get_side_road_intersections_at_STA(
