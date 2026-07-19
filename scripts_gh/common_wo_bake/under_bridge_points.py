@@ -202,6 +202,7 @@ def get_side_road_point_with_height(
 def transform_section_point_to_vertical_plane(
     row,
     source_up_side_row,
+    source_down_side_row,
     up_side_point: Point3D,
     down_side_point: Point3D,
 ) -> Point3D:
@@ -209,16 +210,30 @@ def transform_section_point_to_vertical_plane(
     source_y = get_required_float(row, Y_COL)
     source_up_x = get_required_float(source_up_side_row, X_COL)
     source_up_y = get_required_float(source_up_side_row, Y_COL)
-    horizontal_offset = source_x - source_up_x
-    vertical_offset = source_y - source_up_y
+    source_down_x = get_required_float(source_down_side_row, X_COL)
+    source_down_y = get_required_float(source_down_side_row, Y_COL)
+    source_width = source_down_x - source_up_x
+    source_height_diff = source_down_y - source_up_y
+    if abs(source_width) <= DISTANCE_TOL:
+        raise ValueError("Source side road CL X coordinates are the same.")
+    if abs(source_height_diff) <= DISTANCE_TOL:
+        raise ValueError("Source side road CL Y coordinates are the same.")
 
     horizontal_vector = rg.Vector3d(
         down_side_point.x - up_side_point.x,
         down_side_point.y - up_side_point.y,
         0.0,
     )
+    horizontal_distance = horizontal_vector.Length
     if not horizontal_vector.Unitize():
         raise ValueError("Side road CL points have the same XY coordinates.")
+    target_height_diff = down_side_point.z - up_side_point.z
+    horizontal_offset = (
+        (source_x - source_up_x) / source_width * horizontal_distance
+    )
+    vertical_offset = (
+        (source_y - source_up_y) / source_height_diff * target_height_diff
+    )
 
     return Point3D(
         x=up_side_point.x + horizontal_vector.X * horizontal_offset,
@@ -247,6 +262,7 @@ def transform_section_points_to_vertical_plane(
                 transform_section_point_to_vertical_plane(
                     row,
                     up_side_row,
+                    down_side_row,
                     up_side_point,
                     down_side_point,
                 )
@@ -330,6 +346,7 @@ def const_indiv_points(
             or "上り and 下り 側道CL rows are required" in str(exc)
             or "Side road STA is missing" in str(exc)
             or "Required value is missing" in str(exc)
+            or "Source side road CL" in str(exc)
         ):
             print(f"Skip under bridge group: {group_label}; {exc}")
             return []
