@@ -9,7 +9,7 @@ from my_project.config.locale_compat import normalize_lc_time
 
 normalize_lc_time()
 
-from my_project.config.constants import DEFAULT_GEOMETRY_EXTENT
+from my_project.config.constants import DEFAULT_GEOMETRY_EXTENT, DISTANCE_TOL
 from my_project.config.file_names import Filenames
 from my_project.config.paths import get_input_output_dirs, get_output_dir
 from my_project.config.util_schemas import Point3D
@@ -159,20 +159,9 @@ def point_on_z0(point) -> Point3D:
     return Point3D(point.x, point.y, 0.0)
 
 
-def const_indiv_points(group_df: pd.DataFrame) -> list[Point3D]:
-    points = []
-    for _, row in group_df.iterrows():
-        if pd.isna(row["X"]) or pd.isna(row["Y"]):
-            continue
-        points.append(Point3D(row["X"], row["Y"], 0.0))
-    return points
-
-
-def get_first_cross_section_group(cross_section_csv_path) -> tuple[float, pd.DataFrame]:
-    cross_section_df = read_file_to_df(cross_section_csv_path)
-    grouped = cross_section_df.groupby(["STA大", "STA小"], sort=False)
-    (STA_big, STA_small), group_df = next(iter(grouped))
-    return get_STA_from_STA_info(STA_big, STA_small), group_df
+def get_group_STA(group_df: pd.DataFrame) -> float:
+    first_row = group_df.iloc[0]
+    return get_STA_from_STA_info(first_row["STA大"], first_row["STA小"])
 
 
 def get_side_road_intersections_at_STA(
@@ -218,6 +207,27 @@ def get_side_road_intersections_at_STA(
     }
 
 
+def const_indiv_points(
+    group_df: pd.DataFrame,
+    center_line_items: dict[str, dict],
+    center_name: str,
+    up_side_name: str,
+    down_side_name: str,
+) -> list[Point3D]:
+    result = get_side_road_intersections_at_STA(
+        center_line_items=center_line_items,
+        target_STA=get_group_STA(group_df),
+        center_name=center_name,
+        up_side_name=up_side_name,
+        down_side_name=down_side_name,
+    )
+    return [
+        point_on_z0(result["center_point"]),
+        point_on_z0(result["up_side_point"]),
+        point_on_z0(result["down_side_point"]),
+    ]
+
+
 def main(
     initial_or_final: str = "initial",
     target_STA: Optional[float] = None,
@@ -233,9 +243,8 @@ def main(
     DIR = get_output_dir(initial_or_final)
     if cross_section_csv_path is None:
         cross_section_csv_path = input_dir / DEFAULT_CROSS_SECTION_FILE_NAME
-    default_STA, first_cross_section_group_df = get_first_cross_section_group(
-        cross_section_csv_path,
-    )
+
+    cross_section_df = read_file_to_df(cross_section_csv_path)
     road_center_infos = load_from_pickle(
         DIR / f"{Filenames.INPUT}_{Filenames.ROAD_SURFACE}.pickle"
     )
@@ -247,26 +256,29 @@ def main(
     if down_side_name is None:
         down_side_name = infer_side_name(available_names, "down")
 
-    STA = get_target_STA(target_STA, STA_big, STA_small) if (
-        target_STA is not None or (STA_big is not None and STA_small is not None)
-    ) else default_STA
+    selected_STA = None
+    if target_STA is not None or (STA_big is not None and STA_small is not None):
+        selected_STA = get_target_STA(target_STA, STA_big, STA_small)
+
     center_line_items = make_center_line_items(road_center_infos)
-    result = get_side_road_intersections_at_STA(
-        center_line_items=center_line_items,
-        target_STA=STA,
-        center_name=center_name,
-        up_side_name=up_side_name,
-        down_side_name=down_side_name,
-    )
+    points = []
+    for _, group_df in cross_section_df.groupby(["STA大", "STA小"], sort=False):
+        if selected_STA is not None and abs(get_group_STA(group_df) - selected_STA) > DISTANCE_TOL:
+            continue
+        points.extend(
+            const_indiv_points(
+                group_df=group_df,
+                center_line_items=center_line_items,
+                center_name=center_name,
+                up_side_name=up_side_name,
+                down_side_name=down_side_name,
+            )
+        )
 
     if debug:
-        return [
-            point_on_z0(result["center_point"]),
-            point_on_z0(result["up_side_point"]),
-            point_on_z0(result["down_side_point"]),
-            *const_indiv_points(first_cross_section_group_df),
-        ]
+        return points
 
+    result = {"points": points}
     save_json_and_pickle(
         data=result,
         folder_path=DIR,
@@ -276,7 +288,7 @@ def main(
 
 
 if __name__ == "__main__":
-    debug_result = main(
+    points = main(
         globals().get("initial_or_final", "initial"),
         target_STA=globals().get("target_STA"),
         center_name=globals().get("center_name"),
@@ -287,5 +299,3 @@ if __name__ == "__main__":
         cross_section_csv_path=globals().get("cross_section_csv_path"),
         debug=True,
     )
-    points = debug_result
-
