@@ -39,7 +39,7 @@ def make_section_part_curves(section: dict) -> dict[tuple[str, str], rg.Polyline
     for start_idx, end_idx in zip(key_indices[:-1], key_indices[1:]):
         start_item = items[start_idx]
         end_item = items[end_idx]
-        key = (start_item["name"], end_item["name"])
+        key = (start_item["key"], end_item["key"])
         part_items = items[start_idx:end_idx + 1]
         curves[key] = const_polycurve_obj([item["point"] for item in part_items])
     return curves
