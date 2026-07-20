@@ -12,6 +12,7 @@ from my_project.config.constants import DISTANCE_TOL
 from my_project.config.file_names import Filenames
 from my_project.config.paths import get_input_output_dirs, get_output_dir
 from my_project.config.util_schemas import Point3D
+from my_project.utils.bake import get_keys_and_values_for_bake
 from my_project.utils.coordinates import get_STA_from_STA_info
 from my_project.utils.geometry_gh.const import const_3Dpoint, const_polycurve_obj
 from my_project.utils.geometry_gh.road_surface import get_indiv_center_line_points
@@ -451,9 +452,10 @@ def main(
         for section in sections
         for item in section["items"]
     ]
+    bake_keys, bake_objs = get_keys_and_values_for_bake(point_dict)
 
     if debug:
-        return point_dict, points, crvs
+        return bake_keys, bake_objs, point_dict, points, crvs
 
     result = {
         "sections": sections_dict,
@@ -464,11 +466,11 @@ def main(
         folder_path=DIR,
         name=f"{Filenames.ROAD}_{Filenames.CENTER}_{Filenames.POINTS}_under_bridge",
     )
-    return result
+    return bake_keys, bake_objs
 
 
 if __name__ == "__main__":
-    point_dict, points, crvs = main(
+    bake_keys, bake_objs = main(
         globals().get("initial_or_final", "initial"),
-        debug=True,
+        debug=False,
     )

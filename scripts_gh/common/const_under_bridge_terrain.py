@@ -90,12 +90,12 @@ def main(
 ):
     sections = load_sections(initial_or_final)
     section_crvs, srfs, srf_dict = make_surfaces_between_sections(sections)
-    bake_key, bake_obj = get_keys_and_values_for_bake(srf_dict)
+    bake_keys, bake_objs = get_keys_and_values_for_bake(srf_dict)
 
     if debug:
-        return bake_key, bake_obj, section_crvs, srfs
-    return bake_key, bake_obj
+        return bake_keys, bake_objs, section_crvs, srfs
+    return bake_keys, bake_objs
 
 
 if __name__ == "__main__":
-    bake_key, bake_obj = main(globals().get("initial_or_final", "initial"))
+    bake_keys, bake_objs = main(globals().get("initial_or_final", "initial"))
