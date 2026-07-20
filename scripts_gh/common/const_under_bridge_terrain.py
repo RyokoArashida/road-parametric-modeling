@@ -9,10 +9,15 @@ normalize_lc_time()
 from my_project.config.file_names import Filenames
 from my_project.config.paths import get_output_dir
 from my_project.utils.bake import get_keys_and_values_for_bake
-from my_project.utils.geometry_gh.const import const_polycurve_obj, const_srf_from_2crvs
+from my_project.utils.geometry_gh.const import (
+    const_polycurve_obj,
+    const_srf_from_2crvs,
+    remove_same_points,
+)
 from my_project.utils.io import load_from_pickle
 
 FOLD_POINT_TYPE = "その他折れ点"
+ZERO_LENGTH_NUDGE = 1.0
 
 
 def get_under_bridge_points_pickle_path(initial_or_final: str):
@@ -29,6 +34,30 @@ def make_cross_section_curve(section: dict) -> rg.PolylineCurve:
     return const_polycurve_obj([item["point"] for item in section["items"]])
 
 
+def make_polycurve_with_nudge(
+    points: list,
+    label: str,
+    key: tuple[str, str],
+) -> rg.PolylineCurve:
+    try:
+        return const_polycurve_obj(points)
+    except ValueError as exc:
+        unique_points = remove_same_points(points)
+        if "Need at least 2 valid points" in str(exc) and len(unique_points) == 1:
+            point = unique_points[0]
+            nudged_point = rg.Point3d(
+                point.X + ZERO_LENGTH_NUDGE,
+                point.Y,
+                point.Z,
+            )
+            print(
+                "Nudge zero-length under bridge section part: "
+                f"{label}; {key}; {ZERO_LENGTH_NUDGE}mm"
+            )
+            return const_polycurve_obj([point, nudged_point])
+        raise
+
+
 def make_section_part_curves(section: dict) -> dict[tuple[str, str], rg.PolylineCurve]:
     curves: dict[tuple[str, str], rg.PolylineCurve] = {}
     items = section["items"]
@@ -41,7 +70,11 @@ def make_section_part_curves(section: dict) -> dict[tuple[str, str], rg.Polyline
         end_item = items[end_idx]
         key = (start_item["key"], end_item["key"])
         part_items = items[start_idx:end_idx + 1]
-        curves[key] = const_polycurve_obj([item["point"] for item in part_items])
+        curves[key] = make_polycurve_with_nudge(
+            [item["point"] for item in part_items],
+            section["label"],
+            key,
+        )
     return curves
 
 
