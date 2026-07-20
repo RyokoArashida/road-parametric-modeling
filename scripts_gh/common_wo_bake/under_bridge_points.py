@@ -13,7 +13,11 @@ from my_project.config.file_names import Filenames
 from my_project.config.paths import get_input_output_dirs, get_output_dir
 from my_project.config.util_schemas import Point3D
 from my_project.utils.coordinates import get_STA_from_STA_info
-from my_project.utils.geometry_gh.const import const_3Dpoint, const_polycurve_obj
+from my_project.utils.geometry_gh.const import (
+    const_3Dpoint,
+    const_polycurve_obj,
+    const_srf_from_2crvs,
+)
 from my_project.utils.geometry_gh.road_surface import get_indiv_center_line_points
 from my_project.utils.io import load_from_pickle, read_file_to_df, save_json_and_pickle
 
@@ -25,6 +29,9 @@ SIDE_STA_SMALL_COL = "側道STA小"
 X_COL = "X"
 Y_COL = "Y"
 HEIGHT_COL = "高さ"
+POINT_NAME_COL = "点名"
+POINT_TYPE_COL = "種別"
+FOLD_POINT_TYPE = "その他折れ点"
 
 
 def get_available_center_names(road_center_infos: dict) -> list[str]:
@@ -125,8 +132,8 @@ def validate_cross_section_columns(cross_section_df) -> None:
     required_cols = [
         MAIN_STA_BIG_COL,
         MAIN_STA_SMALL_COL,
-        "種別",
-        "点名",
+        POINT_TYPE_COL,
+        POINT_NAME_COL,
         X_COL,
         Y_COL,
         HEIGHT_COL,
@@ -242,32 +249,42 @@ def transform_section_point_to_vertical_plane(
     )
 
 
-def transform_section_points_to_vertical_plane(
+def transform_section_items_to_vertical_plane(
     group_df,
     up_side_row,
     down_side_row,
     up_side_point: Point3D,
     down_side_point: Point3D,
-) -> list[Point3D]:
-    points = []
+) -> list[dict]:
+    items = []
     for idx, row in group_df.iterrows():
         if is_missing(row[X_COL]) or is_missing(row[Y_COL]):
             continue
+        name = str(row[POINT_NAME_COL])
+        point_type = str(row[POINT_TYPE_COL])
+        source_x = get_required_float(row, X_COL)
         if idx == up_side_row.name:
-            points.append(up_side_point)
+            point = up_side_point
         elif idx == down_side_row.name:
-            points.append(down_side_point)
+            point = down_side_point
         else:
-            points.append(
-                transform_section_point_to_vertical_plane(
-                    row,
-                    up_side_row,
-                    down_side_row,
-                    up_side_point,
-                    down_side_point,
-                )
+            point = transform_section_point_to_vertical_plane(
+                row,
+                up_side_row,
+                down_side_row,
+                up_side_point,
+                down_side_point,
             )
-    return points
+        items.append(
+            {
+                "name": name,
+                "type": point_type,
+                "source_x": source_x,
+                "point": point,
+                "rg_point": point_to_rg(point),
+            }
+        )
+    return sorted(items, key=lambda item: item["source_x"])
 
 
 def get_main_intersection_from_side_STAs(
@@ -291,7 +308,7 @@ def get_main_intersection_from_side_STAs(
         down_side_STA,
         down_side_row,
     )
-    section_points = transform_section_points_to_vertical_plane(
+    section_items = transform_section_items_to_vertical_plane(
         group_df,
         up_side_row,
         down_side_row,
@@ -308,17 +325,17 @@ def get_main_intersection_from_side_STAs(
         "cross_section_line_points": (up_side_point, down_side_point),
         "up_side_point": up_side_point,
         "down_side_point": down_side_point,
-        "section_points": section_points,
+        "section_items": section_items,
     }
 
 
-def const_indiv_points(
+def const_indiv_section(
     group_df,
     center_line_items: dict[str, dict],
     center_name: str,
     up_side_name: str,
     down_side_name: str,
-) -> list[rg.Point3d]:
+) -> Optional[dict]:
     group_label = get_group_label(group_df)
     try:
         up_side_row, down_side_row = get_side_cl_rows(group_df)
@@ -349,12 +366,61 @@ def const_indiv_points(
             or "Source side road CL" in str(exc)
         ):
             print(f"Skip under bridge group: {group_label}; {exc}")
-            return []
+            return None
         raise
-    return [
-        point_to_rg(point)
-        for point in result["section_points"]
+    first_row = group_df.iloc[0]
+    return {
+        "STA": get_STA_from_STA_info(
+            first_row[MAIN_STA_BIG_COL],
+            first_row[MAIN_STA_SMALL_COL],
+        ),
+        "label": group_label,
+        "items": result["section_items"],
+    }
+
+
+def make_cross_section_curve(section: dict) -> rg.PolylineCurve:
+    return const_polycurve_obj([item["rg_point"] for item in section["items"]])
+
+
+def is_section_key_item(item: dict) -> bool:
+    return item["type"] != FOLD_POINT_TYPE
+
+
+def make_section_part_curves(section: dict) -> dict[tuple[str, str], rg.PolylineCurve]:
+    curves: dict[tuple[str, str], rg.PolylineCurve] = {}
+    items = section["items"]
+    key_indices = [
+        idx for idx, item in enumerate(items)
+        if is_section_key_item(item)
     ]
+    for start_idx, end_idx in zip(key_indices[:-1], key_indices[1:]):
+        start_item = items[start_idx]
+        end_item = items[end_idx]
+        key = (start_item["name"], end_item["name"])
+        part_items = items[start_idx:end_idx + 1]
+        curves[key] = const_polycurve_obj(
+            [item["rg_point"] for item in part_items]
+        )
+    return curves
+
+
+def make_surfaces_between_sections(
+    sections: list[dict],
+) -> tuple[list[rg.PolylineCurve], list[rg.Brep]]:
+    section_crvs = [make_cross_section_curve(section) for section in sections]
+    srfs = []
+    prev_part_curves = None
+    for section in sections:
+        part_curves = make_section_part_curves(section)
+        if prev_part_curves is not None:
+            for key, curve in part_curves.items():
+                prev_curve = prev_part_curves.get(key)
+                if prev_curve is None:
+                    continue
+                srfs.append(const_srf_from_2crvs([prev_curve, curve]))
+        prev_part_curves = part_curves
+    return section_crvs, srfs
 
 
 def main(
@@ -388,25 +454,38 @@ def main(
         center_line_items[down_side_name]["curve"],
     ]
     validate_cross_section_columns(cross_section_df)
-    points = []
+    sections = []
     for _, group_df in cross_section_df.groupby(
         [MAIN_STA_BIG_COL, MAIN_STA_SMALL_COL],
         sort=False,
     ):
-        points.extend(
-            const_indiv_points(
-                group_df=group_df,
-                center_line_items=center_line_items,
-                center_name=center_name,
-                up_side_name=up_side_name,
-                down_side_name=down_side_name,
-            )
+        section = const_indiv_section(
+            group_df=group_df,
+            center_line_items=center_line_items,
+            center_name=center_name,
+            up_side_name=up_side_name,
+            down_side_name=down_side_name,
         )
+        if section is not None:
+            sections.append(section)
+
+    sections = sorted(sections, key=lambda section: section["STA"])
+    points = [
+        item["rg_point"]
+        for section in sections
+        for item in section["items"]
+    ]
+    section_crvs, srfs = make_surfaces_between_sections(sections)
 
     if debug:
-        return points, crvs
+        return points, crvs, section_crvs, srfs
 
-    result = {"points": points, "crvs": crvs}
+    result = {
+        "points": points,
+        "crvs": crvs,
+        "section_crvs": section_crvs,
+        "srfs": srfs,
+    }
     save_json_and_pickle(
         data=result,
         folder_path=DIR,
@@ -416,7 +495,7 @@ def main(
 
 
 if __name__ == "__main__":
-    points, crvs = main(
+    points, crvs, section_crvs, srfs = main(
         globals().get("initial_or_final", "initial"),
         debug=True,
     )
