@@ -12,6 +12,7 @@ from my_project.config.constants import DISTANCE_TOL
 from my_project.config.file_names import Filenames
 from my_project.config.paths import get_input_output_dirs, get_output_dir
 from my_project.config.util_schemas import Point3D
+from my_project.utils.bake import get_keys_and_values_for_bake
 from my_project.utils.coordinates import get_STA_from_STA_info
 from my_project.utils.geometry_gh.const import (
     const_3Dpoint,
@@ -407,20 +408,27 @@ def make_section_part_curves(section: dict) -> dict[tuple[str, str], rg.Polyline
 
 def make_surfaces_between_sections(
     sections: list[dict],
-) -> tuple[list[rg.PolylineCurve], list[rg.Brep]]:
+) -> tuple[list[rg.PolylineCurve], list[rg.Brep], dict]:
     section_crvs = [make_cross_section_curve(section) for section in sections]
     srfs = []
+    srf_dict = {}
     prev_part_curves = None
+    prev_section = None
     for section in sections:
         part_curves = make_section_part_curves(section)
         if prev_part_curves is not None:
+            span_key = f'{prev_section["label"]}-{section["label"]}'
+            srf_dict[span_key] = {}
             for key, curve in part_curves.items():
                 prev_curve = prev_part_curves.get(key)
                 if prev_curve is None:
                     continue
-                srfs.append(const_srf_from_2crvs([prev_curve, curve]))
+                srf = const_srf_from_2crvs([prev_curve, curve])
+                srfs.append(srf)
+                srf_dict[span_key][f"{key[0]}__{key[1]}"] = srf
         prev_part_curves = part_curves
-    return section_crvs, srfs
+        prev_section = section
+    return section_crvs, srfs, srf_dict
 
 
 def main(
@@ -475,16 +483,19 @@ def main(
         for section in sections
         for item in section["items"]
     ]
-    section_crvs, srfs = make_surfaces_between_sections(sections)
+    section_crvs, srfs, srf_dict = make_surfaces_between_sections(sections)
+    bake_key, bake_obj = get_keys_and_values_for_bake(srf_dict)
 
     if debug:
-        return points, crvs, section_crvs, srfs
+        return points, crvs, section_crvs, srfs, bake_key, bake_obj
 
     result = {
         "points": points,
         "crvs": crvs,
         "section_crvs": section_crvs,
         "srfs": srfs,
+        "bake_key": bake_key,
+        "bake_obj": bake_obj,
     }
     save_json_and_pickle(
         data=result,
@@ -495,7 +506,7 @@ def main(
 
 
 if __name__ == "__main__":
-    points, crvs, section_crvs, srfs = main(
+    points, crvs, section_crvs, srfs, bake_key, bake_obj = main(
         globals().get("initial_or_final", "initial"),
         debug=True,
     )
