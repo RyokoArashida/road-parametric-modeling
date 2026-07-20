@@ -18,7 +18,7 @@ from my_project.utils.geometry_gh.const import const_3Dpoint, const_polycurve_ob
 from my_project.utils.geometry_gh.road_surface import get_indiv_center_line_points
 from my_project.utils.io import load_from_pickle, read_file_to_df, save_json_and_pickle
 
-DEFAULT_CROSS_SECTION_FILE_NAME = "本線横断点.csv"
+DEFAULT_CROSS_SECTION_FILE_NAME = "側道横断点.csv"
 MAIN_STA_BIG_COL = "本線STA大"
 MAIN_STA_SMALL_COL = "本線STA小"
 SIDE_STA_BIG_COL = "側道STA大"
@@ -26,6 +26,7 @@ SIDE_STA_SMALL_COL = "側道STA小"
 X_COL = "X"
 Y_COL = "Y"
 HEIGHT_COL = "高さ"
+SIDE_COL = "側"
 POINT_NAME_COL = "点名"
 POINT_TYPE_COL = "種別"
 POINT_NO_COL = "点番号"
@@ -130,6 +131,7 @@ def validate_cross_section_columns(cross_section_df) -> None:
         MAIN_STA_BIG_COL,
         MAIN_STA_SMALL_COL,
         POINT_TYPE_COL,
+        SIDE_COL,
         POINT_NAME_COL,
         POINT_NO_COL,
         X_COL,
@@ -143,7 +145,7 @@ def validate_cross_section_columns(cross_section_df) -> None:
     ]
     if missing_cols:
         raise ValueError(
-            "Required columns are missing in 本線横断点.csv. "
+            f"Required columns are missing in {DEFAULT_CROSS_SECTION_FILE_NAME}. "
             f"missing={missing_cols}, columns={list(cross_section_df.columns)}"
         )
 
@@ -164,17 +166,26 @@ def get_required_float(row, col: str) -> float:
 
 
 def get_point_key(row) -> str:
+    side = str(row[SIDE_COL]).strip()
     name = str(row[POINT_NAME_COL])
     point_no = row[POINT_NO_COL]
     if is_missing(point_no):
         return name
+    if side:
+        return f"{side}{int(float(point_no))}"
     return f"{name}_{int(float(point_no))}"
 
 
 def get_side_cl_rows(group_df):
-    side_rows = group_df[group_df["種別"] == "側道CL"]
-    up_rows = side_rows[side_rows["点名"].astype(str).str.contains("上り")]
-    down_rows = side_rows[side_rows["点名"].astype(str).str.contains("下り")]
+    side_rows = group_df[group_df[POINT_TYPE_COL] == "側道CL"]
+    up_rows = side_rows[
+        side_rows[SIDE_COL].astype(str).str.contains("上り")
+        | side_rows[POINT_NAME_COL].astype(str).str.contains("上り")
+    ]
+    down_rows = side_rows[
+        side_rows[SIDE_COL].astype(str).str.contains("下り")
+        | side_rows[POINT_NAME_COL].astype(str).str.contains("下り")
+    ]
     if len(up_rows) < 1 or len(down_rows) < 1:
         raise ValueError("上り and 下り 側道CL rows are required.")
     return up_rows.iloc[0], down_rows.iloc[0]
@@ -268,6 +279,7 @@ def transform_section_items_to_vertical_plane(
             continue
         name = str(row[POINT_NAME_COL])
         point_type = str(row[POINT_TYPE_COL])
+        side = str(row[SIDE_COL])
         point_key = get_point_key(row)
         source_x = get_required_float(row, X_COL)
         if idx == up_side_row.name:
@@ -287,6 +299,7 @@ def transform_section_items_to_vertical_plane(
                 "name": name,
                 "key": point_key,
                 "type": point_type,
+                "side": side,
                 "source_x": source_x,
                 "point": point,
             }
