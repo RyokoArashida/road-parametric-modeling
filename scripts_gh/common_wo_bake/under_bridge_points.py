@@ -12,13 +12,8 @@ from my_project.config.constants import DISTANCE_TOL
 from my_project.config.file_names import Filenames
 from my_project.config.paths import get_input_output_dirs, get_output_dir
 from my_project.config.util_schemas import Point3D
-from my_project.utils.bake import get_keys_and_values_for_bake
 from my_project.utils.coordinates import get_STA_from_STA_info
-from my_project.utils.geometry_gh.const import (
-    const_3Dpoint,
-    const_polycurve_obj,
-    const_srf_from_2crvs,
-)
+from my_project.utils.geometry_gh.const import const_3Dpoint, const_polycurve_obj
 from my_project.utils.geometry_gh.road_surface import get_indiv_center_line_points
 from my_project.utils.io import load_from_pickle, read_file_to_df, save_json_and_pickle
 
@@ -32,7 +27,7 @@ Y_COL = "Y"
 HEIGHT_COL = "高さ"
 POINT_NAME_COL = "点名"
 POINT_TYPE_COL = "種別"
-FOLD_POINT_TYPE = "その他折れ点"
+POINT_NO_COL = "点番号"
 
 
 def get_available_center_names(road_center_infos: dict) -> list[str]:
@@ -135,6 +130,7 @@ def validate_cross_section_columns(cross_section_df) -> None:
         MAIN_STA_SMALL_COL,
         POINT_TYPE_COL,
         POINT_NAME_COL,
+        POINT_NO_COL,
         X_COL,
         Y_COL,
         HEIGHT_COL,
@@ -164,6 +160,14 @@ def get_required_float(row, col: str) -> float:
     if is_missing(value):
         raise ValueError(f"Required value is missing: {col}")
     return float(value)
+
+
+def get_point_key(row) -> str:
+    name = str(row[POINT_NAME_COL])
+    point_no = row[POINT_NO_COL]
+    if is_missing(point_no):
+        return name
+    return f"{name}_{int(float(point_no))}"
 
 
 def get_side_cl_rows(group_df):
@@ -263,6 +267,7 @@ def transform_section_items_to_vertical_plane(
             continue
         name = str(row[POINT_NAME_COL])
         point_type = str(row[POINT_TYPE_COL])
+        point_key = get_point_key(row)
         source_x = get_required_float(row, X_COL)
         if idx == up_side_row.name:
             point = up_side_point
@@ -279,10 +284,10 @@ def transform_section_items_to_vertical_plane(
         items.append(
             {
                 "name": name,
+                "key": point_key,
                 "type": point_type,
                 "source_x": source_x,
                 "point": point,
-                "rg_point": point_to_rg(point),
             }
         )
     return sorted(items, key=lambda item: item["source_x"])
@@ -380,57 +385,6 @@ def const_indiv_section(
     }
 
 
-def make_cross_section_curve(section: dict) -> rg.PolylineCurve:
-    return const_polycurve_obj([item["rg_point"] for item in section["items"]])
-
-
-def is_section_key_item(item: dict) -> bool:
-    return item["type"] != FOLD_POINT_TYPE
-
-
-def make_section_part_curves(section: dict) -> dict[tuple[str, str], rg.PolylineCurve]:
-    curves: dict[tuple[str, str], rg.PolylineCurve] = {}
-    items = section["items"]
-    key_indices = [
-        idx for idx, item in enumerate(items)
-        if is_section_key_item(item)
-    ]
-    for start_idx, end_idx in zip(key_indices[:-1], key_indices[1:]):
-        start_item = items[start_idx]
-        end_item = items[end_idx]
-        key = (start_item["name"], end_item["name"])
-        part_items = items[start_idx:end_idx + 1]
-        curves[key] = const_polycurve_obj(
-            [item["rg_point"] for item in part_items]
-        )
-    return curves
-
-
-def make_surfaces_between_sections(
-    sections: list[dict],
-) -> tuple[list[rg.PolylineCurve], list[rg.Brep], dict]:
-    section_crvs = [make_cross_section_curve(section) for section in sections]
-    srfs = []
-    srf_dict = {}
-    prev_part_curves = None
-    prev_section = None
-    for section in sections:
-        part_curves = make_section_part_curves(section)
-        if prev_part_curves is not None:
-            span_key = f'{prev_section["label"]}-{section["label"]}'
-            srf_dict[span_key] = {}
-            for key, curve in part_curves.items():
-                prev_curve = prev_part_curves.get(key)
-                if prev_curve is None:
-                    continue
-                srf = const_srf_from_2crvs([prev_curve, curve])
-                srfs.append(srf)
-                srf_dict[span_key][f"{key[0]}__{key[1]}"] = srf
-        prev_part_curves = part_curves
-        prev_section = section
-    return section_crvs, srfs, srf_dict
-
-
 def main(
     initial_or_final: str = "initial",
     debug: bool = False,
@@ -478,24 +432,32 @@ def main(
             sections.append(section)
 
     sections = sorted(sections, key=lambda section: section["STA"])
+    sections_dict = {
+        section["label"]: {
+            "STA": section["STA"],
+            "items": section["items"],
+        }
+        for section in sections
+    }
+    point_dict = {
+        section["label"]: {
+            item["key"]: item["point"]
+            for item in section["items"]
+        }
+        for section in sections
+    }
     points = [
-        item["rg_point"]
+        point_to_rg(item["point"])
         for section in sections
         for item in section["items"]
     ]
-    section_crvs, srfs, srf_dict = make_surfaces_between_sections(sections)
-    bake_key, bake_obj = get_keys_and_values_for_bake(srf_dict)
 
     if debug:
-        return points, crvs, section_crvs, srfs, bake_key, bake_obj
+        return point_dict, points, crvs
 
     result = {
-        "points": points,
-        "crvs": crvs,
-        "section_crvs": section_crvs,
-        "srfs": srfs,
-        "bake_key": bake_key,
-        "bake_obj": bake_obj,
+        "sections": sections_dict,
+        "points": point_dict,
     }
     save_json_and_pickle(
         data=result,
@@ -506,7 +468,7 @@ def main(
 
 
 if __name__ == "__main__":
-    points, crvs, section_crvs, srfs, bake_key, bake_obj = main(
+    point_dict, points, crvs = main(
         globals().get("initial_or_final", "initial"),
         debug=True,
     )
