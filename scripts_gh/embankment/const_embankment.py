@@ -50,6 +50,7 @@ from my_project.utils.geometry_gh.intersect import (
 from my_project.utils.io import load_from_pickle, save_json_and_pickle
 
 CURVE_NAME_RE = re.compile(r"^(?P<embankment_key>.+_\d+)_(?P<tier>\d+)_(?P<kind>shoulder|toe)$")
+EMBANKMENT_SPLIT_DEBUG = []
 
 
 def get_tier_position_from_curve_name(curve_name: str) -> tuple[int, str]:
@@ -393,6 +394,30 @@ def split_embankment_boundary_curve_by_abut_points(
         end = split_item["end"]
         oriented_curve = split_item["curve"]
         boundary_name = classify_boundary_curve(oriented_curve)
+        sample_points = get_sample_points(oriented_curve)
+        EMBANKMENT_SPLIT_DEBUG.append(
+            {
+                "context": context,
+                "boundary_name": boundary_name,
+                "start": start,
+                "end": end,
+                "start_matches": split_item["start_matches"],
+                "end_matches": split_item["end_matches"],
+                "point_count": len(sample_points),
+                "distances": {
+                    "start_edge": get_average_distance(sample_points, start_edge_points),
+                    "end_edge": get_average_distance(sample_points, end_edge_points),
+                    "U_parallel": get_average_distance(sample_points, U_parallel_points),
+                    "D_parallel": get_average_distance(sample_points, D_parallel_points),
+                },
+                "alignments": {
+                    "start_edge": get_axis_alignment(sample_points, start_edge_points),
+                    "end_edge": get_axis_alignment(sample_points, end_edge_points),
+                    "U_parallel": get_axis_alignment(sample_points, U_parallel_points),
+                    "D_parallel": get_axis_alignment(sample_points, D_parallel_points),
+                },
+            }
+        )
 
         if boundary_name == "start_edge":
             if not make_start_edge:
@@ -1668,6 +1693,7 @@ def get_brep_from_points(point_dict) -> dict[str, rg.Brep]:
 
 
 def main(initial_or_final: str, debug: bool = False):
+    EMBANKMENT_SPLIT_DEBUG.clear()
     DIR = get_output_dir(initial_or_final)
     pavement_infos = load_from_pickle(
         file_path=DIR / f"{Filenames.INPUT}_{Filenames.EMBANKMENT}_{Filenames.PAVEMENT}.pickle",
@@ -1702,6 +1728,11 @@ def main(initial_or_final: str, debug: bool = False):
         data=world_embankment_points_dict,
         folder_path=DIR,
         name=f"{Filenames.EMBANKMENT}_{Filenames.POINTS}",
+    )
+    save_json_and_pickle(
+        data=EMBANKMENT_SPLIT_DEBUG,
+        folder_path=DIR,
+        name=f"{Filenames.EMBANKMENT}_split_debug",
     )
     bake_keys, bake_objs = get_keys_and_values_for_bake(embankment_brep_dict)
     if debug:
