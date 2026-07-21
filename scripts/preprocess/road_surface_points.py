@@ -275,17 +275,6 @@ def main(initial_or_final: str) -> None:
     )
     target_name_set = set(target_names_df["名称"].dropna().unique())
     z_road_center_excel_path = input_dir / "センターライン縦断線形.xlsx"
-    embankment_excel_path = get_embankment_excel_path(input_dir)
-
-    embankment_master_df = read_file_to_df(
-        file_path=embankment_excel_path,
-        sheet_name="土工部対象一覧",
-        header=[0, 1],
-    )
-    slope_info_df = read_file_to_df(
-        file_path=embankment_excel_path,
-        sheet_name="舗装横断勾配",
-    )
 
     road_center_info_dict = {}
     for target_name in target_name_set:
@@ -303,19 +292,11 @@ def main(initial_or_final: str) -> None:
             except ValueError as exc:
                 if "Worksheet" not in str(exc):
                     raise
-        embankment_target_df = embankment_master_df[
-            embankment_master_df["全体_名称"] == target_name
-        ]
-        if embankment_target_df.empty:
-            embankment_target_df = None
-            target_slope_info_df = None
-        else:
-            target_slope_info_df = slope_info_df[slope_info_df["名称"] == target_name]
         road_center_info_dict[target_name] = get_road_center_info(
             plan_road_center_df=plan_road_center_df,
             z_road_center_df=z_road_center_df,
-            embankment_target_df=embankment_target_df,
-            slope_info_df=target_slope_info_df,
+            embankment_target_df=None,
+            slope_info_df=None,
         )
 
     save_json_and_pickle(
