@@ -1543,6 +1543,10 @@ def get_brep_from_points(point_dict) -> dict[str, rg.Brep]:
             if (
                 has_point(name_dict, tier, "shoulder", index)
                 and has_point(name_dict, tier, "toe", index)
+                and get_distance_2D(
+                    name_dict[tier]["shoulder"][index],
+                    name_dict[tier]["toe"][index],
+                ) > DISTANCE_TOL
             )
         ]
         if not tiers:
