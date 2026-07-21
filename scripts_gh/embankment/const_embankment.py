@@ -1168,7 +1168,13 @@ def get_brep_from_points(point_dict) -> dict[str, rg.Brep]:
                         const_polycurve_obj([section_points[i][-1], next_points[-1]]),
                     ]
                 )
-                breps.extend([slope_brep, bottom_brep])
+                back_brep = const_srf_from_2crvs(
+                    [
+                        const_polycurve_obj([section_points[i][-1], section_points[i][0]]),
+                        const_polycurve_obj([next_points[-1], next_points[0]]),
+                    ]
+                )
+                breps.extend([slope_brep, bottom_brep, back_brep])
             else:
                 breps.append(
                     const_brep_from_two_closed_point_lists(
