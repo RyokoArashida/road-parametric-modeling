@@ -1217,11 +1217,10 @@ def get_world_embankment_points(
 
     def get_cross_section_slope(name_df, start_slope, end_slope):
         tier1_toe_distances = name_df[(name_df["tier"] == 1) & (name_df["kind"] == "toe")]["2Ddistances"].iloc[0]
-        tier1_shoulder_points = name_df[(name_df["tier"] == 1) & (name_df["kind"] == "shoulder")]["points"].iloc[0]
         point_count = len(tier1_toe_distances)
         max_tier = int(name_df["tier"].max())
         all_distance = tier1_toe_distances[-1]
-        prescribed_slopes_by_tier = [
+        return [
             [
                 resolve_slope(start_slope, tier)
                 + (
@@ -1237,121 +1236,14 @@ def get_world_embankment_points(
             ]
             for tier in range(1, max_tier + 1)
         ]
-        slope_anchors = [
-            {
-                0: resolve_slope(start_slope, tier),
-                point_count - 1: resolve_slope(end_slope, tier),
-            }
-            for tier in range(1, max_tier + 1)
-        ]
-
-        for i in range(point_count):
-            tier1_shoulder_point = tier1_shoulder_points[i]
-            point_distances = {(1, "shoulder"): 0}
-            known_toe_z = {}
-            known_shoulder_z = {}
-            for tier in range(1, max_tier + 1):
-                for kind in ["shoulder", "toe"]:
-                    if tier == 1 and kind == "shoulder":
-                        continue
-                    row_mask = (name_df["tier"] == tier) & (name_df["kind"] == kind)
-                    if name_df[row_mask].empty:
-                        continue
-                    points = name_df[row_mask]["points"].iloc[0]
-                    if i >= len(points):
-                        continue
-                    point = points[i]
-                    point_distances[(tier, kind)] = get_distance_2D(
-                        tier1_shoulder_point,
-                        point,
-                    )
-                    if abs(point.z - STANDARD_BASE_Z) > DISTANCE_TOL:
-                        if kind == "toe":
-                            known_toe_z[tier] = point.z
-                        elif tier > 1:
-                            known_shoulder_z[tier] = point.z
-                            known_toe_z[tier - 1] = point.z
-
-            section_distances = {}
-            for tier in range(1, max_tier + 1):
-                shoulder_distance = point_distances.get((tier, "shoulder"))
-                toe_distance = point_distances.get((tier, "toe"))
-                if shoulder_distance is None or toe_distance is None:
-                    continue
-                section_distances[tier] = toe_distance - shoulder_distance
-            shoulder_z = tier1_shoulder_point.z
-            for tier in range(1, max_tier + 1):
-                if tier in known_shoulder_z:
-                    shoulder_z = known_shoulder_z[tier]
-                if tier not in section_distances:
-                    continue
-                section_distance = section_distances[tier]
-                if tier in known_toe_z:
-                    z_gap = shoulder_z - known_toe_z[tier]
-                    if (
-                        abs(section_distance) > DISTANCE_TOL
-                        and abs(z_gap) > DISTANCE_TOL
-                    ):
-                        slope_anchors[tier - 1][i] = section_distance / z_gap
-                    shoulder_z = known_toe_z[tier]
-                else:
-                    shoulder_z -= section_distance / prescribed_slopes_by_tier[tier - 1][i]
-
-        slopes = [[0.0] * max_tier for _ in range(point_count)]
-        for tier_index, anchors in enumerate(slope_anchors):
-            anchor_indices = sorted(anchors)
-            for start_index, end_index in zip(anchor_indices, anchor_indices[1:]):
-                start_distance = tier1_toe_distances[start_index]
-                end_distance = tier1_toe_distances[end_index]
-                distance_span = end_distance - start_distance
-                for i in range(start_index, end_index + 1):
-                    distance_ratio = (
-                        0
-                        if abs(distance_span) < DISTANCE_TOL
-                        else (tier1_toe_distances[i] - start_distance) / distance_span
-                    )
-                    slopes[i][tier_index] = (
-                        anchors[start_index]
-                        + (anchors[end_index] - anchors[start_index]) * distance_ratio
-                    )
-        return slopes
 
     def get_cross_section_height_with_slope(name_df, slopes):
         name_df = name_df.copy()
         tier1_shoulder_points = name_df[(name_df["tier"] == 1) & (name_df["kind"] == "shoulder")]["points"].iloc[0]
         for i in range(len(tier1_shoulder_points)):
-            tier1_shoulder_point = tier1_shoulder_points[i]
-            point_distances = {(1, "shoulder"): 0}
             max_tier = int(name_df["tier"].max())
-            for tier in range(1, max_tier + 1):
-                for kind in ["shoulder", "toe"]:
-                    if kind == "shoulder" and tier == 1:
-                        continue
-                    row_mask = (name_df["tier"] == tier) & (name_df["kind"] == kind)
-                    if name_df[row_mask].empty:
-                        continue
-                    points = name_df[row_mask]["points"].iloc[0]
-                    if i >= len(points):
-                        continue
-                    this_point = points[i]
-                    point_distances[(tier, kind)] = get_distance_2D(
-                        tier1_shoulder_point,
-                        this_point,
-                    )
-            section_distances = {}
-            for tier in range(1, max_tier + 1):
-                shoulder_distance = point_distances.get((tier, "shoulder"))
-                toe_distance = point_distances.get((tier, "toe"))
-                if shoulder_distance is None or toe_distance is None:
-                    continue
-                section_distances[tier] = toe_distance - shoulder_distance
-            available_section_tiers = set(section_distances)
-            section_distances = [
-                section_distances.get(tier, 0.0)
-                for tier in range(1, max_tier + 1)
-            ]
-            section_slopes = slopes[i]
-
+            previous_point = tier1_shoulder_points[i]
+            previous_z = previous_point.z
             for tier in range(1, max_tier + 1):
                 shoulder_mask = (name_df["tier"] == tier) & (name_df["kind"] == "shoulder")
                 toe_mask = (name_df["tier"] == tier) & (name_df["kind"] == "toe")
@@ -1364,24 +1256,34 @@ def get_world_embankment_points(
                 if (
                     i >= len(shoulder_points)
                     or i >= len(toe_points)
-                    or tier not in available_section_tiers
                 ):
                     continue
                 shoulder_point = shoulder_points[i]
                 toe_point = toe_points[i]
-                z_drop_to_shoulder = sum(
-                    section_distance / section_slope # 1:1.8とかだから。
-                    for section_slope, section_distance in zip(
-                        section_slopes[: tier - 1],
-                        section_distances[: tier - 1],
+                if get_distance_2D(previous_point, shoulder_point) <= DISTANCE_TOL:
+                    shoulder_z = previous_z
+                elif abs(shoulder_point.z - STANDARD_BASE_Z) > DISTANCE_TOL:
+                    shoulder_z = shoulder_point.z
+                else:
+                    shoulder_z = previous_z - (
+                        get_distance_2D(previous_point, shoulder_point)
+                        / slopes[i][tier - 1]
                     )
-                )
-                shoulder_z = tier1_shoulder_point.z - z_drop_to_shoulder
-                toe_z = shoulder_z - section_distances[tier - 1] / section_slopes[tier - 1]
+                if get_distance_2D(shoulder_point, toe_point) <= DISTANCE_TOL:
+                    toe_z = shoulder_z
+                elif abs(toe_point.z - STANDARD_BASE_Z) > DISTANCE_TOL:
+                    toe_z = toe_point.z
+                else:
+                    toe_z = shoulder_z - (
+                        get_distance_2D(shoulder_point, toe_point)
+                        / slopes[i][tier - 1]
+                    )
                 shoulder_points[i] = Point3D(shoulder_point.x, shoulder_point.y, shoulder_z)
                 toe_points[i] = Point3D(toe_point.x, toe_point.y, toe_z)
                 name_df.at[shoulder_idx, "points"] = shoulder_points
                 name_df.at[toe_idx, "points"] = toe_points
+                previous_point = toe_points[i]
+                previous_z = toe_z
         return name_df
 
     def get_points_with_name_df(name_df, start_slope, end_slope):
@@ -1496,18 +1398,28 @@ def get_world_embankment_points(
             "bottom": center_bottom_points,
         }
 
+    def get_nearest_parallel_lowest_toe_z(
+        parallel_result: dict,
+        point: Point3D,
+    ) -> float:
+        lowest_tier = max(key for key in parallel_result if isinstance(key, int))
+        return min(
+            parallel_result[lowest_tier]["toe"],
+            key=lambda toe_point: get_distance_2D(toe_point, point),
+        ).z
+
     edge_closure_items = []
     if make_start_edge:
         edge_closure_items.extend([
-            ("start_edge_U", abut_points["start"]["U"]["wing_soil"]),
-            ("start_edge_D", abut_points["start"]["D"]["wing_soil"]),
+            ("start_edge_U", abut_points["start"]["U"]["wing_soil"], U_parallel_result),
+            ("start_edge_D", abut_points["start"]["D"]["wing_soil"], D_parallel_result),
         ])
     if make_end_edge:
         edge_closure_items.extend([
-            ("end_edge_U", abut_points["end"]["U"]["wing_soil"]),
-            ("end_edge_D", abut_points["end"]["D"]["wing_soil"]),
+            ("end_edge_U", abut_points["end"]["U"]["wing_soil"], U_parallel_result),
+            ("end_edge_D", abut_points["end"]["D"]["wing_soil"], D_parallel_result),
         ])
-    for edge_name, soil_point in edge_closure_items:
+    for edge_name, soil_point, parallel_result in edge_closure_items:
         point_count = len(result[edge_name][1]["shoulder"])
         lowest_tier = max(key for key in result[edge_name] if isinstance(key, int))
         bottom_points = result[edge_name][lowest_tier]["toe"]
@@ -1521,7 +1433,7 @@ def get_world_embankment_points(
                 Point3D(
                     soil_point.x,
                     soil_point.y,
-                    bottom_point.z,
+                    get_nearest_parallel_lowest_toe_z(parallel_result, bottom_point),
                 )
                 for bottom_point in bottom_points
             ]
