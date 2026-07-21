@@ -594,19 +594,31 @@ def split_embankment_boundary_curve_by_abut_points(
         else:
             reference_points = start_edge_points
         if end_limit_points is not None and not make_end_edge:
-            target_curve = max(
+            target_curve = min(
                 curves,
-                key=lambda target_curve: get_average_distance(
-                    get_sample_points(target_curve),
-                    end_limit_points,
+                key=lambda target_curve: min(
+                    get_xy_distance_to_segment(
+                        point3d_from_rg(target_curve.PointAtStart),
+                        start_edge_points,
+                    ),
+                    get_xy_distance_to_segment(
+                        point3d_from_rg(target_curve.PointAtEnd),
+                        start_edge_points,
+                    ),
                 ),
             )
         elif start_limit_points is not None and not make_start_edge:
-            target_curve = max(
+            target_curve = min(
                 curves,
-                key=lambda target_curve: get_average_distance(
-                    get_sample_points(target_curve),
-                    start_limit_points,
+                key=lambda target_curve: min(
+                    get_xy_distance_to_segment(
+                        point3d_from_rg(target_curve.PointAtStart),
+                        end_edge_points,
+                    ),
+                    get_xy_distance_to_segment(
+                        point3d_from_rg(target_curve.PointAtEnd),
+                        end_edge_points,
+                    ),
                 ),
             )
         else:
