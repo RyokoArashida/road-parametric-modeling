@@ -53,6 +53,39 @@ CURVE_NAME_RE = re.compile(r"^(?P<embankment_key>.+_\d+)_(?P<tier>\d+)_(?P<kind>
 EMBANKMENT_SPLIT_DEBUG = []
 
 
+def normalize_embankment_curve_name(name: str) -> str:
+    return (
+        str(name)
+        .lower()
+        .replace("＿", "_")
+        .replace("\\", "_")
+        .replace("/", "_")
+        .replace(" ", "")
+        .replace("　", "")
+        .replace("*", "")
+        .replace("_", "")
+    )
+
+
+def find_named_curve_by_normalized_name(
+    named_curves: dict[str, rg.Curve],
+    target_name: str,
+) -> rg.Curve | None:
+    normalized_target_name = normalize_embankment_curve_name(target_name)
+    for name, curve in named_curves.items():
+        if normalize_embankment_curve_name(name) == normalized_target_name:
+            return curve
+    return None
+
+
+def get_curve_end_point_pair(curve: rg.Curve) -> tuple[Point3D, Point3D]:
+    points = get_curve_polyline_points(curve)
+    if len(points) >= 2:
+        return points[0], points[-1]
+    curve = const_curve_obj(curve)
+    return point3d_from_rg(curve.PointAtStart), point3d_from_rg(curve.PointAtEnd)
+
+
 def get_tier_position_from_curve_name(curve_name: str) -> tuple[int, str]:
     match = CURVE_NAME_RE.match(curve_name)
     if match is None:
@@ -247,6 +280,8 @@ def split_embankment_boundary_curve_by_abut_points(
     context: str,
     make_start_edge: bool = True,
     make_end_edge: bool = True,
+    start_limit_points: tuple[Point3D, Point3D] | None = None,
+    end_limit_points: tuple[Point3D, Point3D] | None = None,
 ) -> dict[str, rg.Curve]:
     curve = const_curve_obj(curve)
 
@@ -379,9 +414,15 @@ def split_embankment_boundary_curve_by_abut_points(
     if make_start_edge:
         split_line_points.append(start_edge_points)
         target_line_points["start_edge"] = start_edge_points
+    elif start_limit_points is not None:
+        split_line_points.append(start_limit_points)
+        target_line_points["start_limit"] = start_limit_points
     if make_end_edge:
         split_line_points.append(end_edge_points)
         target_line_points["end_edge"] = end_edge_points
+    elif end_limit_points is not None:
+        split_line_points.append(end_limit_points)
+        target_line_points["end_limit"] = end_limit_points
     split_items = split_open_embankment_boundary_curve_by_lines(
         curve=curve,
         split_line_points=split_line_points,
@@ -395,10 +436,26 @@ def split_embankment_boundary_curve_by_abut_points(
         oriented_curve = split_item["curve"]
         boundary_name = classify_boundary_curve(oriented_curve)
         sample_points = get_sample_points(oriented_curve)
+        skip_reason = None
+        if start_limit_points is not None and not make_start_edge:
+            start_limit_distance = get_average_distance(
+                list(start_limit_points),
+                end_edge_points,
+            )
+            if get_average_distance(sample_points, end_edge_points) > start_limit_distance + DISTANCE_TOL:
+                skip_reason = "outside_start_limit"
+        if end_limit_points is not None and not make_end_edge:
+            end_limit_distance = get_average_distance(
+                list(end_limit_points),
+                start_edge_points,
+            )
+            if get_average_distance(sample_points, start_edge_points) > end_limit_distance + DISTANCE_TOL:
+                skip_reason = "outside_end_limit"
         EMBANKMENT_SPLIT_DEBUG.append(
             {
                 "context": context,
                 "boundary_name": boundary_name,
+                "skip_reason": skip_reason,
                 "start": start,
                 "end": end,
                 "start_matches": split_item["start_matches"],
@@ -409,6 +466,16 @@ def split_embankment_boundary_curve_by_abut_points(
                     "end_edge": get_average_distance(sample_points, end_edge_points),
                     "U_parallel": get_average_distance(sample_points, U_parallel_points),
                     "D_parallel": get_average_distance(sample_points, D_parallel_points),
+                    "start_limit": (
+                        None
+                        if start_limit_points is None
+                        else get_average_distance(sample_points, start_limit_points)
+                    ),
+                    "end_limit": (
+                        None
+                        if end_limit_points is None
+                        else get_average_distance(sample_points, end_limit_points)
+                    ),
                 },
                 "alignments": {
                     "start_edge": get_axis_alignment(sample_points, start_edge_points),
@@ -418,6 +485,8 @@ def split_embankment_boundary_curve_by_abut_points(
                 },
             }
         )
+        if skip_reason is not None:
+            continue
 
         if boundary_name == "start_edge":
             if not make_start_edge:
@@ -605,6 +674,23 @@ def get_world_embankment_points(
         abut_points["end"]["D"]["wing_bridge"],
     )
 
+    start_limit_points = None
+    if not make_start_edge:
+        start_limit_curve = find_named_curve_by_normalized_name(
+            named_curves,
+            f"{pavement_info.name}_{pavement_info.num}_start_端部",
+        )
+        if start_limit_curve is not None:
+            start_limit_points = get_curve_end_point_pair(start_limit_curve)
+    end_limit_points = None
+    if not make_end_edge:
+        end_limit_curve = find_named_curve_by_normalized_name(
+            named_curves,
+            f"{pavement_info.name}_{pavement_info.num}_end_端部",
+        )
+        if end_limit_curve is not None:
+            end_limit_points = get_curve_end_point_pair(end_limit_curve)
+
     crv_dict = {}
     for key, crv in curves.items():
         tier, kind = key
@@ -623,6 +709,8 @@ def get_world_embankment_points(
             context=f"{pavement_info.name}_{pavement_info.num}/tier={tier}/kind={kind}",
             make_start_edge=make_start_edge,
             make_end_edge=make_end_edge,
+            start_limit_points=start_limit_points,
+            end_limit_points=end_limit_points,
         )
     
     tier_1_shoulder_U_crv = const_polycurve_obj([const_point_obj(p) for p in pavement_bottom_points_dict["U_points"]])
