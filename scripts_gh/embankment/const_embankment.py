@@ -12,7 +12,7 @@ normalize_lc_time()
 
 import pandas as pd
 
-from my_project.config.constants import DISTANCE_TOL, STANDARD_BASE_Z
+from my_project.config.constants import DEFAULT_GEOMETRY_EXTENT, DISTANCE_TOL, STANDARD_BASE_Z
 from my_project.config.paths import get_output_dir
 from my_project.config.schemas.embankment_pavement_schemas import EmbankmentPaveInfo
 from my_project.config.schemas.embankment_schemas import (
@@ -30,9 +30,11 @@ from my_project.utils.geometry_gh.attributes import (
     get_closest_point_on_curve_2D,
     get_curve_distance,
     get_curve_polyline_points,
+    point3d_from_rg,
 )
 from my_project.utils.geometry_gh.const import (
     const_curve_obj,
+    const_extended_line_from_two_points,
     const_point_obj,
     const_planer_srf_obj_from_points,
     const_polycurve_obj,
@@ -99,6 +101,131 @@ def get_curve_between_start_end_lines(
     }
 
 
+def split_open_embankment_boundary_curve_by_lines(
+    curve: rg.Curve,
+    split_line_points: list[tuple[Point3D, Point3D]],
+    target_line_points: dict[str, tuple[Point3D, Point3D]],
+    expected_count: int,
+    cutter_length: float = DEFAULT_GEOMETRY_EXTENT,
+) -> list[dict]:
+    curve = const_curve_obj(curve)
+    curve_on_reference_z = curve.DuplicateCurve()
+    curve_on_reference_z.Transform(rg.Transform.PlanarProjection(rg.Plane.WorldXY))
+    curve_on_reference_z.Transform(
+        rg.Transform.Translation(rg.Vector3d(0, 0, STANDARD_BASE_Z))
+    )
+    extended_target_line_points = {}
+    for key, points in target_line_points.items():
+        extended_line = const_extended_line_from_two_points(
+            *points,
+            length=cutter_length,
+        )
+        extended_target_line_points[key] = (
+            point3d_from_rg(extended_line.PointAtStart),
+            point3d_from_rg(extended_line.PointAtEnd),
+        )
+
+    split_params = []
+    for line_points in split_line_points:
+        for point in get_intersections_with_vertical_plane(
+            curve,
+            line_points,
+            cutter_length=cutter_length,
+        ):
+            ok, t = curve_on_reference_z.ClosestPoint(const_point_obj(point))
+            if not ok:
+                raise ValueError(f"Failed to get curve parameter at split point: {point}")
+            if all(abs(t - existing) > DISTANCE_TOL for existing in split_params):
+                split_params.append(t)
+
+    if not curve.IsClosed:
+        for t in [curve.Domain.T0, curve.Domain.T1]:
+            point = point3d_from_rg(curve.PointAt(t))
+            if any(
+                get_xy_distance_to_segment(point, points) <= DISTANCE_TOL
+                for points in extended_target_line_points.values()
+            ) and all(abs(t - existing) > DISTANCE_TOL for existing in split_params):
+                split_params.append(t)
+
+    split_params = sorted(split_params)
+    expected_split_point_count = expected_count if curve.IsClosed else expected_count - 1
+    if len(split_params) != expected_split_point_count:
+        raise ValueError(f"Expected {expected_split_point_count} split points, got {len(split_params)}")
+
+    split_curve_items = []
+    if curve.IsClosed:
+        domain = curve.Domain
+        for i, t0 in enumerate(split_params):
+            t1 = split_params[(i + 1) % len(split_params)]
+            if t0 < t1:
+                split_curve = curve.Trim(t0, t1)
+            else:
+                part1 = curve.Trim(t0, domain.T1)
+                part2 = curve.Trim(domain.T0, t1)
+                if part1 is None or part2 is None:
+                    split_curve = None
+                else:
+                    split_curve = rg.PolyCurve()
+                    split_curve.Append(part1)
+                    split_curve.Append(part2)
+            if split_curve is None:
+                raise ValueError(f"Failed to trim closed curve between parameters: {t0}, {t1}")
+            split_curve_items.append(
+                {
+                    "curve": split_curve,
+                    "start": point3d_from_rg(curve.PointAt(t0)),
+                    "end": point3d_from_rg(curve.PointAt(t1)),
+                }
+            )
+    else:
+        params = [curve.Domain.T0] + split_params + [curve.Domain.T1]
+        params = sorted({
+            param
+            for param in params
+            if curve.Domain.T0 - DISTANCE_TOL <= param <= curve.Domain.T1 + DISTANCE_TOL
+        })
+        for t0, t1 in zip(params, params[1:]):
+            if abs(t1 - t0) <= DISTANCE_TOL:
+                continue
+            split_curve = curve.Trim(t0, t1)
+            if split_curve is None:
+                raise ValueError(f"Failed to trim open curve between parameters: {t0}, {t1}")
+            split_curve_items.append(
+                {
+                    "curve": split_curve,
+                    "start": point3d_from_rg(split_curve.PointAtStart),
+                    "end": point3d_from_rg(split_curve.PointAtEnd),
+                }
+            )
+
+    if not split_curve_items or len(split_curve_items) != expected_count:
+        raise ValueError(f"Expected {expected_count} split curves, got {len(split_curve_items)}")
+
+    items = []
+    for split_curve_item in split_curve_items:
+        split_curve = split_curve_item["curve"]
+        start = split_curve_item["start"]
+        end = split_curve_item["end"]
+        items.append(
+            {
+                "curve": const_curve_obj(split_curve).DuplicateCurve(),
+                "start": start,
+                "end": end,
+                "start_matches": {
+                    key
+                    for key, points in extended_target_line_points.items()
+                    if get_xy_distance_to_segment(start, points) <= DISTANCE_TOL
+                },
+                "end_matches": {
+                    key
+                    for key, points in extended_target_line_points.items()
+                    if get_xy_distance_to_segment(end, points) <= DISTANCE_TOL
+                },
+            }
+        )
+    return items
+
+
 def split_embankment_boundary_curve_by_abut_points(
     curve: rg.Curve,
     start_edge_points: tuple[Point3D, Point3D],
@@ -114,7 +241,7 @@ def split_embankment_boundary_curve_by_abut_points(
     make_end_edge: bool = True,
 ) -> dict[str, rg.Curve]:
     curve = const_curve_obj(curve)
-    split_items = split_curve_by_lines_and_match_endpoints(
+    split_items = split_open_embankment_boundary_curve_by_lines(
         curve=curve,
         split_line_points=[start_edge_points, end_edge_points],
         target_line_points={
@@ -122,7 +249,6 @@ def split_embankment_boundary_curve_by_abut_points(
             "end_edge": end_edge_points,
         },
         expected_count=4,
-        include_open_curve_ends_as_split_points=True,
     )
 
     result = {}
