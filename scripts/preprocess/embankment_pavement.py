@@ -151,13 +151,10 @@ def get_edge_slope_dict(row: pd.Series, prefix: str, side: str) -> dict[int, flo
         if value is None:
             continue
         suffix = str(col).removeprefix(col_prefix)
-        if suffix == "":
-            tier = 1
-        else:
-            match = re.fullmatch(r"\d+", suffix)
-            if match is None:
-                continue
-            tier = int(suffix)
+        match = re.fullmatch(r"\d+", suffix)
+        if match is None:
+            continue
+        tier = int(suffix)
         slope_dict[tier] = float(value)
     return slope_dict
 
