@@ -1150,6 +1150,15 @@ def get_world_embankment_points(
         crv_df.at[idx, "2Ddistances"] = [item[0] for item in sorted_items]
         crv_df.at[idx, "points"] = [item[1] for item in sorted_items]
         crv_df.at[idx, "2Dpoints"] = [item[2] for item in sorted_items]
+
+    fixed_height_indices = {
+        idx: (
+            set(range(len(row["points"])))
+            if row["tier"] == 1 and row["kind"] == "shoulder"
+            else set()
+        )
+        for idx, row in crv_df.iterrows()
+    }
     
 
     # 次にwallの点から高さを追加する。
@@ -1209,6 +1218,7 @@ def get_world_embankment_points(
                 for wall_point in wall_height_points:
                     if get_distance_2D(point, wall_point) < DISTANCE_TOL:
                         points[i] = Point3D(point.x, point.y, wall_point.z)
+                        fixed_height_indices[idx].add(i)
                         break
             crv_df.at[idx, "points"] = points
 
@@ -1309,7 +1319,7 @@ def get_world_embankment_points(
                 toe_point = toe_points[i]
                 if get_distance_2D(previous_point, shoulder_point) <= DISTANCE_TOL:
                     shoulder_z = previous_z
-                elif abs(shoulder_point.z - STANDARD_BASE_Z) > DISTANCE_TOL:
+                elif i in fixed_height_indices[shoulder_idx]:
                     shoulder_z = shoulder_point.z
                 else:
                     shoulder_z = previous_z - (
@@ -1318,7 +1328,7 @@ def get_world_embankment_points(
                     )
                 if get_distance_2D(shoulder_point, toe_point) <= DISTANCE_TOL:
                     toe_z = shoulder_z
-                elif abs(toe_point.z - STANDARD_BASE_Z) > DISTANCE_TOL:
+                elif i in fixed_height_indices[toe_idx]:
                     toe_z = toe_point.z
                 else:
                     toe_z = shoulder_z - (
@@ -1381,6 +1391,7 @@ def get_world_embankment_points(
                 for parallel_point in parallel_points:
                     if get_distance_2D(point, parallel_point) < DISTANCE_TOL:
                         points[i] = Point3D(point.x, point.y, parallel_point.z)
+                        fixed_height_indices[idx].add(i)
                         break
             crv_df.at[idx, "points"] = points
 
