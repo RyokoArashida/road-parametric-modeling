@@ -544,8 +544,6 @@ def split_brep_by_vertical_srf_from_two_points_keep_near_point(
     cut_point: Union[Point3D, Point2D, rg.Point3d],
     *,
     cap: bool = True,
-    return_original_if_not_split: bool = False,
-    prefer_same_side_as_keep_point: bool = False,
     tol: float = DISTANCE_TOL,
 ) -> rg.Brep:
     if len(cutter_points) != 2:
@@ -560,41 +558,10 @@ def split_brep_by_vertical_srf_from_two_points_keep_near_point(
         cutter_points[1],
     )
     split_result = target_brep.Split(cutter_srf, tol)
-    if return_original_if_not_split and (
-        not split_result or split_result.Length <= 1
-    ):
-        return target_brep
     pieces = list(split_result) if split_result and split_result.Length > 0 else [target_brep]
 
     keep_pt = const_point_obj(keep_point)
     cut_pt = const_point_obj(cut_point)
-    cutter_pt_0 = const_point_obj(cutter_points[0])
-    cutter_pt_1 = const_point_obj(cutter_points[1])
-
-    def get_side_value(point: rg.Point3d) -> float:
-        return (
-            (cutter_pt_1.X - cutter_pt_0.X) * (point.Y - cutter_pt_0.Y)
-            - (cutter_pt_1.Y - cutter_pt_0.Y) * (point.X - cutter_pt_0.X)
-        )
-
-    if prefer_same_side_as_keep_point:
-        keep_side = get_side_value(keep_pt)
-        side_candidates = []
-        if abs(keep_side) > tol:
-            for piece in pieces:
-                test_point = piece.GetBoundingBox(True).Center
-                test_side = get_side_value(test_point)
-                if keep_side * test_side >= -tol:
-                    side_candidates.append((abs(test_side), piece))
-        if side_candidates:
-            kept_brep = max(side_candidates, key=lambda item: item[0])[1]
-            if cap:
-                capped = kept_brep.CapPlanarHoles(tol)
-                if capped is None:
-                    raise ValueError("Failed to cap brep after split")
-                kept_brep = capped
-            return kept_brep
-
     candidates = []
     for piece in pieces:
         test_point = get_any_interior_point_on_brep_by_mesh(piece)
