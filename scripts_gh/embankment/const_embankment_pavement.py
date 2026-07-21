@@ -46,6 +46,16 @@ def get_slope_value(slope) -> float:
     return float(slope.value if hasattr(slope, "value") else slope)
 
 
+def get_cross_slope_at_STA(target_STA: float, slope_STAs: list[float], slopes: list[float]) -> float:
+    clamped_STA = min(max(target_STA, slope_STAs[0]), slope_STAs[-1])
+    if abs(clamped_STA - target_STA) > DISTANCE_TOL:
+        print(
+            "Clamp pavement cross slope STA: "
+            f"{target_STA} -> {clamped_STA}"
+        )
+    return get_slope_value(get_slope_at_STA(clamped_STA, slope_STAs, slopes))
+
+
 def get_pavement_curve_name(pavement_info: EmbankmentPaveInfo, side: str) -> str:
     side_name = "上り" if side == "U" else "下り"
     return f"舗装_{pavement_info.name}_{pavement_info.num}_{side_name}"
@@ -194,7 +204,7 @@ def get_pavement_top_points_from_curves(
             left_vectors=left_vectors,
             center_line_STAs=center_line_STAs,
         )
-        cross_slope = get_slope_value(get_slope_at_STA(this_STA, slope_STAs, slopes))
+        cross_slope = get_cross_slope_at_STA(this_STA, slope_STAs, slopes)
         center_point_2D = const_point_obj(center_intersection)
         U_distance = center_point_2D.DistanceTo(const_point_obj(U_point_2D))
         D_distance = center_point_2D.DistanceTo(const_point_obj(D_point_2D))
