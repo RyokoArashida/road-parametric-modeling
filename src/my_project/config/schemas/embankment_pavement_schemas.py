@@ -45,13 +45,20 @@ class PointsInfo:
 
 
 @dataclass(frozen=True)
+class PavementCrossSlopeInfo:
+    STA: float
+    slope: MonoSlope
+
+
+@dataclass(frozen=True)
 class EmbankmentPaveInfo:
     name: str
     num: int
-    points: PointsInfo
-    width: float
+    points: Optional[PointsInfo]
+    width: Optional[float]
     thickness: float
     slope: MonoSlope
+    cross_slope_infos: Optional[list[PavementCrossSlopeInfo]] = None
     start_edge: Optional[EdgeSideInfo] = None
     end_edge: Optional[EdgeSideInfo] = None
     wall_interferences: Optional[list[WallInterferenceInfo]] = None

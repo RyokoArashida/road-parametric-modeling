@@ -161,6 +161,19 @@ def get_slope_infos(
     return slope_infos
 
 
+def has_legacy_embankment_width_columns(embankment_target_df: pd.DataFrame) -> bool:
+    return all(
+        col in embankment_target_df.columns
+        for col in [
+            "舗装始点_測点大",
+            "舗装始点_測点小",
+            "舗装終点_測点大",
+            "舗装終点_測点小",
+            "形状_幅",
+        ]
+    )
+
+
 def get_road_center_info(
     plan_road_center_df: pd.DataFrame,
     z_road_center_df: Optional[pd.DataFrame],
@@ -214,6 +227,14 @@ def get_road_center_info(
             )
 
     if embankment_target_df is None:
+        return RoadSurfaceInfo(
+            plan_STAs=STAs,
+            plan_Coord_infos=coord_infos,
+            z_infos=z_infos,
+            type_infos=type_infos,
+        )
+
+    if not has_legacy_embankment_width_columns(embankment_target_df):
         return RoadSurfaceInfo(
             plan_STAs=STAs,
             plan_Coord_infos=coord_infos,

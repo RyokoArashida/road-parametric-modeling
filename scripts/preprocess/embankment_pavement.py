@@ -7,12 +7,13 @@ from my_project.config.schemas.embankment_pavement_schemas import (
     EdgeSideInfo,
     EdgeStructureInfo,
     EmbankmentPaveInfo,
-    PointsInfo,
+    PavementCrossSlopeInfo,
     WallInterferenceInfo,
     WallTargetInfo,
 )
 from my_project.config.util_schemas import MonoSlope
-from my_project.utils.io import load_from_pickle, read_file_to_df, save_json_and_pickle
+from my_project.utils.coordinates import get_STA_from_STA_info
+from my_project.utils.io import read_file_to_df, save_json_and_pickle
 
 
 def clean_optional(value):
@@ -33,6 +34,12 @@ def clean_optional_int(value):
     if value is None:
         return None
     return int(value)
+
+
+def get_optional_row_value(row: pd.Series, key: str):
+    if key not in row.index:
+        return None
+    return clean_optional(row[key])
 
 
 def structure_type_to_code(value):
@@ -219,29 +226,44 @@ def get_wall_interference_dict(wall_df: pd.DataFrame) -> dict[tuple[str, int], l
     return interference_dict
 
 
+def get_cross_slope_info_dict(slope_info_df: pd.DataFrame) -> dict[str, list[PavementCrossSlopeInfo]]:
+    slope_info_dict: dict[str, list[PavementCrossSlopeInfo]] = {}
+    for _, row in slope_info_df.iterrows():
+        name = clean_optional_str(row["名称"])
+        if name is None:
+            continue
+        if pd.isna(row["測点大"]) or pd.isna(row["測点小"]):
+            continue
+        slope_info_dict.setdefault(name, []).append(
+            PavementCrossSlopeInfo(
+                STA=get_STA_from_STA_info(row["測点大"], row["測点小"]),
+                slope=MonoSlope(row["横断勾配"]),
+            )
+        )
+    return {
+        name: sorted(infos, key=lambda info: info.STA)
+        for name, infos in slope_info_dict.items()
+    }
+
+
 def get_indiv_info_from_row(
     row: pd.Series,
-    edge_points_dict: dict,
     edge_info_dict: dict[tuple[str, int], tuple[EdgeSideInfo, EdgeSideInfo]],
     wall_interference_dict: dict[tuple[str, int], list[WallInterferenceInfo]],
+    cross_slope_info_dict: dict[str, list[PavementCrossSlopeInfo]],
 ) -> EmbankmentPaveInfo:
     name = row["全体_名称"]
     num = int(row["全体_番号"])
-    edge_key = f"{name}_{num - 1}"
-    edge_points = edge_points_dict[edge_key]
     key = get_key(name, num)
     start_edge, end_edge = edge_info_dict.get(key, (None, None))
     return EmbankmentPaveInfo(
         name=name,
         num=num,
-        points=PointsInfo(
-            STAs=edge_points["STAs"],
-            Upoint=edge_points["U_points"],
-            Dpoint=edge_points["D_points"],
-        ),
-        width=row["形状_幅"],
+        points=None,
+        width=get_optional_row_value(row, "形状_幅"),
         thickness=row["形状_厚"],
         slope=MonoSlope(row["形状_勾配"]),
+        cross_slope_infos=cross_slope_info_dict.get(name, []),
         start_edge=start_edge,
         end_edge=end_edge,
         wall_interferences=wall_interference_dict.get(key, []),
@@ -267,19 +289,20 @@ def main(initial_or_final: str) -> None:
         sheet_name="擁壁干渉一覧",
         header=[0, 1],
     )
-
-    edge_points_dict = load_from_pickle(
-        file_path=output_dir / f"{Filenames.ROAD}_{Filenames.EDGE}_{Filenames.POINTS}.pickle",
+    slope_info_df = read_file_to_df(
+        file_path=embankment_excel_path,
+        sheet_name="舗装横断勾配",
     )
     edge_info_dict = get_edge_info_dict(edge_info_df)
     wall_interference_dict = get_wall_interference_dict(wall_interference_df)
+    cross_slope_info_dict = get_cross_slope_info_dict(slope_info_df)
 
     embankment_pave_info = [
         get_indiv_info_from_row(
             row=row,
-            edge_points_dict=edge_points_dict,
             edge_info_dict=edge_info_dict,
             wall_interference_dict=wall_interference_dict,
+            cross_slope_info_dict=cross_slope_info_dict,
         )
         for _, row in embankment_target_df.iterrows()
     ]
