@@ -111,6 +111,8 @@ def split_embankment_boundary_curve_by_abut_points(
     end_U_abut_points: tuple[Point3D, Point3D],
     end_D_abut_points: tuple[Point3D, Point3D],
     context: str,
+    make_start_edge: bool = True,
+    make_end_edge: bool = True,
 ) -> dict[str, rg.Curve]:
     curve = const_curve_obj(curve)
     split_items = split_curve_by_lines_and_match_endpoints(
@@ -134,6 +136,8 @@ def split_embankment_boundary_curve_by_abut_points(
         oriented_curve = split_item["curve"]
 
         if start_on_start_edge and end_on_start_edge:
+            if not make_start_edge:
+                continue
             if get_distance_2D(end, start_U_abut_points[0]) < get_distance_2D(start, start_U_abut_points[0]):
                 oriented_curve.Reverse()
             edge_items = split_curve_by_lines_and_match_endpoints(
@@ -149,6 +153,8 @@ def split_embankment_boundary_curve_by_abut_points(
             result["start_edge_UD"] = edge_items[1]["curve"]
             result["start_edge_D"] = edge_items[2]["curve"]
         elif start_on_end_edge and end_on_end_edge:
+            if not make_end_edge:
+                continue
             if get_distance_2D(end, end_U_abut_points[0]) < get_distance_2D(start, end_U_abut_points[0]):
                 oriented_curve.Reverse()
             edge_items = split_curve_by_lines_and_match_endpoints(
@@ -204,16 +210,11 @@ def split_embankment_boundary_curve_by_abut_points(
                 f"end_D_abut_points={end_D_abut_points}"
             )
 
-    expected_keys = {
-        "start_edge_U",
-        "start_edge_UD",
-        "start_edge_D",
-        "end_edge_U",
-        "end_edge_UD",
-        "end_edge_D",
-        "U_parallel",
-        "D_parallel",
-    }
+    expected_keys = {"U_parallel", "D_parallel"}
+    if make_start_edge:
+        expected_keys.update({"start_edge_U", "start_edge_UD", "start_edge_D"})
+    if make_end_edge:
+        expected_keys.update({"end_edge_U", "end_edge_UD", "end_edge_D"})
     missing_keys = expected_keys - set(result)
     if missing_keys:
         raise ValueError(f"Missing split boundary curves: {sorted(missing_keys)}")
@@ -227,17 +228,51 @@ def get_world_embankment_points(
     abut_points_dict: dict,
 ) -> dict[str, EdgePoints]:
     slope = pavement_info.slope.value
-    start_U_slope = pavement_info.start_edge.U_slope
-    start_D_slope = pavement_info.start_edge.D_slope
-    start_edge_structure = pavement_info.start_edge.structure
-    end_U_slope = pavement_info.end_edge.U_slope
-    end_D_slope = pavement_info.end_edge.D_slope
+    start_edge_info = pavement_info.start_edge
+    end_edge_info = pavement_info.end_edge
+    start_edge_structure = None if start_edge_info is None else start_edge_info.structure
+    end_edge_structure = None if end_edge_info is None else end_edge_info.structure
+    make_start_edge = start_edge_structure is not None
+    make_end_edge = end_edge_structure is not None
+
+    def get_edge_slope(edge_info, side: str, tier: int) -> float:
+        if edge_info is None:
+            return slope
+        slopes = edge_info.U_slopes if side == "U" else edge_info.D_slopes
+        fallback = edge_info.U_slope if side == "U" else edge_info.D_slope
+        if tier in slopes:
+            return slopes[tier]
+        if fallback is not None:
+            return fallback
+        return slope
+
+    start_U_slope = lambda tier: get_edge_slope(start_edge_info, "U", tier)
+    start_D_slope = lambda tier: get_edge_slope(start_edge_info, "D", tier)
+    end_U_slope = lambda tier: get_edge_slope(end_edge_info, "U", tier)
+    end_D_slope = lambda tier: get_edge_slope(end_edge_info, "D", tier)
 
     abut_points = {
         "start": {"U": {}, "D": {}},
         "end": {"U": {}, "D": {}},
     }
-    if start_edge_structure.structure_type == "abutment":
+    start_U_soil = pavement_bottom_points_dict["U_points"][0]
+    start_D_soil = pavement_bottom_points_dict["D_points"][0]
+    end_U_soil = pavement_bottom_points_dict["U_points"][-1]
+    end_D_soil = pavement_bottom_points_dict["D_points"][-1]
+    abut_points["start"]["U"]["wing_soil"] = start_U_soil
+    abut_points["start"]["U"]["wing_bridge"] = start_U_soil
+    abut_points["start"]["U"]["parapet"] = start_U_soil
+    abut_points["start"]["D"]["wing_soil"] = start_D_soil
+    abut_points["start"]["D"]["wing_bridge"] = start_D_soil
+    abut_points["start"]["D"]["parapet"] = start_D_soil
+    abut_points["end"]["U"]["wing_soil"] = end_U_soil
+    abut_points["end"]["U"]["wing_bridge"] = end_U_soil
+    abut_points["end"]["U"]["parapet"] = end_U_soil
+    abut_points["end"]["D"]["wing_soil"] = end_D_soil
+    abut_points["end"]["D"]["wing_bridge"] = end_D_soil
+    abut_points["end"]["D"]["parapet"] = end_D_soil
+
+    if make_start_edge and start_edge_structure.structure_type == "abutment":
         start_abut_points = abut_points_dict[start_edge_structure.structure_name]
         start_wing_dict = start_abut_points["wing_dict"]
         start_beamseat_dict = start_abut_points["beamseat_dict"]
@@ -255,10 +290,9 @@ def get_world_embankment_points(
         abut_points["start"]["D"]["wing_soil"] = start_wing_dict["D_wing_top_points"]["DS"]
         abut_points["start"]["D"]["wing_bridge"] = start_wing_dict["D_wing_top_points"]["DB"]
         abut_points["start"]["D"]["parapet"] = start_D_beamseat_corners["DB"]
-    else:
+    elif make_start_edge:
         raise ValueError(f"Unknown start edge structure: {start_edge_structure}")
-    end_edge_structure = pavement_info.end_edge.structure
-    if end_edge_structure.structure_type == "abutment":
+    if make_end_edge and end_edge_structure.structure_type == "abutment":
         end_abut_points = abut_points_dict[end_edge_structure.structure_name]
         end_wing_dict = end_abut_points["wing_dict"]
         end_beamseat_dict = end_abut_points["beamseat_dict"]
@@ -276,7 +310,7 @@ def get_world_embankment_points(
         abut_points["end"]["D"]["wing_soil"] = end_wing_dict["D_wing_top_points"]["DS"]
         abut_points["end"]["D"]["wing_bridge"] = end_wing_dict["D_wing_top_points"]["DB"]
         abut_points["end"]["D"]["parapet"] = end_D_beamseat_corners["DB"]
-    else:
+    elif make_end_edge:
         raise ValueError(f"Unknown end edge structure: {end_edge_structure}")
 
     curves = {get_tier_position_from_curve_name(name): curve for name, curve in named_curves.items() if name.startswith(f"{pavement_info.name}_{pavement_info.num}_")}
@@ -329,6 +363,8 @@ def get_world_embankment_points(
             end_U_abut_points=end_U_abut_points,
             end_D_abut_points=end_D_abut_points,
             context=f"{pavement_info.name}_{pavement_info.num}/tier={tier}/kind={kind}",
+            make_start_edge=make_start_edge,
+            make_end_edge=make_end_edge,
         )
     
     tier_1_sholder_U_crv = const_polycurve_obj([const_point_obj(p) for p in pavement_bottom_points_dict["U_points"]])
@@ -346,8 +382,10 @@ def get_world_embankment_points(
     tier_1_shoulder_curves = crv_dict.setdefault(1, {}).setdefault("shoulder", {})
     tier_1_shoulder_curves["U_parallel"] = tier_1_sholder_U_info["curve"]
     tier_1_shoulder_curves["D_parallel"] = tier_1_sholder_D_info["curve"]
-    tier_1_shoulder_curves["start_edge_UD"] = const_polycurve_obj(start_edge_points)
-    tier_1_shoulder_curves["end_edge_UD"] = const_polycurve_obj(end_edge_points)
+    if make_start_edge:
+        tier_1_shoulder_curves["start_edge_UD"] = const_polycurve_obj(start_edge_points)
+    if make_end_edge:
+        tier_1_shoulder_curves["end_edge_UD"] = const_polycurve_obj(end_edge_points)
 
     crv_rows = []
     for tier in crv_dict:
@@ -473,13 +511,11 @@ def get_world_embankment_points(
     edge_names = [
         "U_parallel",
         "D_parallel",
-        "start_edge_U",
-        "start_edge_D",
-        "end_edge_U",
-        "end_edge_D",
-        "start_edge_UD",
-        "end_edge_UD",
     ]
+    if make_start_edge:
+        edge_names.extend(["start_edge_U", "start_edge_D", "start_edge_UD"])
+    if make_end_edge:
+        edge_names.extend(["end_edge_U", "end_edge_D", "end_edge_UD"])
     original_curve_data = {
         idx: {
             "tier": row["tier"],
@@ -529,12 +565,21 @@ def get_world_embankment_points(
                     crv_df.at[target_idx, "2Ddistances"] + new_2Ddistances
                 )
 
-    edge_tier1_shoulder_points = {
-        "start_edge_U": abut_points["start"]["U"]["wing_soil"],
-        "start_edge_D": abut_points["start"]["D"]["wing_soil"],
-        "end_edge_U": abut_points["end"]["U"]["wing_soil"],
-        "end_edge_D": abut_points["end"]["D"]["wing_soil"],
-    }
+    edge_tier1_shoulder_points = {}
+    if make_start_edge:
+        edge_tier1_shoulder_points.update(
+            {
+                "start_edge_U": abut_points["start"]["U"]["wing_soil"],
+                "start_edge_D": abut_points["start"]["D"]["wing_soil"],
+            }
+        )
+    if make_end_edge:
+        edge_tier1_shoulder_points.update(
+            {
+                "end_edge_U": abut_points["end"]["U"]["wing_soil"],
+                "end_edge_D": abut_points["end"]["D"]["wing_soil"],
+            }
+        )
     for name, soil_point in edge_tier1_shoulder_points.items():
         reference_rows = crv_df[
             (crv_df["name"] == name)
@@ -643,25 +688,37 @@ def get_world_embankment_points(
                         break
             crv_df.at[idx, "points"] = points
 
+    def resolve_slope(slope_or_func, tier: int) -> float:
+        return slope_or_func(tier) if callable(slope_or_func) else slope_or_func
+
     def get_cross_section_slope(name_df, start_slope, end_slope):
         tier1_toe_distances = name_df[(name_df["tier"] == 1) & (name_df["kind"] == "toe")]["2Ddistances"].iloc[0]
         tier1_shoulder_points = name_df[(name_df["tier"] == 1) & (name_df["kind"] == "shoulder")]["points"].iloc[0]
         point_count = len(tier1_toe_distances)
         max_tier = int(name_df["tier"].max())
         all_distance = tier1_toe_distances[-1]
-        prescribed_slopes = [
-            start_slope
-            + (end_slope - start_slope)
-            * (
-                0
-                if abs(all_distance) < DISTANCE_TOL
-                else distance / all_distance
-            )
-            for distance in tier1_toe_distances
+        prescribed_slopes_by_tier = [
+            [
+                resolve_slope(start_slope, tier)
+                + (
+                    resolve_slope(end_slope, tier)
+                    - resolve_slope(start_slope, tier)
+                )
+                * (
+                    0
+                    if abs(all_distance) < DISTANCE_TOL
+                    else distance / all_distance
+                )
+                for distance in tier1_toe_distances
+            ]
+            for tier in range(1, max_tier + 1)
         ]
         slope_anchors = [
-            {0: start_slope, point_count - 1: end_slope}
-            for _ in range(max_tier)
+            {
+                0: resolve_slope(start_slope, tier),
+                point_count - 1: resolve_slope(end_slope, tier),
+            }
+            for tier in range(1, max_tier + 1)
         ]
 
         for i in range(point_count):
@@ -705,7 +762,7 @@ def get_world_embankment_points(
                         slope_anchors[tier - 1][i] = section_distance / z_gap
                     shoulder_z = known_toe_z[tier]
                 else:
-                    shoulder_z -= section_distance / prescribed_slopes[i]
+                    shoulder_z -= section_distance / prescribed_slopes_by_tier[tier - 1][i]
 
         slopes = [[0.0] * max_tier for _ in range(point_count)]
         for tier_index, anchors in enumerate(slope_anchors):
@@ -796,12 +853,19 @@ def get_world_embankment_points(
     D_parallel_result = get_points_with_name_df(
         crv_df[crv_df["name"] == "D_parallel"], slope, slope
     )
-    for edge_name, parallel_result in {
+    edge_parallel_map = {
         "start_edge_U": U_parallel_result,
         "start_edge_D": D_parallel_result,
         "end_edge_U": U_parallel_result,
         "end_edge_D": D_parallel_result,
-    }.items():
+    }
+    if not make_start_edge:
+        edge_parallel_map.pop("start_edge_U")
+        edge_parallel_map.pop("start_edge_D")
+    if not make_end_edge:
+        edge_parallel_map.pop("end_edge_U")
+        edge_parallel_map.pop("end_edge_D")
+    for edge_name, parallel_result in edge_parallel_map.items():
         for idx, row in crv_df[crv_df["name"] == edge_name].iterrows():
             if row["tier"] == 1 and row["kind"] == "shoulder":
                 continue
@@ -817,13 +881,23 @@ def get_world_embankment_points(
     result = {
         "U_parallel": U_parallel_result,
         "D_parallel": D_parallel_result,
-        "start_edge_U": get_points_with_name_df(crv_df[crv_df["name"] == "start_edge_U"],slope,start_U_slope),
-        "start_edge_UD": get_points_with_name_df(crv_df[crv_df["name"] == "start_edge_UD"],start_U_slope,start_D_slope),
-        "start_edge_D": get_points_with_name_df(crv_df[crv_df["name"] == "start_edge_D"],start_D_slope,slope),
-        "end_edge_U": get_points_with_name_df(crv_df[crv_df["name"] == "end_edge_U"],slope,end_U_slope),
-        "end_edge_UD": get_points_with_name_df(crv_df[crv_df["name"] == "end_edge_UD"],end_U_slope,end_D_slope),
-        "end_edge_D": get_points_with_name_df(crv_df[crv_df["name"] == "end_edge_D"],end_D_slope,slope),
     }
+    if make_start_edge:
+        result.update(
+            {
+                "start_edge_U": get_points_with_name_df(crv_df[crv_df["name"] == "start_edge_U"], slope, start_U_slope),
+                "start_edge_UD": get_points_with_name_df(crv_df[crv_df["name"] == "start_edge_UD"], start_U_slope, start_D_slope),
+                "start_edge_D": get_points_with_name_df(crv_df[crv_df["name"] == "start_edge_D"], start_D_slope, slope),
+            }
+        )
+    if make_end_edge:
+        result.update(
+            {
+                "end_edge_U": get_points_with_name_df(crv_df[crv_df["name"] == "end_edge_U"], slope, end_U_slope),
+                "end_edge_UD": get_points_with_name_df(crv_df[crv_df["name"] == "end_edge_UD"], end_U_slope, end_D_slope),
+                "end_edge_D": get_points_with_name_df(crv_df[crv_df["name"] == "end_edge_D"], end_D_slope, slope),
+            }
+        )
 
     parallel_center_bottom_points = {}
     for parallel_name, parallel_result in {
@@ -867,12 +941,18 @@ def get_world_embankment_points(
         }
         parallel_center_bottom_points[parallel_name] = center_bottom_points
 
-    for edge_name, parallel_name, soil_point, endpoint_index in [
-        ("start_edge_U", "U_parallel", abut_points["start"]["U"]["wing_soil"], 0),
-        ("start_edge_D", "D_parallel", abut_points["start"]["D"]["wing_soil"], 0),
-        ("end_edge_U", "U_parallel", abut_points["end"]["U"]["wing_soil"], -1),
-        ("end_edge_D", "D_parallel", abut_points["end"]["D"]["wing_soil"], -1),
-    ]:
+    edge_closure_items = []
+    if make_start_edge:
+        edge_closure_items.extend([
+            ("start_edge_U", "U_parallel", abut_points["start"]["U"]["wing_soil"], 0),
+            ("start_edge_D", "D_parallel", abut_points["start"]["D"]["wing_soil"], 0),
+        ])
+    if make_end_edge:
+        edge_closure_items.extend([
+            ("end_edge_U", "U_parallel", abut_points["end"]["U"]["wing_soil"], -1),
+            ("end_edge_D", "D_parallel", abut_points["end"]["D"]["wing_soil"], -1),
+        ])
+    for edge_name, parallel_name, soil_point, endpoint_index in edge_closure_items:
         point_count = len(result[edge_name][1]["shoulder"])
         bottom_z = parallel_center_bottom_points[parallel_name][endpoint_index].z
         result[edge_name]["closure_points"] = {
@@ -886,10 +966,12 @@ def get_world_embankment_points(
             ]
         }
 
-    for edge_name, edge_position in [
-        ("start_edge_UD", "start"),
-        ("end_edge_UD", "end"),
-    ]:
+    UD_edge_items = []
+    if make_start_edge:
+        UD_edge_items.append(("start_edge_UD", "start"))
+    if make_end_edge:
+        UD_edge_items.append(("end_edge_UD", "end"))
+    for edge_name, edge_position in UD_edge_items:
         lowest_tier = max(result[edge_name])
         top_points = result[edge_name][1]["shoulder"]
         bottom_points = result[edge_name][lowest_tier]["toe"]
@@ -1008,8 +1090,16 @@ def get_brep_from_points(point_dict) -> dict[str, rg.Brep]:
         ]
         return UD_edge_points
     parallel_names = ["U_parallel", "D_parallel"]
-    edge_names = ["start_edge_U", "start_edge_D", "end_edge_U", "end_edge_D"]
-    UD_edge_names = ["start_edge_UD", "end_edge_UD"]
+    edge_names = []
+    UD_edge_names = []
+    if "start_edge_U" in point_dict:
+        edge_names.extend(["start_edge_U", "start_edge_D"])
+    if "end_edge_U" in point_dict:
+        edge_names.extend(["end_edge_U", "end_edge_D"])
+    if "start_edge_UD" in point_dict:
+        UD_edge_names.append("start_edge_UD")
+    if "end_edge_UD" in point_dict:
+        UD_edge_names.append("end_edge_UD")
     all_names = parallel_names + edge_names + UD_edge_names
     brep_dict = {}
     for name in all_names:

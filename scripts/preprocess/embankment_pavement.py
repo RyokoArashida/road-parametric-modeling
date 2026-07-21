@@ -1,5 +1,7 @@
-import pandas as pd
+import re
 from typing import Optional
+
+import pandas as pd
 
 from my_project.config.file_names import Filenames
 from my_project.config.paths import get_input_output_dirs
@@ -139,11 +141,36 @@ def get_edge_structure(row: pd.Series, prefix: str) -> Optional[EdgeStructureInf
     )
 
 
+def get_edge_slope_dict(row: pd.Series, prefix: str, side: str) -> dict[int, float]:
+    slope_dict = {}
+    col_prefix = f"{prefix}_勾配_{side}"
+    for col in row.index:
+        if not str(col).startswith(col_prefix):
+            continue
+        value = clean_optional(row[col])
+        if value is None:
+            continue
+        suffix = str(col).removeprefix(col_prefix)
+        if suffix == "":
+            tier = 1
+        else:
+            match = re.fullmatch(r"\d+", suffix)
+            if match is None:
+                continue
+            tier = int(suffix)
+        slope_dict[tier] = float(value)
+    return slope_dict
+
+
 def get_edge_side(row: pd.Series, prefix: str) -> EdgeSideInfo:
+    U_slopes = get_edge_slope_dict(row, prefix, "上り線")
+    D_slopes = get_edge_slope_dict(row, prefix, "下り線")
     return EdgeSideInfo(
         structure=get_edge_structure(row, prefix),
-        U_slope=clean_optional(row[f"{prefix}_勾配_上り線"]),
-        D_slope=clean_optional(row[f"{prefix}_勾配_下り線"]),
+        U_slope=U_slopes.get(1),
+        D_slope=D_slopes.get(1),
+        U_slopes=U_slopes,
+        D_slopes=D_slopes,
     )
 
 

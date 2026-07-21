@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Literal, Optional
 
 from my_project.config.util_schemas import MonoSlope, Point3D
@@ -17,6 +17,8 @@ class EdgeSideInfo:
     structure: Optional[EdgeStructureInfo] = None
     U_slope: Optional[float] = None
     D_slope: Optional[float] = None
+    U_slopes: dict[int, float] = field(default_factory=dict)
+    D_slopes: dict[int, float] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
