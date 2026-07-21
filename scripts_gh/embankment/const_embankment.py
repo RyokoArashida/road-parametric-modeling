@@ -1041,6 +1041,9 @@ def get_world_embankment_points(
             if kind not in name_points_dict[tier]:
                 name_points_dict[tier][kind] = {}
             name_points_dict[tier][kind] = points
+        for tier in list(name_points_dict):
+            if {"shoulder", "toe"} - set(name_points_dict[tier]):
+                del name_points_dict[tier]
         return name_points_dict
 
     U_parallel_result = get_points_with_name_df(
