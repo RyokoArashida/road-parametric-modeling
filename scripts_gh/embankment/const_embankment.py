@@ -1187,13 +1187,13 @@ def get_brep_from_points(point_dict) -> dict[str, rg.Brep]:
             const_planer_srf_obj_from_points(section_points[0]),
             const_planer_srf_obj_from_points(section_points[-1]),
         ]
-        brep = join_breps_or_raise(
-            breps + end_caps,
-            context=name,
-        )
-        if not brep.IsSolid:
-            raise ValueError(f"Joined embankment brep is not solid ({name})")
-        return brep
+        joined = rg.Brep.JoinBreps(breps + end_caps, DISTANCE_TOL)
+        if not joined:
+            raise ValueError(f"Failed to join breps ({name})")
+        for brep in joined:
+            if not brep.IsSolid:
+                raise ValueError(f"Joined embankment brep is not solid ({name})")
+        return list(joined)
 
     parallel_names = ["U_parallel", "D_parallel"]
     edge_names = []
@@ -1217,39 +1217,44 @@ def get_brep_from_points(point_dict) -> dict[str, rg.Brep]:
         )
         segments = get_same_signature_segments(sections)
         for segment_index, segment in enumerate(segments, start=1):
-            brep = get_segment_brep(name, segment, is_edge=is_edge)
-            if name in UD_edge_names:
-                trim_points = list(name_dict["trim_points"])
-                bridge_mid_point = center_point_pair(
-                    trim_points[0],
-                    trim_points[3],
-                )
-                soil_mid_point = center_point_pair(
-                    trim_points[1],
-                    trim_points[2],
-                )
-                keep_point = Point3D(
-                    2 * bridge_mid_point.x - soil_mid_point.x,
-                    2 * bridge_mid_point.y - soil_mid_point.y,
-                    STANDARD_BASE_Z,
-                )
-                cut_point = Point3D(
-                    soil_mid_point.x,
-                    soil_mid_point.y,
-                    STANDARD_BASE_Z,
-                )
-                brep = split_brep_by_vertical_srf_from_two_points_keep_near_point(
-                    target_brep=brep,
-                    cutter_points=[trim_points[0], trim_points[3]],
-                    keep_point=keep_point,
-                    cut_point=cut_point,
-                    cap=True,
-                    tol=DISTANCE_TOL,
-                )
-                if not brep.IsSolid:
-                    raise ValueError(f"Trimmed UD embankment brep is not solid ({name})")
-            key = name if len(segments) == 1 else f"{name}_{segment_index}"
-            brep_dict[key] = brep
+            segment_breps = get_segment_brep(name, segment, is_edge=is_edge)
+            for brep_index, brep in enumerate(segment_breps, start=1):
+                if name in UD_edge_names:
+                    trim_points = list(name_dict["trim_points"])
+                    bridge_mid_point = center_point_pair(
+                        trim_points[0],
+                        trim_points[3],
+                    )
+                    soil_mid_point = center_point_pair(
+                        trim_points[1],
+                        trim_points[2],
+                    )
+                    keep_point = Point3D(
+                        2 * bridge_mid_point.x - soil_mid_point.x,
+                        2 * bridge_mid_point.y - soil_mid_point.y,
+                        STANDARD_BASE_Z,
+                    )
+                    cut_point = Point3D(
+                        soil_mid_point.x,
+                        soil_mid_point.y,
+                        STANDARD_BASE_Z,
+                    )
+                    brep = split_brep_by_vertical_srf_from_two_points_keep_near_point(
+                        target_brep=brep,
+                        cutter_points=[trim_points[0], trim_points[3]],
+                        keep_point=keep_point,
+                        cut_point=cut_point,
+                        cap=True,
+                        tol=DISTANCE_TOL,
+                    )
+                    if not brep.IsSolid:
+                        raise ValueError(f"Trimmed UD embankment brep is not solid ({name})")
+                key_parts = [name]
+                if len(segments) > 1:
+                    key_parts.append(str(segment_index))
+                if len(segment_breps) > 1:
+                    key_parts.append(str(brep_index))
+                brep_dict["_".join(key_parts)] = brep
 
     return brep_dict
 
