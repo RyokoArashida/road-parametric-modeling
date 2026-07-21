@@ -37,7 +37,6 @@ from my_project.utils.geometry_gh.const import (
     const_planer_srf_obj_from_points,
     const_polycurve_obj,
     const_brep_from_two_closed_point_lists,
-    const_srf_from_2crvs,
     join_breps_or_raise,
 )
 from my_project.utils.geometry_gh.document import get_named_curves_on_layer
@@ -1150,39 +1149,18 @@ def get_brep_from_points(point_dict) -> dict[str, rg.Brep]:
             segments.append(current)
         return segments
 
-    def get_segment_brep(name, segment, *, is_edge: bool):
+    def get_segment_brep(name, segment):
         breps = []
         section_points = [section["points"] for section in segment]
         for i in range(len(section_points) - 1):
             next_points = section_points[i + 1]
-            if is_edge:
-                slope_brep = const_srf_from_2crvs(
-                    [
-                        const_polycurve_obj(section_points[i][:-1]),
-                        const_polycurve_obj(next_points[:-1]),
-                    ]
+            breps.append(
+                const_brep_from_two_closed_point_lists(
+                    section_points[i],
+                    next_points,
+                    cap=False,
                 )
-                bottom_brep = const_srf_from_2crvs(
-                    [
-                        const_polycurve_obj([section_points[i][-2], next_points[-2]]),
-                        const_polycurve_obj([section_points[i][-1], next_points[-1]]),
-                    ]
-                )
-                back_brep = const_srf_from_2crvs(
-                    [
-                        const_polycurve_obj([section_points[i][-1], section_points[i][0]]),
-                        const_polycurve_obj([next_points[-1], next_points[0]]),
-                    ]
-                )
-                breps.extend([slope_brep, bottom_brep, back_brep])
-            else:
-                breps.append(
-                    const_brep_from_two_closed_point_lists(
-                        section_points[i],
-                        next_points,
-                        cap=False,
-                    )
-                )
+            )
         end_caps = [
             const_planer_srf_obj_from_points(section_points[0]),
             const_planer_srf_obj_from_points(section_points[-1]),
@@ -1210,14 +1188,13 @@ def get_brep_from_points(point_dict) -> dict[str, rg.Brep]:
     brep_dict = {}
     for name in all_names:
         name_dict = point_dict[name]
-        is_edge = name in edge_names
         sections = get_name_sections(
             name_dict,
             include_top_closure=name in parallel_names,
         )
         segments = get_same_signature_segments(sections)
         for segment_index, segment in enumerate(segments, start=1):
-            segment_breps = get_segment_brep(name, segment, is_edge=is_edge)
+            segment_breps = get_segment_brep(name, segment)
             for brep_index, brep in enumerate(segment_breps, start=1):
                 if name in UD_edge_names:
                     trim_points = list(name_dict["trim_points"])
