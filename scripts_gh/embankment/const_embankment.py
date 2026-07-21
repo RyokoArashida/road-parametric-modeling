@@ -1327,6 +1327,42 @@ def get_brep_from_points(point_dict) -> dict[str, rg.Brep]:
             segments.append(current)
         return segments
 
+    def get_cap_breps(section_points):
+        unique_points = []
+        for point in section_points:
+            if all(
+                const_point_obj(point).DistanceTo(const_point_obj(existing)) > DISTANCE_TOL
+                for existing in unique_points
+            ):
+                unique_points.append(point)
+        if len(unique_points) < 3:
+            raise ValueError(f"Need at least 3 section cap points, got {len(unique_points)}")
+        try:
+            return [const_planer_srf_obj_from_points(unique_points)]
+        except ValueError:
+            breps = []
+            anchor = const_point_obj(unique_points[0])
+            for point1, point2 in zip(unique_points[1:-1], unique_points[2:]):
+                point1_obj = const_point_obj(point1)
+                point2_obj = const_point_obj(point2)
+                if (
+                    anchor.DistanceTo(point1_obj) <= DISTANCE_TOL
+                    or anchor.DistanceTo(point2_obj) <= DISTANCE_TOL
+                    or point1_obj.DistanceTo(point2_obj) <= DISTANCE_TOL
+                ):
+                    continue
+                brep = rg.Brep.CreateFromCornerPoints(
+                    anchor,
+                    point1_obj,
+                    point2_obj,
+                    DISTANCE_TOL,
+                )
+                if brep is not None:
+                    breps.append(brep)
+            if not breps:
+                raise ValueError(f"Failed to create section cap breps. points={unique_points}")
+            return breps
+
     def get_segment_brep(name, segment, *, require_solid: bool):
         breps = []
         section_points = [section["points"] for section in segment]
@@ -1339,10 +1375,7 @@ def get_brep_from_points(point_dict) -> dict[str, rg.Brep]:
                     cap=False,
                 )
             )
-        end_caps = [
-            const_planer_srf_obj_from_points(section_points[0]),
-            const_planer_srf_obj_from_points(section_points[-1]),
-        ]
+        end_caps = get_cap_breps(section_points[0]) + get_cap_breps(section_points[-1])
         joined = rg.Brep.JoinBreps(breps + end_caps, DISTANCE_TOL)
         if not joined:
             raise ValueError(f"Failed to join breps ({name})")
