@@ -1919,7 +1919,6 @@ def main(initial_or_final: str, debug: bool = False):
             abut_points_dict=abut_points_dict,
         )
         world_embankment_points_dict[unique_key] = indiv_dict
-        embankment_brep_dict[unique_key] = get_brep_from_points(indiv_dict)
     save_json_and_pickle(
         data=world_embankment_points_dict,
         folder_path=DIR,
@@ -1930,6 +1929,8 @@ def main(initial_or_final: str, debug: bool = False):
         folder_path=DIR,
         name=f"{Filenames.EMBANKMENT}_split_debug",
     )
+    for unique_key, indiv_dict in world_embankment_points_dict.items():
+        embankment_brep_dict[unique_key] = get_brep_from_points(indiv_dict)
     bake_keys, bake_objs = get_keys_and_values_for_bake(embankment_brep_dict)
     if debug:
         bake_keys2, bake_objs2 = get_keys_and_values_for_bake(embankment_brep_dict)
