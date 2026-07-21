@@ -366,21 +366,21 @@ def get_world_embankment_points(
             make_end_edge=make_end_edge,
         )
     
-    tier_1_sholder_U_crv = const_polycurve_obj([const_point_obj(p) for p in pavement_bottom_points_dict["U_points"]])
-    tier_1_sholder_D_crv = const_polycurve_obj([const_point_obj(p) for p in pavement_bottom_points_dict["D_points"]])
-    tier_1_sholder_U_info = get_curve_between_start_end_lines(
-        curve=tier_1_sholder_U_crv,
+    tier_1_shoulder_U_crv = const_polycurve_obj([const_point_obj(p) for p in pavement_bottom_points_dict["U_points"]])
+    tier_1_shoulder_D_crv = const_polycurve_obj([const_point_obj(p) for p in pavement_bottom_points_dict["D_points"]])
+    tier_1_shoulder_U_info = get_curve_between_start_end_lines(
+        curve=tier_1_shoulder_U_crv,
         start_edge_points=start_edge_points,
         end_edge_points=end_edge_points,
     )
-    tier_1_sholder_D_info = get_curve_between_start_end_lines(
-        curve=tier_1_sholder_D_crv,
+    tier_1_shoulder_D_info = get_curve_between_start_end_lines(
+        curve=tier_1_shoulder_D_crv,
         start_edge_points=start_edge_points,
         end_edge_points=end_edge_points,
     )
     tier_1_shoulder_curves = crv_dict.setdefault(1, {}).setdefault("shoulder", {})
-    tier_1_shoulder_curves["U_parallel"] = tier_1_sholder_U_info["curve"]
-    tier_1_shoulder_curves["D_parallel"] = tier_1_sholder_D_info["curve"]
+    tier_1_shoulder_curves["U_parallel"] = tier_1_shoulder_U_info["curve"]
+    tier_1_shoulder_curves["D_parallel"] = tier_1_shoulder_D_info["curve"]
     if make_start_edge:
         tier_1_shoulder_curves["start_edge_UD"] = const_polycurve_obj(start_edge_points)
     if make_end_edge:
@@ -433,11 +433,11 @@ def get_world_embankment_points(
         center_point_pair(U_point, D_point)
         for U_point, D_point in zip(
             get_curve_polyline_points(
-                tier_1_sholder_U_info["curve"],
+                tier_1_shoulder_U_info["curve"],
                 preserve_z=True,
             ),
             get_curve_polyline_points(
-                tier_1_sholder_D_info["curve"],
+                tier_1_shoulder_D_info["curve"],
                 preserve_z=True,
             ),
         )
