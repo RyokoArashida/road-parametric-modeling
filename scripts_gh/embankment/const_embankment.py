@@ -64,14 +64,14 @@ def get_curve_between_start_end_lines(
     start_edge_points: tuple[Point3D, Point3D],
     end_edge_points: tuple[Point3D, Point3D],
 ) -> dict:
-    split_items = split_curve_by_lines_and_match_endpoints(
+    target_line_points = {
+        "start": start_edge_points,
+        "end": end_edge_points,
+    }
+    split_items = split_open_embankment_boundary_curve_by_lines(
         curve=curve,
         split_line_points=[start_edge_points, end_edge_points],
-        target_line_points={
-            "start": start_edge_points,
-            "end": end_edge_points,
-        },
-        expected_count=3,
+        target_line_points=target_line_points,
     )
     target_item = None
     for item in split_items:
@@ -85,12 +85,31 @@ def get_curve_between_start_end_lines(
                 raise ValueError("Multiple curves found between start and end edge lines")
             target_item = item
     if target_item is None:
-        raise ValueError("No curve found between start and end edge lines")
+        target_item = min(
+            split_items,
+            key=lambda item: (
+                min(
+                    get_xy_distance_to_segment(item["start"], start_edge_points)
+                    + get_xy_distance_to_segment(item["end"], end_edge_points),
+                    get_xy_distance_to_segment(item["start"], end_edge_points)
+                    + get_xy_distance_to_segment(item["end"], start_edge_points),
+                )
+            ),
+        )
 
     result_curve = target_item["curve"]
     result_start = target_item["start"]
     result_end = target_item["end"]
-    if "end" in target_item["start_matches"] and "start" in target_item["end_matches"]:
+    should_reverse = (
+        "end" in target_item["start_matches"] and "start" in target_item["end_matches"]
+    )
+    if not target_item["start_matches"] and not target_item["end_matches"]:
+        current_score = get_xy_distance_to_segment(result_start, start_edge_points)
+        current_score += get_xy_distance_to_segment(result_end, end_edge_points)
+        reverse_score = get_xy_distance_to_segment(result_start, end_edge_points)
+        reverse_score += get_xy_distance_to_segment(result_end, start_edge_points)
+        should_reverse = reverse_score < current_score
+    if should_reverse:
         result_curve.Reverse()
         result_start = target_item["end"]
         result_end = target_item["start"]
