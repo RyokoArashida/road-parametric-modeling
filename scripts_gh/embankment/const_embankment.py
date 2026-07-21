@@ -612,12 +612,6 @@ def get_world_embankment_points(
             ignore_index=True,
         )
 
-    for name in edge_names:
-        points_counts = []
-        for _, row in crv_df[crv_df["name"] == name].iterrows():
-            points_counts.append(len(row["points"]))
-        if len(set(points_counts)) > 1:
-            raise ValueError(f"Point count mismatch for {name}: {points_counts}")
     for idx, row in crv_df.iterrows():
         sorted_items = sorted(
             zip(row["2Ddistances"], row["points"], row["2Dpoints"]),
@@ -723,7 +717,7 @@ def get_world_embankment_points(
 
         for i in range(point_count):
             tier1_shoulder_point = tier1_shoulder_points[i]
-            cross_section_distances = [0]
+            point_distances = {(1, "shoulder"): 0}
             known_toe_z = {}
             known_shoulder_z = {}
             for tier in range(1, max_tier + 1):
@@ -733,9 +727,13 @@ def get_world_embankment_points(
                     row_mask = (name_df["tier"] == tier) & (name_df["kind"] == kind)
                     if name_df[row_mask].empty:
                         continue
-                    point = name_df[row_mask]["points"].iloc[0][i]
-                    cross_section_distances.append(
-                        get_distance_2D(tier1_shoulder_point, point)
+                    points = name_df[row_mask]["points"].iloc[0]
+                    if i >= len(points):
+                        continue
+                    point = points[i]
+                    point_distances[(tier, kind)] = get_distance_2D(
+                        tier1_shoulder_point,
+                        point,
                     )
                     if abs(point.z - STANDARD_BASE_Z) > DISTANCE_TOL:
                         if kind == "toe":
@@ -744,15 +742,20 @@ def get_world_embankment_points(
                             known_shoulder_z[tier] = point.z
                             known_toe_z[tier - 1] = point.z
 
-            section_distances = [
-                cross_section_distances[2 * j + 1] - cross_section_distances[2 * j]
-                for j in range(len(cross_section_distances) // 2)
-            ]
+            section_distances = {}
+            for tier in range(1, max_tier + 1):
+                shoulder_distance = point_distances.get((tier, "shoulder"))
+                toe_distance = point_distances.get((tier, "toe"))
+                if shoulder_distance is None or toe_distance is None:
+                    continue
+                section_distances[tier] = toe_distance - shoulder_distance
             shoulder_z = tier1_shoulder_point.z
             for tier in range(1, max_tier + 1):
                 if tier in known_shoulder_z:
                     shoulder_z = known_shoulder_z[tier]
-                section_distance = section_distances[tier - 1]
+                if tier not in section_distances:
+                    continue
+                section_distance = section_distances[tier]
                 if tier in known_toe_z:
                     z_gap = shoulder_z - known_toe_z[tier]
                     if (
@@ -788,7 +791,7 @@ def get_world_embankment_points(
         tier1_shoulder_points = name_df[(name_df["tier"] == 1) & (name_df["kind"] == "shoulder")]["points"].iloc[0]
         for i in range(len(tier1_shoulder_points)):
             tier1_shoulder_point = tier1_shoulder_points[i]
-            cross_section_distances = [0]
+            point_distances = {(1, "shoulder"): 0}
             max_tier = int(name_df["tier"].max())
             for tier in range(1, max_tier + 1):
                 for kind in ["shoulder", "toe"]:
@@ -797,12 +800,25 @@ def get_world_embankment_points(
                     row_mask = (name_df["tier"] == tier) & (name_df["kind"] == kind)
                     if name_df[row_mask].empty:
                         continue
-                    this_point = name_df[row_mask]["points"].iloc[0][i]
-                    this_distance = get_distance_2D(tier1_shoulder_point, this_point)
-                    cross_section_distances.append(this_distance)
+                    points = name_df[row_mask]["points"].iloc[0]
+                    if i >= len(points):
+                        continue
+                    this_point = points[i]
+                    point_distances[(tier, kind)] = get_distance_2D(
+                        tier1_shoulder_point,
+                        this_point,
+                    )
+            section_distances = {}
+            for tier in range(1, max_tier + 1):
+                shoulder_distance = point_distances.get((tier, "shoulder"))
+                toe_distance = point_distances.get((tier, "toe"))
+                if shoulder_distance is None or toe_distance is None:
+                    continue
+                section_distances[tier] = toe_distance - shoulder_distance
+            available_section_tiers = set(section_distances)
             section_distances = [
-                cross_section_distances[2 * j + 1] - cross_section_distances[2 * j]
-                for j in range(len(cross_section_distances) // 2)
+                section_distances.get(tier, 0.0)
+                for tier in range(1, max_tier + 1)
             ]
             section_slopes = slopes[i]
 
@@ -815,6 +831,12 @@ def get_world_embankment_points(
                 toe_idx = name_df[toe_mask].index[0]
                 shoulder_points = list(name_df.at[shoulder_idx, "points"])
                 toe_points = list(name_df.at[toe_idx, "points"])
+                if (
+                    i >= len(shoulder_points)
+                    or i >= len(toe_points)
+                    or tier not in available_section_tiers
+                ):
+                    continue
                 shoulder_point = shoulder_points[i]
                 toe_point = toe_points[i]
                 z_drop_to_shoulder = sum(
@@ -1000,7 +1022,6 @@ def get_world_embankment_points(
         ]
 
     for name, name_result in result.items():
-        tiers = sorted(key for key in name_result if isinstance(key, int))
         section_count = len(name_result[1]["shoulder"])
         for section_index in range(section_count):
             line_start = name_result["closure_points"]["bottom"][section_index]
@@ -1012,7 +1033,17 @@ def get_world_embankment_points(
                 raise ValueError(
                     f"Cannot define vertical section plane ({name}, section={section_index})"
                 )
-            for tier in tiers:
+            section_tiers = [
+                tier
+                for tier in sorted(key for key in name_result if isinstance(key, int))
+                if (
+                    "shoulder" in name_result[tier]
+                    and "toe" in name_result[tier]
+                    and section_index < len(name_result[tier]["shoulder"])
+                    and section_index < len(name_result[tier]["toe"])
+                )
+            ]
+            for tier in section_tiers:
                 for kind in ["shoulder", "toe"]:
                     points = name_result[tier][kind]
                     point = points[section_index]
@@ -1040,61 +1071,125 @@ def get_world_embankment_points(
     return result
 
 def get_brep_from_points(point_dict) -> dict[str, rg.Brep]:
-    def get_parallel_crvs(parallel_dict):
-        max_tier = max(key for key in parallel_dict if isinstance(key, int))
-        section_num = len(parallel_dict[1]["shoulder"])
-        parallel_points = [
-            [
-                parallel_dict["closure_points"]["top"][i],
-                *[
-                    point
-                    for tier in range(1, max_tier + 1)
-                    for point in (
-                        parallel_dict[tier]["shoulder"][i],
-                        parallel_dict[tier]["toe"][i],
+    def has_point(name_dict, tier, kind, index):
+        return (
+            tier in name_dict
+            and kind in name_dict[tier]
+            and index < len(name_dict[tier][kind])
+        )
+
+    def get_section_items(name_dict, index, *, include_top_closure: bool):
+        points = []
+        signature = []
+        if include_top_closure:
+            top_points = name_dict["closure_points"]["top"]
+            if index >= len(top_points):
+                return (), []
+            points.append(top_points[index])
+            signature.append(("closure", "top"))
+        for tier in sorted(key for key in name_dict if isinstance(key, int)):
+            if not (
+                has_point(name_dict, tier, "shoulder", index)
+                and has_point(name_dict, tier, "toe", index)
+            ):
+                continue
+            points.extend([
+                name_dict[tier]["shoulder"][index],
+                name_dict[tier]["toe"][index],
+            ])
+            signature.extend([(tier, "shoulder"), (tier, "toe")])
+        bottom_points = name_dict["closure_points"]["bottom"]
+        if index >= len(bottom_points):
+            return (), []
+        points.append(bottom_points[index])
+        signature.append(("closure", "bottom"))
+        return tuple(signature), points
+
+    def get_section_count(name_dict):
+        return max(
+            len(points)
+            for tier in [key for key in name_dict if isinstance(key, int)]
+            for points in name_dict[tier].values()
+        )
+
+    def get_name_sections(name_dict, *, include_top_closure: bool):
+        sections = []
+        for index in range(get_section_count(name_dict)):
+            signature, points = get_section_items(
+                name_dict,
+                index,
+                include_top_closure=include_top_closure,
+            )
+            if signature and len(points) >= 3:
+                sections.append({"signature": signature, "points": points})
+            else:
+                sections.append(None)
+        return sections
+
+    def get_same_signature_segments(sections):
+        segments = []
+        current = []
+        current_signature = None
+        for section in sections:
+            signature = None if section is None else section["signature"]
+            if signature is None:
+                if len(current) >= 2:
+                    segments.append(current)
+                current = []
+                current_signature = None
+                continue
+            if current_signature is not None and signature != current_signature:
+                if len(current) >= 2:
+                    segments.append(current)
+                current = [section]
+                current_signature = signature
+                continue
+            current.append(section)
+            current_signature = signature
+        if len(current) >= 2:
+            segments.append(current)
+        return segments
+
+    def get_segment_brep(name, segment, *, is_edge: bool):
+        breps = []
+        section_points = [section["points"] for section in segment]
+        for i in range(len(section_points) - 1):
+            next_points = section_points[i + 1]
+            if is_edge:
+                slope_brep = const_srf_from_2crvs(
+                    [
+                        const_polycurve_obj(section_points[i][:-1]),
+                        const_polycurve_obj(next_points[:-1]),
+                    ]
+                )
+                bottom_brep = const_planer_srf_obj_from_points(
+                    [
+                        section_points[i][-2],
+                        next_points[-2],
+                        section_points[i][-1],
+                    ]
+                )
+                breps.extend([slope_brep, bottom_brep])
+            else:
+                breps.append(
+                    const_brep_from_two_closed_point_lists(
+                        section_points[i],
+                        next_points,
+                        cap=False,
                     )
-                ],
-                parallel_dict["closure_points"]["bottom"][i],
-            ]
-            for i in range(section_num)
+                )
+        end_caps = [
+            const_planer_srf_obj_from_points(section_points[0]),
+            const_planer_srf_obj_from_points(section_points[-1]),
         ]
-        return parallel_points
-    def get_edge_crvs(edge_dict):
-        max_tier = max(key for key in edge_dict if isinstance(key, int))
-        section_num = len(edge_dict[1]["shoulder"])
-        edge_points = [
-            [
-                *[
-                    point
-                    for tier in range(1, max_tier + 1)
-                    for point in (
-                        edge_dict[tier]["shoulder"][i],
-                        edge_dict[tier]["toe"][i],
-                    )
-                ],
-                edge_dict["closure_points"]["bottom"][i],
-            ]
-            for i in range(section_num)
-        ]
-        return edge_points
-    def get_UD_edge_crvs(UD_edge_dict):
-        max_tier = max(key for key in UD_edge_dict if isinstance(key, int))
-        section_num = len(UD_edge_dict[1]["shoulder"])
-        UD_edge_points = [
-            [
-                *[
-                    point
-                    for tier in range(1, max_tier + 1)
-                    for point in (
-                        UD_edge_dict[tier]["shoulder"][i],
-                        UD_edge_dict[tier]["toe"][i],
-                    )
-                ],
-                UD_edge_dict["closure_points"]["bottom"][i],
-            ]
-            for i in range(section_num)
-        ]
-        return UD_edge_points
+        brep = join_breps_or_raise(
+            breps + end_caps,
+            context=name,
+        )
+        if not brep.IsSolid:
+            raise ValueError(f"Joined embankment brep is not solid ({name})")
+        return brep
+
     parallel_names = ["U_parallel", "D_parallel"]
     edge_names = []
     UD_edge_names = []
@@ -1110,78 +1205,46 @@ def get_brep_from_points(point_dict) -> dict[str, rg.Brep]:
     brep_dict = {}
     for name in all_names:
         name_dict = point_dict[name]
-        if name in parallel_names:
-            this_points = get_parallel_crvs(name_dict)
-        elif name in edge_names:
-            this_points = get_edge_crvs(name_dict)
-        elif name in UD_edge_names:
-            this_points = get_UD_edge_crvs(name_dict)
-        breps = []
-        for i in range(len(this_points) - 1):
-            next_points = this_points[(i + 1)]
-            if name in edge_names:
-                slope_brep = const_srf_from_2crvs(
-                    [
-                        const_polycurve_obj(this_points[i][:-1]),
-                        const_polycurve_obj(next_points[:-1]),
-                    ]
-                )
-                bottom_brep = const_planer_srf_obj_from_points(
-                    [
-                        this_points[i][-2],
-                        next_points[-2],
-                        this_points[i][-1],
-                    ]
-                )
-                breps.extend([slope_brep, bottom_brep])
-            else:
-                brep = const_brep_from_two_closed_point_lists(
-                    this_points[i],
-                    next_points,
-                    cap=False,
-                )
-                breps.append(brep)
-        end_caps = [
-            const_planer_srf_obj_from_points(this_points[0]),
-            const_planer_srf_obj_from_points(this_points[-1]),
-        ]
-        brep = join_breps_or_raise(
-            breps + end_caps,
-            context=name,
+        is_edge = name in edge_names
+        sections = get_name_sections(
+            name_dict,
+            include_top_closure=name in parallel_names,
         )
-        if not brep.IsSolid:
-            raise ValueError(f"Joined embankment brep is not solid ({name})")
-        if name in UD_edge_names:
-            trim_points = list(name_dict["trim_points"])
-            bridge_mid_point = center_point_pair(
-                trim_points[0],
-                trim_points[3],
-            )
-            soil_mid_point = center_point_pair(
-                trim_points[1],
-                trim_points[2],
-            )
-            keep_point = Point3D(
-                2 * bridge_mid_point.x - soil_mid_point.x,
-                2 * bridge_mid_point.y - soil_mid_point.y,
-                STANDARD_BASE_Z,
-            )
-            cut_point = Point3D(
-                soil_mid_point.x,
-                soil_mid_point.y,
-                STANDARD_BASE_Z,
-            )
-            brep = split_brep_by_vertical_srf_from_two_points_keep_near_point(
-                target_brep=brep,
-                cutter_points=[trim_points[0], trim_points[3]],
-                keep_point=keep_point,
-                cut_point=cut_point,
-                cap=True,
-                tol=DISTANCE_TOL,
-            )
-            if not brep.IsSolid:
-                raise ValueError(f"Trimmed UD embankment brep is not solid ({name})")
-        brep_dict[name] = brep
+        segments = get_same_signature_segments(sections)
+        for segment_index, segment in enumerate(segments, start=1):
+            brep = get_segment_brep(name, segment, is_edge=is_edge)
+            if name in UD_edge_names:
+                trim_points = list(name_dict["trim_points"])
+                bridge_mid_point = center_point_pair(
+                    trim_points[0],
+                    trim_points[3],
+                )
+                soil_mid_point = center_point_pair(
+                    trim_points[1],
+                    trim_points[2],
+                )
+                keep_point = Point3D(
+                    2 * bridge_mid_point.x - soil_mid_point.x,
+                    2 * bridge_mid_point.y - soil_mid_point.y,
+                    STANDARD_BASE_Z,
+                )
+                cut_point = Point3D(
+                    soil_mid_point.x,
+                    soil_mid_point.y,
+                    STANDARD_BASE_Z,
+                )
+                brep = split_brep_by_vertical_srf_from_two_points_keep_near_point(
+                    target_brep=brep,
+                    cutter_points=[trim_points[0], trim_points[3]],
+                    keep_point=keep_point,
+                    cut_point=cut_point,
+                    cap=True,
+                    tol=DISTANCE_TOL,
+                )
+                if not brep.IsSolid:
+                    raise ValueError(f"Trimmed UD embankment brep is not solid ({name})")
+            key = name if len(segments) == 1 else f"{name}_{segment_index}"
+            brep_dict[key] = brep
 
     return brep_dict
 
