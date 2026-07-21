@@ -348,6 +348,7 @@ def get_pavement_brep(
             keep_point=road_srf_points.Upoint[-1],
             cut_point=road_srf_points.Upoint[0],
             cap=False,
+            return_original_if_not_split=True,
         )
 
     end_abut_line = get_abut_cut_line(pavement_info, abut_points_dict, edge="end")
@@ -358,6 +359,7 @@ def get_pavement_brep(
             keep_point=road_srf_points.Upoint[0],
             cut_point=road_srf_points.Upoint[-1],
             cap=False,
+            return_original_if_not_split=True,
         )
 
     return brep

@@ -544,6 +544,7 @@ def split_brep_by_vertical_srf_from_two_points_keep_near_point(
     cut_point: Union[Point3D, Point2D, rg.Point3d],
     *,
     cap: bool = True,
+    return_original_if_not_split: bool = False,
     tol: float = DISTANCE_TOL,
 ) -> rg.Brep:
     if len(cutter_points) != 2:
@@ -558,6 +559,10 @@ def split_brep_by_vertical_srf_from_two_points_keep_near_point(
         cutter_points[1],
     )
     split_result = target_brep.Split(cutter_srf, tol)
+    if return_original_if_not_split and (
+        not split_result or split_result.Length <= 1
+    ):
+        return target_brep
     pieces = list(split_result) if split_result and split_result.Length > 0 else [target_brep]
 
     keep_pt = const_point_obj(keep_point)
