@@ -93,6 +93,16 @@ def get_tier_position_from_curve_name(curve_name: str) -> tuple[int, str]:
     return int(match.group("tier")), match.group("kind")
 
 
+def is_embankment_tier_curve_name(
+    curve_name: str,
+    pavement_name: str,
+    pavement_num: str,
+) -> bool:
+    if not str(curve_name).startswith(f"{pavement_name}_{pavement_num}_"):
+        return False
+    return CURVE_NAME_RE.match(str(curve_name)) is not None
+
+
 def get_curve_between_start_end_lines(
     curve: rg.Curve,
     start_edge_points: tuple[Point3D, Point3D],
@@ -640,7 +650,11 @@ def get_world_embankment_points(
     elif make_end_edge:
         raise ValueError(f"Unknown end edge structure: {end_edge_structure}")
 
-    curves = {get_tier_position_from_curve_name(name): curve for name, curve in named_curves.items() if name.startswith(f"{pavement_info.name}_{pavement_info.num}_")}
+    curves = {
+        get_tier_position_from_curve_name(name): curve
+        for name, curve in named_curves.items()
+        if is_embankment_tier_curve_name(name, pavement_info.name, pavement_info.num)
+    }
     start_edge_points = (
         abut_points["start"]["U"]["wing_soil"],
         abut_points["start"]["D"]["wing_soil"],
