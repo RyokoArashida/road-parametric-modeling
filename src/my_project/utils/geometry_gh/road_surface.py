@@ -9,7 +9,6 @@ from my_project.config.constants import (
     EPS,
 )
 from my_project.config.schemas.road_surface_schemas import (
-    EmbankmentPaveInfo,
     RoadSurfaceInfo,
     typeInfo,
 )
@@ -357,38 +356,3 @@ def get_slope_at_STA(target_STA: float, slope_STAs: list[float], slopes: list[fl
     )
 
 
-def get_embankment_edge_points(
-    center_line_points: list[rg.Point3d],
-    left_vectors: list[Vector2D],
-    center_line_STAs: list[float],
-    embankment_pave_infos: list[EmbankmentPaveInfo],
-) -> tuple[dict[int, list[rg.Point3d]], dict[int, list[rg.Point3d]], dict[int, list[float]]]:
-    U_edge_points_dict = {}
-    D_edge_points_dict = {}
-    edge_STAs_dict = {}
-    for i, embankment_pave_info in enumerate(embankment_pave_infos):
-        slope_infos = sorted(embankment_pave_info.slope_infos, key=lambda s: s.STA)
-        slope_STAs = [slope_info.STA for slope_info in slope_infos]
-        slopes = [slope_info.slope for slope_info in slope_infos]
-        width = embankment_pave_info.width
-        if width is None:
-            raise ValueError("width is required when embankment pavement edge points are generated from road surface info.")
-        U_edge_points = []
-        D_edge_points = []
-        target_center_points, target_left_vectors, target_STAs = get_center_samples_in_STA_range(
-            start_STA=slope_STAs[0],
-            end_STA=slope_STAs[-1],
-            center_line_points=center_line_points,
-            left_vectors=left_vectors,
-            center_line_STAs=center_line_STAs,
-        )
-        for center_point, left_vector_2D, this_STA in zip(target_center_points, target_left_vectors, target_STAs):
-            slope = get_slope_at_STA(this_STA, slope_STAs, slopes)
-            left_vector_3D = rg.Vector3d(left_vector_2D.x, left_vector_2D.y, slope)
-            right_vector_3D = rg.Vector3d(-left_vector_2D.x, -left_vector_2D.y, -slope)
-            U_edge_points.append(center_point + left_vector_3D * width / 2)
-            D_edge_points.append(center_point + right_vector_3D * width / 2)
-        U_edge_points_dict[i] = U_edge_points
-        D_edge_points_dict[i] = D_edge_points
-        edge_STAs_dict[i] = target_STAs
-    return U_edge_points_dict, D_edge_points_dict, edge_STAs_dict

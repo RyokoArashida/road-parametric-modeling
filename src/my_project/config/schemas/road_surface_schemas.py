@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional, Union
 
-from my_project.config.util_schemas import Frame2D, MonoSlope, Point3D, Point2D
+from my_project.config.util_schemas import Frame2D, Point3D, Point2D
 
 
 @dataclass(frozen=True)
@@ -22,21 +22,10 @@ class ZInfo:
     post_slope: float # 次の点への縦断勾配。
 
 @dataclass(frozen=True)
-class SlopeInfo:
-    STA: float
-    slope: MonoSlope #その点における横断勾配。U側→D側
-
-@dataclass(frozen=True)
-class EmbankmentPaveInfo:
-    slope_infos: list[SlopeInfo] #これは始点から終点まで。間の点は含む
-    width: float
-
-@dataclass(frozen=True)
 class RoadSurfaceInfo:
     plan_STAs: list[float] # 各点のSTA。100mm単位＋mm単位
     plan_Coord_infos: list[Point2D]
     z_infos: list[ZInfo]
     type_infos: list[typeInfo]
-    embankment_pave_infos: Optional[list[EmbankmentPaveInfo]] = None
     
     
