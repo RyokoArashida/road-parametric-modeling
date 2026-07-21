@@ -1149,7 +1149,7 @@ def get_brep_from_points(point_dict) -> dict[str, rg.Brep]:
             segments.append(current)
         return segments
 
-    def get_segment_brep(name, segment):
+    def get_segment_brep(name, segment, *, require_solid: bool):
         breps = []
         section_points = [section["points"] for section in segment]
         for i in range(len(section_points) - 1):
@@ -1169,7 +1169,7 @@ def get_brep_from_points(point_dict) -> dict[str, rg.Brep]:
         if not joined:
             raise ValueError(f"Failed to join breps ({name})")
         for brep in joined:
-            if not brep.IsSolid:
+            if require_solid and not brep.IsSolid:
                 raise ValueError(f"Joined embankment brep is not solid ({name})")
         return list(joined)
 
@@ -1188,13 +1188,18 @@ def get_brep_from_points(point_dict) -> dict[str, rg.Brep]:
     brep_dict = {}
     for name in all_names:
         name_dict = point_dict[name]
+        require_solid = name not in edge_names
         sections = get_name_sections(
             name_dict,
             include_top_closure=name in parallel_names,
         )
         segments = get_same_signature_segments(sections)
         for segment_index, segment in enumerate(segments, start=1):
-            segment_breps = get_segment_brep(name, segment)
+            segment_breps = get_segment_brep(
+                name,
+                segment,
+                require_solid=require_solid,
+            )
             for brep_index, brep in enumerate(segment_breps, start=1):
                 if name in UD_edge_names:
                     trim_points = list(name_dict["trim_points"])
