@@ -1258,7 +1258,13 @@ def get_world_embankment_points(
         def get_section_slope(section_index: int, tier: int) -> float:
             if not slopes:
                 raise ValueError("No embankment slopes were calculated")
-            if section_index >= len(slopes):
+            tier_index = tier - 1
+            if tier_index >= len(slopes):
+                raise ValueError(
+                    f"Missing embankment slope tier: section={section_index}, tier={tier}"
+                )
+            slope_row = slopes[tier_index]
+            if section_index >= len(slope_row):
                 counts = [
                     {
                         "name": row["name"],
@@ -1270,16 +1276,11 @@ def get_world_embankment_points(
                 ]
                 raise ValueError(
                     "Embankment section point count mismatch. "
-                    f"section={section_index}, slope_count={len(slopes)}, "
+                    f"section={section_index}, slope_count={len(slope_row)}, "
                     f"tier1_shoulder_count={len(tier1_shoulder_points)}, "
                     f"counts={counts}"
                 )
-            slope_row = slopes[section_index]
-            if tier - 1 >= len(slope_row):
-                raise ValueError(
-                    f"Missing embankment slope: section={section_index}, tier={tier}"
-                )
-            section_slope = slope_row[tier - 1]
+            section_slope = slope_row[section_index]
             if abs(section_slope) < DISTANCE_TOL:
                 raise ValueError(
                     f"Embankment slope is zero: section={section_index}, tier={tier}"
