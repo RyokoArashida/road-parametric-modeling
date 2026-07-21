@@ -1162,11 +1162,10 @@ def get_brep_from_points(point_dict) -> dict[str, rg.Brep]:
                         const_polycurve_obj(next_points[:-1]),
                     ]
                 )
-                bottom_brep = const_planer_srf_obj_from_points(
+                bottom_brep = const_srf_from_2crvs(
                     [
-                        section_points[i][-2],
-                        next_points[-2],
-                        section_points[i][-1],
+                        const_polycurve_obj([section_points[i][-2], next_points[-2]]),
+                        const_polycurve_obj([section_points[i][-1], next_points[-1]]),
                     ]
                 )
                 breps.extend([slope_brep, bottom_brep])
