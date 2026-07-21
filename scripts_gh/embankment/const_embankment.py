@@ -447,6 +447,35 @@ def split_embankment_boundary_curve_by_abut_points(
         oriented_curve = split_item["curve"]
         boundary_name = classify_boundary_curve(oriented_curve)
         sample_points = get_sample_points(oriented_curve)
+        split_matches = split_item["start_matches"] | split_item["end_matches"]
+        if (
+            end_limit_points is not None
+            and not make_end_edge
+            and "end_limit" in split_matches
+            and boundary_name in {"start_edge", "end_edge"}
+            and len(sample_points) > 3
+        ):
+            boundary_name = classify_curve_by_nearest_line(
+                oriented_curve,
+                {
+                    "U_parallel": U_parallel_points,
+                    "D_parallel": D_parallel_points,
+                },
+            )
+        if (
+            start_limit_points is not None
+            and not make_start_edge
+            and "start_limit" in split_matches
+            and boundary_name in {"start_edge", "end_edge"}
+            and len(sample_points) > 3
+        ):
+            boundary_name = classify_curve_by_nearest_line(
+                oriented_curve,
+                {
+                    "U_parallel": U_parallel_points,
+                    "D_parallel": D_parallel_points,
+                },
+            )
         skip_reason = None
         if start_limit_points is not None and not make_start_edge:
             start_limit_distance = get_average_distance(
@@ -564,13 +593,30 @@ def split_embankment_boundary_curve_by_abut_points(
             reference_points = D_parallel_points
         else:
             reference_points = start_edge_points
-        target_curve = min(
-            curves,
-            key=lambda target_curve: get_average_distance(
-                get_sample_points(target_curve),
-                reference_points,
-            ),
-        )
+        if end_limit_points is not None and not make_end_edge:
+            target_curve = max(
+                curves,
+                key=lambda target_curve: get_average_distance(
+                    get_sample_points(target_curve),
+                    end_limit_points,
+                ),
+            )
+        elif start_limit_points is not None and not make_start_edge:
+            target_curve = max(
+                curves,
+                key=lambda target_curve: get_average_distance(
+                    get_sample_points(target_curve),
+                    start_limit_points,
+                ),
+            )
+        else:
+            target_curve = min(
+                curves,
+                key=lambda target_curve: get_average_distance(
+                    get_sample_points(target_curve),
+                    reference_points,
+                ),
+            )
         add_result(key, target_curve)
     if not result:
         raise ValueError(f"No embankment boundary curves were classified: {context}")
