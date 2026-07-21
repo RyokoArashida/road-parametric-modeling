@@ -27,17 +27,9 @@ class SlopeInfo:
     slope: MonoSlope #その点における横断勾配。U側→D側
 
 @dataclass(frozen=True)
-class EmbankmentPaveEdgeLineInfo:
-    plan_STAs: list[float]
-    plan_Coord_infos: list[Point2D]
-    type_infos: list[typeInfo]
-
-@dataclass(frozen=True)
 class EmbankmentPaveInfo:
     slope_infos: list[SlopeInfo] #これは始点から終点まで。間の点は含む
-    width: Optional[float] = None
-    U_edge_line_info: Optional[EmbankmentPaveEdgeLineInfo] = None
-    D_edge_line_info: Optional[EmbankmentPaveEdgeLineInfo] = None
+    width: float
 
 @dataclass(frozen=True)
 class RoadSurfaceInfo:
