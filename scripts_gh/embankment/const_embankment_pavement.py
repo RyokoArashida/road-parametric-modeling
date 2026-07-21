@@ -335,7 +335,10 @@ def get_pavement_brep(
     D_top_crv = const_polycurve_obj([const_point_obj(p) for p in road_srf_points.Dpoint])
     U_bottom_crv = const_polycurve_obj([const_point_obj(p) for p in bottom_points_info["U_points"]])
     D_bottom_crv = const_polycurve_obj([const_point_obj(p) for p in bottom_points_info["D_points"]])
-    brep = const_brep_from_all_crvs([U_top_crv, D_top_crv, D_bottom_crv, U_bottom_crv])
+    brep = const_brep_from_all_crvs(
+        [U_top_crv, D_top_crv, D_bottom_crv, U_bottom_crv],
+        cap=False,
+    )
 
     start_abut_line = get_abut_cut_line(pavement_info, abut_points_dict, edge="start")
     if start_abut_line is not None:
@@ -344,6 +347,7 @@ def get_pavement_brep(
             cutter_points=start_abut_line,
             keep_point=road_srf_points.Upoint[-1],
             cut_point=road_srf_points.Upoint[0],
+            cap=False,
         )
 
     end_abut_line = get_abut_cut_line(pavement_info, abut_points_dict, edge="end")
@@ -353,6 +357,7 @@ def get_pavement_brep(
             cutter_points=end_abut_line,
             keep_point=road_srf_points.Upoint[0],
             cut_point=road_srf_points.Upoint[-1],
+            cap=False,
         )
 
     return brep
@@ -415,7 +420,7 @@ def main(initial_or_final: str, debug: bool = False, layer_index=None):
         world_items_dict_for_bake[key] = get_pavement_brep(
             pavement_info=pavement_info,
             road_srf_points=road_srf_points,
-            bottom_points_info=bottom_points_info,
+            bottom_points_info=bottom_points_info_for_save,
             abut_points_dict=abut_points_dict,
         )
         world_items_dict_for_bake_2[key] = bottom_points_info_for_save
