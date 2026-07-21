@@ -105,15 +105,9 @@ def split_open_embankment_boundary_curve_by_lines(
     curve: rg.Curve,
     split_line_points: list[tuple[Point3D, Point3D]],
     target_line_points: dict[str, tuple[Point3D, Point3D]],
-    expected_count: int,
     cutter_length: float = DEFAULT_GEOMETRY_EXTENT,
 ) -> list[dict]:
     curve = const_curve_obj(curve)
-    if not curve.IsClosed:
-        closed_curve = rg.PolyCurve()
-        closed_curve.Append(curve.DuplicateCurve())
-        closed_curve.Append(rg.LineCurve(curve.PointAtEnd, curve.PointAtStart))
-        curve = closed_curve
     curve_on_reference_z = curve.DuplicateCurve()
     curve_on_reference_z.Transform(rg.Transform.PlanarProjection(rg.Plane.WorldXY))
     curve_on_reference_z.Transform(
@@ -144,37 +138,49 @@ def split_open_embankment_boundary_curve_by_lines(
                 split_params.append(t)
 
     split_params = sorted(split_params)
-    expected_split_point_count = expected_count if curve.IsClosed else expected_count - 1
-    if len(split_params) != expected_split_point_count:
-        raise ValueError(f"Expected {expected_split_point_count} split points, got {len(split_params)}")
+    if not split_params:
+        raise ValueError("No split points found for embankment boundary curve")
 
     split_curve_items = []
     domain = curve.Domain
-    for i, t0 in enumerate(split_params):
-        t1 = split_params[(i + 1) % len(split_params)]
-        if t0 < t1:
-            split_curve = curve.Trim(t0, t1)
-        else:
+    if curve.IsClosed:
+        trim_ranges = [
+            (t0, split_params[(i + 1) % len(split_params)])
+            for i, t0 in enumerate(split_params)
+        ]
+    else:
+        params = [domain.T0] + split_params + [domain.T1]
+        params = sorted({
+            param
+            for param in params
+            if domain.T0 - DISTANCE_TOL <= param <= domain.T1 + DISTANCE_TOL
+        })
+        trim_ranges = [
+            (t0, t1)
+            for t0, t1 in zip(params, params[1:])
+            if abs(t1 - t0) > DISTANCE_TOL
+        ]
+    for t0, t1 in trim_ranges:
+        if curve.IsClosed and t0 > t1:
             part1 = curve.Trim(t0, domain.T1)
             part2 = curve.Trim(domain.T0, t1)
-            if part1 is None or part2 is None:
-                split_curve = None
-            else:
+            if part1 is not None and part2 is not None:
                 split_curve = rg.PolyCurve()
                 split_curve.Append(part1)
                 split_curve.Append(part2)
-            if split_curve is None:
-                raise ValueError(f"Failed to trim closed curve between parameters: {t0}, {t1}")
+            else:
+                split_curve = None
+        else:
+            split_curve = curve.Trim(t0, t1)
+        if split_curve is None:
+            raise ValueError(f"Failed to trim embankment curve between parameters: {t0}, {t1}")
         split_curve_items.append(
             {
                 "curve": split_curve,
-                "start": point3d_from_rg(curve.PointAt(t0)),
-                "end": point3d_from_rg(curve.PointAt(t1)),
+                "start": point3d_from_rg(split_curve.PointAtStart),
+                "end": point3d_from_rg(split_curve.PointAtEnd),
             }
         )
-
-    if not split_curve_items or len(split_curve_items) != expected_count:
-        raise ValueError(f"Expected {expected_count} split curves, got {len(split_curve_items)}")
 
     items = []
     for split_curve_item in split_curve_items:
@@ -223,13 +229,14 @@ def split_embankment_boundary_curve_by_abut_points(
             "start_edge": start_edge_points,
             "end_edge": end_edge_points,
         },
-        expected_count=4,
     )
 
     result = {}
     for split_item in split_items:
         start = split_item["start"]
         end = split_item["end"]
+        if not split_item["start_matches"] or not split_item["end_matches"]:
+            continue
         start_on_start_edge = "start_edge" in split_item["start_matches"]
         end_on_start_edge = "start_edge" in split_item["end_matches"]
         start_on_end_edge = "end_edge" in split_item["start_matches"]
@@ -311,14 +318,8 @@ def split_embankment_boundary_curve_by_abut_points(
                 f"end_D_abut_points={end_D_abut_points}"
             )
 
-    expected_keys = {"U_parallel", "D_parallel"}
-    if make_start_edge:
-        expected_keys.update({"start_edge_U", "start_edge_UD", "start_edge_D"})
-    if make_end_edge:
-        expected_keys.update({"end_edge_U", "end_edge_UD", "end_edge_D"})
-    missing_keys = expected_keys - set(result)
-    if missing_keys:
-        raise ValueError(f"Missing split boundary curves: {sorted(missing_keys)}")
+    if not result:
+        raise ValueError(f"No embankment boundary curves were classified: {context}")
     return result
 
 def get_world_embankment_points(
