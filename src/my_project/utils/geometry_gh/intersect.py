@@ -573,7 +573,7 @@ def split_brep_by_vertical_srf_from_two_points_keep_near_point(
     if not candidates:
         raise ValueError("分割後のBrepのうち、keep_point側の部分が見つかりませんでした")
     kept_brep = max(candidates, key=lambda item: item[0])[1]
-    if cap:
+    if cap and not kept_brep.IsSolid:
         capped = kept_brep.CapPlanarHoles(tol)
         if capped is None:
             raise ValueError("Failed to cap brep after split")
