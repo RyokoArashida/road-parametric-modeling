@@ -584,16 +584,15 @@ def split_embankment_boundary_curve_by_abut_points(
             )
 
     for key, curves in result_candidates.items():
-        if len(curves) == 1:
-            add_result(key, curves[0])
-            continue
         if key == "U_parallel":
             reference_points = U_parallel_points
         elif key == "D_parallel":
             reference_points = D_parallel_points
         else:
             reference_points = start_edge_points
-        if end_limit_points is not None and not make_end_edge:
+        if len(curves) == 1:
+            target_curve = curves[0]
+        elif end_limit_points is not None and not make_end_edge:
             target_curve = min(
                 curves,
                 key=lambda target_curve: min(
@@ -629,6 +628,24 @@ def split_embankment_boundary_curve_by_abut_points(
                     reference_points,
                 ),
             )
+        if end_limit_points is not None and not make_end_edge:
+            if get_xy_distance_to_segment(
+                point3d_from_rg(target_curve.PointAtEnd),
+                start_edge_points,
+            ) < get_xy_distance_to_segment(
+                point3d_from_rg(target_curve.PointAtStart),
+                start_edge_points,
+            ):
+                target_curve.Reverse()
+        elif start_limit_points is not None and not make_start_edge:
+            if get_xy_distance_to_segment(
+                point3d_from_rg(target_curve.PointAtEnd),
+                end_edge_points,
+            ) < get_xy_distance_to_segment(
+                point3d_from_rg(target_curve.PointAtStart),
+                end_edge_points,
+            ):
+                target_curve.Reverse()
         add_result(key, target_curve)
     if not result:
         raise ValueError(f"No embankment boundary curves were classified: {context}")
