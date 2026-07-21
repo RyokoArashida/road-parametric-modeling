@@ -22,9 +22,10 @@ from my_project.utils.geometry_gh.attributes import (
     get_value_at_point_on_polyline,
 )
 from my_project.utils.geometry_gh.const import (
-    const_brep_from_all_crvs,
     const_point_obj,
     const_polycurve_obj,
+    const_srf_from_2crvs,
+    join_breps_or_raise,
 )
 from my_project.utils.geometry_gh.document import get_named_curves_on_layer
 from my_project.utils.geometry_gh.intersect import (
@@ -43,7 +44,7 @@ PAVEMENT_EDGE_EXTENSION_RATIO = 0.2
 
 
 def get_slope_value(slope) -> float:
-    return float(slope.value if hasattr(slope, "value") else slope)
+    return float(slope.value if hasattr(slope, "value") else slope) / 100
 
 
 def get_pavement_curve_name(pavement_info: EmbankmentPaveInfo, side: str) -> str:
@@ -325,6 +326,25 @@ def add_abut_cut_points_to_pavement_bottom_points(
     return output
 
 
+def const_pavement_brep_from_edge_curves(
+    U_top_crv,
+    D_top_crv,
+    U_bottom_crv,
+    D_bottom_crv,
+):
+    breps = [
+        const_srf_from_2crvs([U_top_crv, D_top_crv]),
+        const_srf_from_2crvs([U_bottom_crv, D_bottom_crv]),
+        const_srf_from_2crvs([U_top_crv, U_bottom_crv]),
+        const_srf_from_2crvs([D_top_crv, D_bottom_crv]),
+    ]
+    return join_breps_or_raise(
+        breps,
+        context="const_pavement_brep_from_edge_curves",
+        cap=True,
+    )
+
+
 def get_pavement_brep(
     pavement_info: EmbankmentPaveInfo,
     road_srf_points: PointsInfo,
@@ -335,9 +355,11 @@ def get_pavement_brep(
     D_top_crv = const_polycurve_obj([const_point_obj(p) for p in road_srf_points.Dpoint])
     U_bottom_crv = const_polycurve_obj([const_point_obj(p) for p in bottom_points_info["U_points"]])
     D_bottom_crv = const_polycurve_obj([const_point_obj(p) for p in bottom_points_info["D_points"]])
-    brep = const_brep_from_all_crvs(
-        [U_top_crv, D_top_crv, D_bottom_crv, U_bottom_crv],
-        cap=False,
+    brep = const_pavement_brep_from_edge_curves(
+        U_top_crv=U_top_crv,
+        D_top_crv=D_top_crv,
+        U_bottom_crv=U_bottom_crv,
+        D_bottom_crv=D_bottom_crv,
     )
 
     start_abut_line = get_abut_cut_line(pavement_info, abut_points_dict, edge="start")
@@ -347,7 +369,6 @@ def get_pavement_brep(
             cutter_points=start_abut_line,
             keep_point=road_srf_points.Upoint[-1],
             cut_point=road_srf_points.Upoint[0],
-            cap=False,
             return_original_if_not_split=True,
             prefer_same_side_as_keep_point=True,
         )
@@ -359,7 +380,6 @@ def get_pavement_brep(
             cutter_points=end_abut_line,
             keep_point=road_srf_points.Upoint[0],
             cut_point=road_srf_points.Upoint[-1],
-            cap=False,
             return_original_if_not_split=True,
             prefer_same_side_as_keep_point=True,
         )
@@ -424,7 +444,7 @@ def main(initial_or_final: str, debug: bool = False, layer_index=None):
         world_items_dict_for_bake[key] = get_pavement_brep(
             pavement_info=pavement_info,
             road_srf_points=road_srf_points,
-            bottom_points_info=bottom_points_info_for_save,
+            bottom_points_info=bottom_points_info,
             abut_points_dict=abut_points_dict,
         )
         world_items_dict_for_bake_2[key] = bottom_points_info_for_save
