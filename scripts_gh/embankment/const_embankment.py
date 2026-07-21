@@ -433,6 +433,10 @@ def split_embankment_boundary_curve_by_abut_points(
     elif end_limit_points is not None:
         split_line_points.append(end_limit_points)
         target_line_points["end_limit"] = end_limit_points
+    target_line_points["start_U_abut"] = start_U_abut_points
+    target_line_points["start_D_abut"] = start_D_abut_points
+    target_line_points["end_U_abut"] = end_U_abut_points
+    target_line_points["end_D_abut"] = end_D_abut_points
     split_items = split_open_embankment_boundary_curve_by_lines(
         curve=curve,
         split_line_points=split_line_points,
@@ -441,6 +445,42 @@ def split_embankment_boundary_curve_by_abut_points(
 
     result = {}
     result_candidates = {}
+
+    def get_parallel_limit_opposite_name(boundary_name: str, limit_name: str) -> str | None:
+        if boundary_name == "U_parallel" and limit_name == "end_limit":
+            return "start_U_abut"
+        if boundary_name == "D_parallel" and limit_name == "end_limit":
+            return "start_D_abut"
+        if boundary_name == "U_parallel" and limit_name == "start_limit":
+            return "end_U_abut"
+        if boundary_name == "D_parallel" and limit_name == "start_limit":
+            return "end_D_abut"
+        return None
+
+    def has_parallel_limit_pair(split_item: dict, boundary_name: str, limit_name: str) -> bool:
+        opposite_name = get_parallel_limit_opposite_name(boundary_name, limit_name)
+        if opposite_name is None:
+            return False
+        start_matches = split_item["start_matches"]
+        end_matches = split_item["end_matches"]
+        return (
+            limit_name in start_matches and opposite_name in end_matches
+        ) or (
+            opposite_name in start_matches and limit_name in end_matches
+        )
+
+    def get_parallel_opposite_points(boundary_name: str, limit_name: str) -> tuple[Point3D, Point3D]:
+        opposite_name = get_parallel_limit_opposite_name(boundary_name, limit_name)
+        if opposite_name == "start_U_abut":
+            return start_U_abut_points
+        if opposite_name == "start_D_abut":
+            return start_D_abut_points
+        if opposite_name == "end_U_abut":
+            return end_U_abut_points
+        if opposite_name == "end_D_abut":
+            return end_D_abut_points
+        raise ValueError(f"Unknown parallel limit opposite line: {boundary_name}, {limit_name}")
+
     for split_item in split_items:
         start = split_item["start"]
         end = split_item["end"]
@@ -455,13 +495,15 @@ def split_embankment_boundary_curve_by_abut_points(
             and boundary_name in {"start_edge", "end_edge"}
             and len(sample_points) > 3
         ):
-            boundary_name = classify_curve_by_nearest_line(
+            parallel_name = classify_curve_by_nearest_line(
                 oriented_curve,
                 {
                     "U_parallel": U_parallel_points,
                     "D_parallel": D_parallel_points,
                 },
             )
+            if has_parallel_limit_pair(split_item, parallel_name, "end_limit"):
+                boundary_name = parallel_name
         if (
             start_limit_points is not None
             and not make_start_edge
@@ -469,13 +511,15 @@ def split_embankment_boundary_curve_by_abut_points(
             and boundary_name in {"start_edge", "end_edge"}
             and len(sample_points) > 3
         ):
-            boundary_name = classify_curve_by_nearest_line(
+            parallel_name = classify_curve_by_nearest_line(
                 oriented_curve,
                 {
                     "U_parallel": U_parallel_points,
                     "D_parallel": D_parallel_points,
                 },
             )
+            if has_parallel_limit_pair(split_item, parallel_name, "start_limit"):
+                boundary_name = parallel_name
         skip_reason = None
         if start_limit_points is not None and not make_start_edge:
             start_limit_distance = get_average_distance(
@@ -491,6 +535,24 @@ def split_embankment_boundary_curve_by_abut_points(
             )
             if get_average_distance(sample_points, start_edge_points) > end_limit_distance + DISTANCE_TOL:
                 skip_reason = "outside_end_limit"
+        if (
+            skip_reason is None
+            and boundary_name in {"U_parallel", "D_parallel"}
+            and end_limit_points is not None
+            and not make_end_edge
+            and "end_limit" in split_matches
+            and not has_parallel_limit_pair(split_item, boundary_name, "end_limit")
+        ):
+            skip_reason = "parallel_missing_start_side_abut"
+        if (
+            skip_reason is None
+            and boundary_name in {"U_parallel", "D_parallel"}
+            and start_limit_points is not None
+            and not make_start_edge
+            and "start_limit" in split_matches
+            and not has_parallel_limit_pair(split_item, boundary_name, "start_limit")
+        ):
+            skip_reason = "parallel_missing_end_side_abut"
         EMBANKMENT_SPLIT_DEBUG.append(
             {
                 "context": context,
@@ -551,7 +613,13 @@ def split_embankment_boundary_curve_by_abut_points(
                 D_abut_points=end_D_abut_points,
             )
         elif boundary_name in {"U_parallel", "D_parallel"}:
-            if get_xy_distance_to_segment(end, start_edge_points) < get_xy_distance_to_segment(start, start_edge_points):
+            if end_limit_points is not None and not make_end_edge:
+                opposite_points = get_parallel_opposite_points(boundary_name, "end_limit")
+            elif start_limit_points is not None and not make_start_edge:
+                opposite_points = get_parallel_opposite_points(boundary_name, "start_limit")
+            else:
+                opposite_points = start_edge_points
+            if get_xy_distance_to_segment(end, opposite_points) < get_xy_distance_to_segment(start, opposite_points):
                 oriented_curve.Reverse()
             result_candidates.setdefault(boundary_name, []).append(oriented_curve)
         else:
@@ -593,30 +661,32 @@ def split_embankment_boundary_curve_by_abut_points(
         if len(curves) == 1:
             target_curve = curves[0]
         elif end_limit_points is not None and not make_end_edge:
+            opposite_points = get_parallel_opposite_points(key, "end_limit")
             target_curve = min(
                 curves,
                 key=lambda target_curve: min(
                     get_xy_distance_to_segment(
                         point3d_from_rg(target_curve.PointAtStart),
-                        start_edge_points,
+                        opposite_points,
                     ),
                     get_xy_distance_to_segment(
                         point3d_from_rg(target_curve.PointAtEnd),
-                        start_edge_points,
+                        opposite_points,
                     ),
                 ),
             )
         elif start_limit_points is not None and not make_start_edge:
+            opposite_points = get_parallel_opposite_points(key, "start_limit")
             target_curve = min(
                 curves,
                 key=lambda target_curve: min(
                     get_xy_distance_to_segment(
                         point3d_from_rg(target_curve.PointAtStart),
-                        end_edge_points,
+                        opposite_points,
                     ),
                     get_xy_distance_to_segment(
                         point3d_from_rg(target_curve.PointAtEnd),
-                        end_edge_points,
+                        opposite_points,
                     ),
                 ),
             )
@@ -629,21 +699,23 @@ def split_embankment_boundary_curve_by_abut_points(
                 ),
             )
         if end_limit_points is not None and not make_end_edge:
+            opposite_points = get_parallel_opposite_points(key, "end_limit")
             if get_xy_distance_to_segment(
                 point3d_from_rg(target_curve.PointAtEnd),
-                start_edge_points,
+                opposite_points,
             ) < get_xy_distance_to_segment(
                 point3d_from_rg(target_curve.PointAtStart),
-                start_edge_points,
+                opposite_points,
             ):
                 target_curve.Reverse()
         elif start_limit_points is not None and not make_start_edge:
+            opposite_points = get_parallel_opposite_points(key, "start_limit")
             if get_xy_distance_to_segment(
                 point3d_from_rg(target_curve.PointAtEnd),
-                end_edge_points,
+                opposite_points,
             ) < get_xy_distance_to_segment(
                 point3d_from_rg(target_curve.PointAtStart),
-                end_edge_points,
+                opposite_points,
             ):
                 target_curve.Reverse()
         add_result(key, target_curve)
