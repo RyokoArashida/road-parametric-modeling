@@ -335,7 +335,12 @@ def get_center_samples_in_STA_range(
     return list(sample_points), list(sample_left_vectors), list(sample_STAs)
 
 
+def get_slope_value(slope) -> float:
+    return float(slope.value if hasattr(slope, "value") else slope)
+
+
 def get_slope_at_STA(target_STA: float, slope_STAs: list[float], slopes: list[float]) -> float:
+    slopes = [get_slope_value(slope) for slope in slopes]
     for STA, slope in zip(slope_STAs, slopes):
         if abs(STA - target_STA) < DISTANCE_TOL:
             return slope
@@ -366,6 +371,8 @@ def get_embankment_edge_points(
         slope_STAs = [slope_info.STA for slope_info in slope_infos]
         slopes = [slope_info.slope for slope_info in slope_infos]
         width = embankment_pave_info.width
+        if width is None:
+            raise ValueError("width is required when embankment pavement edge points are generated from road surface info.")
         U_edge_points = []
         D_edge_points = []
         target_center_points, target_left_vectors, target_STAs = get_center_samples_in_STA_range(
