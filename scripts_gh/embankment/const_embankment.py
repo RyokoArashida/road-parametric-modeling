@@ -446,40 +446,62 @@ def split_embankment_boundary_curve_by_abut_points(
     result = {}
     result_candidates = {}
 
-    def get_parallel_limit_opposite_name(boundary_name: str, limit_name: str) -> str | None:
+    def get_parallel_limit_opposite_names(boundary_name: str, limit_name: str) -> set[str]:
         if boundary_name == "U_parallel" and limit_name == "end_limit":
-            return "start_U_abut"
+            return {"start_U_abut", "start_edge"}
         if boundary_name == "D_parallel" and limit_name == "end_limit":
-            return "start_D_abut"
+            return {"start_D_abut", "start_edge"}
         if boundary_name == "U_parallel" and limit_name == "start_limit":
-            return "end_U_abut"
+            return {"end_U_abut", "end_edge"}
         if boundary_name == "D_parallel" and limit_name == "start_limit":
-            return "end_D_abut"
-        return None
+            return {"end_D_abut", "end_edge"}
+        return set()
 
     def has_parallel_limit_pair(split_item: dict, boundary_name: str, limit_name: str) -> bool:
-        opposite_name = get_parallel_limit_opposite_name(boundary_name, limit_name)
-        if opposite_name is None:
+        opposite_names = get_parallel_limit_opposite_names(boundary_name, limit_name)
+        if not opposite_names:
             return False
         start_matches = split_item["start_matches"]
         end_matches = split_item["end_matches"]
         return (
-            limit_name in start_matches and opposite_name in end_matches
+            limit_name in start_matches and bool(opposite_names & end_matches)
         ) or (
-            opposite_name in start_matches and limit_name in end_matches
+            bool(opposite_names & start_matches) and limit_name in end_matches
         )
 
     def get_parallel_opposite_points(boundary_name: str, limit_name: str) -> tuple[Point3D, Point3D]:
-        opposite_name = get_parallel_limit_opposite_name(boundary_name, limit_name)
-        if opposite_name == "start_U_abut":
+        opposite_names = get_parallel_limit_opposite_names(boundary_name, limit_name)
+        if "start_U_abut" in opposite_names:
             return start_U_abut_points
-        if opposite_name == "start_D_abut":
+        if "start_D_abut" in opposite_names:
             return start_D_abut_points
-        if opposite_name == "end_U_abut":
+        if "end_U_abut" in opposite_names:
             return end_U_abut_points
-        if opposite_name == "end_D_abut":
+        if "end_D_abut" in opposite_names:
             return end_D_abut_points
         raise ValueError(f"Unknown parallel limit opposite line: {boundary_name}, {limit_name}")
+
+    def get_matched_parallel_opposite_points(
+        split_item: dict,
+        boundary_name: str,
+        limit_name: str,
+    ) -> tuple[Point3D, Point3D]:
+        opposite_names = get_parallel_limit_opposite_names(boundary_name, limit_name)
+        matches = split_item["start_matches"] | split_item["end_matches"]
+        for opposite_name in opposite_names & matches:
+            if opposite_name == "start_edge":
+                return start_edge_points
+            if opposite_name == "end_edge":
+                return end_edge_points
+            if opposite_name == "start_U_abut":
+                return start_U_abut_points
+            if opposite_name == "start_D_abut":
+                return start_D_abut_points
+            if opposite_name == "end_U_abut":
+                return end_U_abut_points
+            if opposite_name == "end_D_abut":
+                return end_D_abut_points
+        return get_parallel_opposite_points(boundary_name, limit_name)
 
     for split_item in split_items:
         start = split_item["start"]
@@ -614,9 +636,9 @@ def split_embankment_boundary_curve_by_abut_points(
             )
         elif boundary_name in {"U_parallel", "D_parallel"}:
             if end_limit_points is not None and not make_end_edge:
-                opposite_points = get_parallel_opposite_points(boundary_name, "end_limit")
+                opposite_points = get_matched_parallel_opposite_points(split_item, boundary_name, "end_limit")
             elif start_limit_points is not None and not make_start_edge:
-                opposite_points = get_parallel_opposite_points(boundary_name, "start_limit")
+                opposite_points = get_matched_parallel_opposite_points(split_item, boundary_name, "start_limit")
             else:
                 opposite_points = start_edge_points
             if get_xy_distance_to_segment(end, opposite_points) < get_xy_distance_to_segment(start, opposite_points):
