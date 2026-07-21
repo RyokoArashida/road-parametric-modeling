@@ -109,6 +109,11 @@ def split_open_embankment_boundary_curve_by_lines(
     cutter_length: float = DEFAULT_GEOMETRY_EXTENT,
 ) -> list[dict]:
     curve = const_curve_obj(curve)
+    if not curve.IsClosed:
+        closed_curve = rg.PolyCurve()
+        closed_curve.Append(curve.DuplicateCurve())
+        closed_curve.Append(rg.LineCurve(curve.PointAtEnd, curve.PointAtStart))
+        curve = closed_curve
     curve_on_reference_z = curve.DuplicateCurve()
     curve_on_reference_z.Transform(rg.Transform.PlanarProjection(rg.Plane.WorldXY))
     curve_on_reference_z.Transform(
@@ -138,65 +143,35 @@ def split_open_embankment_boundary_curve_by_lines(
             if all(abs(t - existing) > DISTANCE_TOL for existing in split_params):
                 split_params.append(t)
 
-    if not curve.IsClosed:
-        for t in [curve.Domain.T0, curve.Domain.T1]:
-            point = point3d_from_rg(curve.PointAt(t))
-            if any(
-                get_xy_distance_to_segment(point, points) <= DISTANCE_TOL
-                for points in extended_target_line_points.values()
-            ) and all(abs(t - existing) > DISTANCE_TOL for existing in split_params):
-                split_params.append(t)
-
     split_params = sorted(split_params)
     expected_split_point_count = expected_count if curve.IsClosed else expected_count - 1
     if len(split_params) != expected_split_point_count:
         raise ValueError(f"Expected {expected_split_point_count} split points, got {len(split_params)}")
 
     split_curve_items = []
-    if curve.IsClosed:
-        domain = curve.Domain
-        for i, t0 in enumerate(split_params):
-            t1 = split_params[(i + 1) % len(split_params)]
-            if t0 < t1:
-                split_curve = curve.Trim(t0, t1)
+    domain = curve.Domain
+    for i, t0 in enumerate(split_params):
+        t1 = split_params[(i + 1) % len(split_params)]
+        if t0 < t1:
+            split_curve = curve.Trim(t0, t1)
+        else:
+            part1 = curve.Trim(t0, domain.T1)
+            part2 = curve.Trim(domain.T0, t1)
+            if part1 is None or part2 is None:
+                split_curve = None
             else:
-                part1 = curve.Trim(t0, domain.T1)
-                part2 = curve.Trim(domain.T0, t1)
-                if part1 is None or part2 is None:
-                    split_curve = None
-                else:
-                    split_curve = rg.PolyCurve()
-                    split_curve.Append(part1)
-                    split_curve.Append(part2)
+                split_curve = rg.PolyCurve()
+                split_curve.Append(part1)
+                split_curve.Append(part2)
             if split_curve is None:
                 raise ValueError(f"Failed to trim closed curve between parameters: {t0}, {t1}")
-            split_curve_items.append(
-                {
-                    "curve": split_curve,
-                    "start": point3d_from_rg(curve.PointAt(t0)),
-                    "end": point3d_from_rg(curve.PointAt(t1)),
-                }
-            )
-    else:
-        params = [curve.Domain.T0] + split_params + [curve.Domain.T1]
-        params = sorted({
-            param
-            for param in params
-            if curve.Domain.T0 - DISTANCE_TOL <= param <= curve.Domain.T1 + DISTANCE_TOL
-        })
-        for t0, t1 in zip(params, params[1:]):
-            if abs(t1 - t0) <= DISTANCE_TOL:
-                continue
-            split_curve = curve.Trim(t0, t1)
-            if split_curve is None:
-                raise ValueError(f"Failed to trim open curve between parameters: {t0}, {t1}")
-            split_curve_items.append(
-                {
-                    "curve": split_curve,
-                    "start": point3d_from_rg(split_curve.PointAtStart),
-                    "end": point3d_from_rg(split_curve.PointAtEnd),
-                }
-            )
+        split_curve_items.append(
+            {
+                "curve": split_curve,
+                "start": point3d_from_rg(curve.PointAt(t0)),
+                "end": point3d_from_rg(curve.PointAt(t1)),
+            }
+        )
 
     if not split_curve_items or len(split_curve_items) != expected_count:
         raise ValueError(f"Expected {expected_count} split curves, got {len(split_curve_items)}")
