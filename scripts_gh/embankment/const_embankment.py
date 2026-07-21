@@ -1240,6 +1240,21 @@ def get_world_embankment_points(
     def get_cross_section_height_with_slope(name_df, slopes):
         name_df = name_df.copy()
         tier1_shoulder_points = name_df[(name_df["tier"] == 1) & (name_df["kind"] == "shoulder")]["points"].iloc[0]
+        def get_section_slope(section_index: int, tier: int) -> float:
+            if not slopes:
+                raise ValueError("No embankment slopes were calculated")
+            slope_row = slopes[min(section_index, len(slopes) - 1)]
+            if tier - 1 >= len(slope_row):
+                raise ValueError(
+                    f"Missing embankment slope: section={section_index}, tier={tier}"
+                )
+            section_slope = slope_row[tier - 1]
+            if abs(section_slope) < DISTANCE_TOL:
+                raise ValueError(
+                    f"Embankment slope is zero: section={section_index}, tier={tier}"
+                )
+            return section_slope
+
         for i in range(len(tier1_shoulder_points)):
             max_tier = int(name_df["tier"].max())
             previous_point = tier1_shoulder_points[i]
@@ -1267,7 +1282,7 @@ def get_world_embankment_points(
                 else:
                     shoulder_z = previous_z - (
                         get_distance_2D(previous_point, shoulder_point)
-                        / slopes[i][tier - 1]
+                        / get_section_slope(i, tier)
                     )
                 if get_distance_2D(shoulder_point, toe_point) <= DISTANCE_TOL:
                     toe_z = shoulder_z
@@ -1276,7 +1291,7 @@ def get_world_embankment_points(
                 else:
                     toe_z = shoulder_z - (
                         get_distance_2D(shoulder_point, toe_point)
-                        / slopes[i][tier - 1]
+                        / get_section_slope(i, tier)
                     )
                 shoulder_points[i] = Point3D(shoulder_point.x, shoulder_point.y, shoulder_z)
                 toe_points[i] = Point3D(toe_point.x, toe_point.y, toe_z)
