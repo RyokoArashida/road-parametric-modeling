@@ -6,6 +6,7 @@ import pandas as pd
 from my_project.config.file_names import Filenames
 from my_project.config.paths import get_input_output_dirs
 from my_project.config.schemas.road_surface_schemas import (
+    EmbankmentPaveEdgeLineInfo,
     EmbankmentPaveInfo,
     RoadSurfaceInfo,
     SlopeInfo,
@@ -161,11 +162,112 @@ def get_slope_infos(
     return slope_infos
 
 
+def get_all_slope_infos(slope_info_df: pd.DataFrame) -> list[SlopeInfo]:
+    slope_infos = []
+    for _, row in slope_info_df.iterrows():
+        if pd.isna(row["測点大"]) or pd.isna(row["測点小"]):
+            continue
+        slope_infos.append(
+            SlopeInfo(
+                STA=get_STA_from_STA_info(row["測点大"], row["測点小"]),
+                slope=MonoSlope(row["横断勾配"]),
+            )
+        )
+    return sorted(slope_infos, key=lambda slope_info: slope_info.STA)
+
+
+def normalize_edge_side(value: str) -> str:
+    side = str(value).strip()
+    if side in {"U", "u", "上り", "上り線", "左"}:
+        return "U"
+    if side in {"D", "d", "下り", "下り線", "右"}:
+        return "D"
+    raise ValueError(f"Unknown pavement edge side: {value}")
+
+
+def get_edge_line_info(edge_line_df: pd.DataFrame) -> EmbankmentPaveEdgeLineInfo:
+    STAs = []
+    coord_infos = []
+    type_infos = []
+    for _, row in edge_line_df.iterrows():
+        if pd.isna(row["X座標"]) or pd.isna(row["Y座標"]):
+            continue
+        STAs.append(None)
+        coord_infos.append(Point2D(x=row["X座標"] * 1000, y=row["Y座標"] * 1000))
+        if pd.isna(row["形式"]):
+            continue
+        shape_type = get_shape_type(row["形式"])
+        direction = get_curve_direction(row["向き"]) if shape_type in ("arc", "clothoid") else None
+        type_infos.append(
+            typeInfo(
+                type=shape_type,
+                direction=direction,
+                radius=get_radius(row["曲線R"]),
+                start_radius=get_radius(row["クロソイド始点R"]),
+                end_radius=get_radius(row["クロソイド終点R"]),
+            )
+        )
+
+    expected_type_count = max(len(coord_infos) - 1, 0)
+    if len(type_infos) != expected_type_count:
+        raise ValueError(
+            "Pavement edge line data must have one shape type per segment. "
+            f"points={len(coord_infos)}, type_infos={len(type_infos)}"
+        )
+    STAs = fill_missing_plan_STAs(STAs, coord_infos, type_infos)
+    return EmbankmentPaveEdgeLineInfo(
+        plan_STAs=STAs,
+        plan_Coord_infos=coord_infos,
+        type_infos=type_infos,
+    )
+
+
+def get_edge_line_info_dict(edge_line_df: Optional[pd.DataFrame]) -> dict[tuple[str, int, str], EmbankmentPaveEdgeLineInfo]:
+    if edge_line_df is None:
+        return {}
+    required_cols = [
+        "名称",
+        "番号",
+        "側",
+        "X座標",
+        "Y座標",
+        "形式",
+        "向き",
+        "曲線R",
+        "クロソイド始点R",
+        "クロソイド終点R",
+    ]
+    missing_cols = [col for col in required_cols if col not in edge_line_df.columns]
+    if missing_cols:
+        raise ValueError(
+            "Required columns are missing in 舗装端部ライン. "
+            f"missing={missing_cols}, columns={list(edge_line_df.columns)}"
+        )
+
+    edge_line_infos = {}
+    for (name, num, side), group_df in edge_line_df.groupby(["名称", "番号", "側"], sort=False):
+        edge_line_infos[(str(name), int(num), normalize_edge_side(side))] = get_edge_line_info(group_df)
+    return edge_line_infos
+
+
+def read_optional_sheet(file_path, sheet_name: str) -> Optional[pd.DataFrame]:
+    try:
+        return read_file_to_df(
+            file_path=file_path,
+            sheet_name=sheet_name,
+        )
+    except ValueError as exc:
+        if "Worksheet" in str(exc):
+            return None
+        raise
+
+
 def get_road_center_info(
     plan_road_center_df: pd.DataFrame,
     z_road_center_df: Optional[pd.DataFrame],
     embankment_target_df: Optional[pd.DataFrame],
     slope_info_df: Optional[pd.DataFrame],
+    edge_line_info_dict: Optional[dict[tuple[str, int, str], EmbankmentPaveEdgeLineInfo]] = None,
 ) -> RoadSurfaceInfo:
     STAs = []
     coord_infos = []
@@ -225,15 +327,31 @@ def get_road_center_info(
         raise ValueError("slope_info_df is required when embankment targets exist")
 
     embankment_pave_infos = []
+    edge_line_info_dict = edge_line_info_dict or {}
     for _, row in embankment_target_df.iterrows():
-        start_STA = get_STA_from_STA_info(row["舗装始点_測点大"], row["舗装始点_測点小"])
-        end_STA = get_STA_from_STA_info(row["舗装終点_測点大"], row["舗装終点_測点小"])
-        embankment_pave_infos.append(
-            EmbankmentPaveInfo(
-                slope_infos=get_slope_infos(start_STA, end_STA, slope_info_df),
-                width=row["形状_幅"],
+        name = str(row["全体_名称"])
+        num = int(row["全体_番号"])
+        U_edge_line_info = edge_line_info_dict.get((name, num, "U"))
+        D_edge_line_info = edge_line_info_dict.get((name, num, "D"))
+        if U_edge_line_info is not None or D_edge_line_info is not None:
+            if U_edge_line_info is None or D_edge_line_info is None:
+                raise ValueError(f"Both U and D pavement edge lines are required: name={name}, num={num}")
+            embankment_pave_infos.append(
+                EmbankmentPaveInfo(
+                    slope_infos=get_all_slope_infos(slope_info_df),
+                    U_edge_line_info=U_edge_line_info,
+                    D_edge_line_info=D_edge_line_info,
+                )
             )
-        )
+        else:
+            start_STA = get_STA_from_STA_info(row["舗装始点_測点大"], row["舗装始点_測点小"])
+            end_STA = get_STA_from_STA_info(row["舗装終点_測点大"], row["舗装終点_測点小"])
+            embankment_pave_infos.append(
+                EmbankmentPaveInfo(
+                    slope_infos=get_slope_infos(start_STA, end_STA, slope_info_df),
+                    width=row["形状_幅"],
+                )
+            )
 
     return RoadSurfaceInfo(
         plan_STAs=STAs,
@@ -265,6 +383,11 @@ def main(initial_or_final: str) -> None:
         file_path=embankment_excel_path,
         sheet_name="舗装横断勾配",
     )
+    edge_line_df = read_optional_sheet(
+        file_path=embankment_excel_path,
+        sheet_name="舗装端部ライン",
+    )
+    edge_line_info_dict = get_edge_line_info_dict(edge_line_df)
 
     road_center_info_dict = {}
     for target_name in target_name_set:
@@ -295,6 +418,7 @@ def main(initial_or_final: str) -> None:
             z_road_center_df=z_road_center_df,
             embankment_target_df=embankment_target_df,
             slope_info_df=target_slope_info_df,
+            edge_line_info_dict=edge_line_info_dict,
         )
 
     save_json_and_pickle(

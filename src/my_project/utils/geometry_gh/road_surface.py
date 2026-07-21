@@ -9,15 +9,23 @@ from my_project.config.constants import (
     EPS,
 )
 from my_project.config.schemas.road_surface_schemas import (
+    EmbankmentPaveEdgeLineInfo,
     EmbankmentPaveInfo,
     RoadSurfaceInfo,
     typeInfo,
 )
 from my_project.config.util_schemas import Vector2D
-from my_project.utils.geometry_gh.attributes import get_point_on_crv_at_distance
+from my_project.utils.geometry_gh.attributes import (
+    get_curve_distance,
+    get_point_on_crv_at_distance,
+)
 from my_project.utils.geometry_gh.const import (
     const_arc_from_p0_p1_radius,
     const_point_obj,
+    const_polycurve_obj,
+)
+from my_project.utils.geometry_gh.intersect import (
+    get_intersect_point_on_crvs_in_the_same_plane,
 )
 from my_project.utils.geometry_gh.transform import (
     transform_local_points_with_p0_and_angle,
@@ -335,7 +343,12 @@ def get_center_samples_in_STA_range(
     return list(sample_points), list(sample_left_vectors), list(sample_STAs)
 
 
+def get_slope_value(slope) -> float:
+    return float(slope.value if hasattr(slope, "value") else slope)
+
+
 def get_slope_at_STA(target_STA: float, slope_STAs: list[float], slopes: list[float]) -> float:
+    slopes = [get_slope_value(slope) for slope in slopes]
     for STA, slope in zip(slope_STAs, slopes):
         if abs(STA - target_STA) < DISTANCE_TOL:
             return slope
@@ -352,6 +365,110 @@ def get_slope_at_STA(target_STA: float, slope_STAs: list[float], slopes: list[fl
     )
 
 
+def get_edge_line_points(edge_line_info: EmbankmentPaveEdgeLineInfo) -> list[rg.Point3d]:
+    road_surface_info = RoadSurfaceInfo(
+        plan_STAs=edge_line_info.plan_STAs,
+        plan_Coord_infos=edge_line_info.plan_Coord_infos,
+        z_infos=[],
+        type_infos=edge_line_info.type_infos,
+    )
+    points, _, _ = get_indiv_center_line_points(road_surface_info)
+    return [rg.Point3d(point.X, point.Y, 0.0) for point in points]
+
+
+def get_center_curve_2D(center_line_points: list[rg.Point3d]) -> rg.PolylineCurve:
+    return const_polycurve_obj(
+        [rg.Point3d(point.X, point.Y, 0.0) for point in center_line_points]
+    )
+
+
+def get_unique_fractions(fractions: list[float]) -> list[float]:
+    unique_fractions = []
+    for fraction in sorted(fractions):
+        fraction = min(max(fraction, 0.0), 1.0)
+        if not unique_fractions or abs(fraction - unique_fractions[-1]) > 1e-6:
+            unique_fractions.append(fraction)
+    return unique_fractions
+
+
+def get_point_on_curve_at_fraction(curve: rg.Curve, fraction: float) -> rg.Point3d:
+    length = curve.GetLength()
+    ok, parameter = curve.LengthParameter(length * fraction)
+    if not ok:
+        raise ValueError(f"Failed to get curve parameter at fraction: {fraction}")
+    return curve.PointAt(parameter)
+
+
+def get_edge_line_point_pairs(
+    U_edge_points_2D: list[rg.Point3d],
+    D_edge_points_2D: list[rg.Point3d],
+) -> list[tuple[rg.Point3d, rg.Point3d]]:
+    U_curve = const_polycurve_obj(U_edge_points_2D)
+    D_curve = const_polycurve_obj(D_edge_points_2D)
+    U_length = U_curve.GetLength()
+    D_length = D_curve.GetLength()
+    if U_length <= DISTANCE_TOL or D_length <= DISTANCE_TOL:
+        raise ValueError("Pavement edge line length is too short.")
+
+    fractions = [0.0, 1.0]
+    fractions.extend(get_curve_distance(U_curve, point) / U_length for point in U_edge_points_2D)
+    fractions.extend(get_curve_distance(D_curve, point) / D_length for point in D_edge_points_2D)
+    return [
+        (
+            get_point_on_curve_at_fraction(U_curve, fraction),
+            get_point_on_curve_at_fraction(D_curve, fraction),
+        )
+        for fraction in get_unique_fractions(fractions)
+    ]
+
+
+def get_embankment_edge_points_from_edge_lines(
+    center_line_points: list[rg.Point3d],
+    left_vectors: list[Vector2D],
+    center_line_STAs: list[float],
+    embankment_pave_info: EmbankmentPaveInfo,
+) -> tuple[list[rg.Point3d], list[rg.Point3d], list[float]]:
+    if embankment_pave_info.U_edge_line_info is None or embankment_pave_info.D_edge_line_info is None:
+        raise ValueError("Both U and D edge line infos are required.")
+
+    U_edge_points_2D = get_edge_line_points(embankment_pave_info.U_edge_line_info)
+    D_edge_points_2D = get_edge_line_points(embankment_pave_info.D_edge_line_info)
+
+    center_curve_2D = get_center_curve_2D(center_line_points)
+    slope_infos = sorted(embankment_pave_info.slope_infos, key=lambda s: s.STA)
+    slope_STAs = [slope_info.STA for slope_info in slope_infos]
+    slopes = [slope_info.slope for slope_info in slope_infos]
+    U_edge_points = []
+    D_edge_points = []
+    edge_STAs = []
+    for U_point_2D, D_point_2D in get_edge_line_point_pairs(U_edge_points_2D, D_edge_points_2D):
+        cross_curve = const_polycurve_obj([U_point_2D, D_point_2D])
+        center_intersection = get_intersect_point_on_crvs_in_the_same_plane(
+            center_curve_2D,
+            cross_curve,
+        )
+        center_distance = get_curve_distance(center_curve_2D, center_intersection)
+        this_STA = center_line_STAs[0] + center_distance
+        center_point, _, _ = get_center_sample_at_STA(
+            target_STA=this_STA,
+            center_line_points=center_line_points,
+            left_vectors=left_vectors,
+            center_line_STAs=center_line_STAs,
+        )
+        slope = get_slope_value(get_slope_at_STA(this_STA, slope_STAs, slopes))
+        center_point_2D = const_point_obj(center_intersection)
+        U_distance = center_point_2D.DistanceTo(U_point_2D)
+        D_distance = center_point_2D.DistanceTo(D_point_2D)
+        U_edge_points.append(
+            rg.Point3d(U_point_2D.X, U_point_2D.Y, center_point.Z + slope * U_distance)
+        )
+        D_edge_points.append(
+            rg.Point3d(D_point_2D.X, D_point_2D.Y, center_point.Z - slope * D_distance)
+        )
+        edge_STAs.append(this_STA)
+    return U_edge_points, D_edge_points, edge_STAs
+
+
 def get_embankment_edge_points(
     center_line_points: list[rg.Point3d],
     left_vectors: list[Vector2D],
@@ -362,10 +479,24 @@ def get_embankment_edge_points(
     D_edge_points_dict = {}
     edge_STAs_dict = {}
     for i, embankment_pave_info in enumerate(embankment_pave_infos):
+        if embankment_pave_info.U_edge_line_info is not None or embankment_pave_info.D_edge_line_info is not None:
+            U_edge_points, D_edge_points, target_STAs = get_embankment_edge_points_from_edge_lines(
+                center_line_points=center_line_points,
+                left_vectors=left_vectors,
+                center_line_STAs=center_line_STAs,
+                embankment_pave_info=embankment_pave_info,
+            )
+            U_edge_points_dict[i] = U_edge_points
+            D_edge_points_dict[i] = D_edge_points
+            edge_STAs_dict[i] = target_STAs
+            continue
+
         slope_infos = sorted(embankment_pave_info.slope_infos, key=lambda s: s.STA)
         slope_STAs = [slope_info.STA for slope_info in slope_infos]
         slopes = [slope_info.slope for slope_info in slope_infos]
         width = embankment_pave_info.width
+        if width is None:
+            raise ValueError("width is required when pavement edge lines are not provided.")
         U_edge_points = []
         D_edge_points = []
         target_center_points, target_left_vectors, target_STAs = get_center_samples_in_STA_range(
@@ -376,7 +507,7 @@ def get_embankment_edge_points(
             center_line_STAs=center_line_STAs,
         )
         for center_point, left_vector_2D, this_STA in zip(target_center_points, target_left_vectors, target_STAs):
-            slope = get_slope_at_STA(this_STA, slope_STAs, slopes)
+            slope = get_slope_value(get_slope_at_STA(this_STA, slope_STAs, slopes))
             left_vector_3D = rg.Vector3d(left_vector_2D.x, left_vector_2D.y, slope)
             right_vector_3D = rg.Vector3d(-left_vector_2D.x, -left_vector_2D.y, -slope)
             U_edge_points.append(center_point + left_vector_3D * width / 2)
