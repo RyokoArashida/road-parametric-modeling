@@ -298,29 +298,32 @@ def split_embankment_boundary_curve_by_abut_points(
 
     def classify_boundary_curve(target_curve: rg.Curve) -> str:
         sample_points = get_sample_points(target_curve)
-        edge_lines = {
-            "start_edge": start_edge_points,
-            "end_edge": end_edge_points,
-        }
+        edge_lines = {}
+        if make_start_edge:
+            edge_lines["start_edge"] = start_edge_points
+        if make_end_edge:
+            edge_lines["end_edge"] = end_edge_points
         parallel_lines = {
             "U_parallel": U_parallel_points,
             "D_parallel": D_parallel_points,
         }
-        best_edge = min(
-            edge_lines,
-            key=lambda name: get_average_distance(sample_points, edge_lines[name]),
-        )
         best_parallel = min(
             parallel_lines,
             key=lambda name: get_average_distance(sample_points, parallel_lines[name]),
         )
-        edge_alignment = max(
-            get_axis_alignment(sample_points, points)
-            for points in edge_lines.values()
-        )
         parallel_alignment = max(
             get_axis_alignment(sample_points, points)
             for points in parallel_lines.values()
+        )
+        if not edge_lines:
+            return best_parallel
+        best_edge = min(
+            edge_lines,
+            key=lambda name: get_average_distance(sample_points, edge_lines[name]),
+        )
+        edge_alignment = max(
+            get_axis_alignment(sample_points, points)
+            for points in edge_lines.values()
         )
         if parallel_alignment > edge_alignment + 0.15:
             return best_parallel
@@ -370,13 +373,18 @@ def split_embankment_boundary_curve_by_abut_points(
             )
             add_result(f"{prefix}_{edge_part}", edge_curve)
 
+    split_line_points = []
+    target_line_points = {}
+    if make_start_edge:
+        split_line_points.append(start_edge_points)
+        target_line_points["start_edge"] = start_edge_points
+    if make_end_edge:
+        split_line_points.append(end_edge_points)
+        target_line_points["end_edge"] = end_edge_points
     split_items = split_open_embankment_boundary_curve_by_lines(
         curve=curve,
-        split_line_points=[start_edge_points, end_edge_points],
-        target_line_points={
-            "start_edge": start_edge_points,
-            "end_edge": end_edge_points,
-        },
+        split_line_points=split_line_points,
+        target_line_points=target_line_points,
     )
 
     result = {}
@@ -1191,18 +1199,28 @@ def get_world_embankment_points(
             "bottom": center_bottom_points,
         }
 
+    def get_nearest_parallel_lowest_toe_z(
+        parallel_result: dict,
+        point: Point3D,
+    ) -> float:
+        lowest_tier = max(key for key in parallel_result if isinstance(key, int))
+        return min(
+            parallel_result[lowest_tier]["toe"],
+            key=lambda toe_point: get_distance_2D(toe_point, point),
+        ).z
+
     edge_closure_items = []
     if make_start_edge:
         edge_closure_items.extend([
-            ("start_edge_U", abut_points["start"]["U"]["wing_soil"]),
-            ("start_edge_D", abut_points["start"]["D"]["wing_soil"]),
+            ("start_edge_U", abut_points["start"]["U"]["wing_soil"], U_parallel_result),
+            ("start_edge_D", abut_points["start"]["D"]["wing_soil"], D_parallel_result),
         ])
     if make_end_edge:
         edge_closure_items.extend([
-            ("end_edge_U", abut_points["end"]["U"]["wing_soil"]),
-            ("end_edge_D", abut_points["end"]["D"]["wing_soil"]),
+            ("end_edge_U", abut_points["end"]["U"]["wing_soil"], U_parallel_result),
+            ("end_edge_D", abut_points["end"]["D"]["wing_soil"], D_parallel_result),
         ])
-    for edge_name, soil_point in edge_closure_items:
+    for edge_name, soil_point, parallel_result in edge_closure_items:
         point_count = len(result[edge_name][1]["shoulder"])
         lowest_tier = max(key for key in result[edge_name] if isinstance(key, int))
         bottom_points = result[edge_name][lowest_tier]["toe"]
@@ -1216,54 +1234,11 @@ def get_world_embankment_points(
                 Point3D(
                     soil_point.x,
                     soil_point.y,
-                    bottom_point.z,
+                    get_nearest_parallel_lowest_toe_z(parallel_result, bottom_point),
                 )
                 for bottom_point in bottom_points
             ]
         }
-
-    def get_nearest_bottom_z(edge_name: str, point: Point3D) -> float:
-        return min(
-            result[edge_name]["closure_points"]["bottom"],
-            key=lambda bottom_point: get_distance_2D(bottom_point, point),
-        ).z
-
-    def get_bottom_points_from_side_edge_heights(
-        *,
-        top_points: list[Point3D],
-        edge_position: str,
-    ) -> list[Point3D]:
-        U_soil_point = abut_points[edge_position]["U"]["wing_soil"]
-        D_soil_point = abut_points[edge_position]["D"]["wing_soil"]
-        first_point = top_points[0]
-        if get_distance_2D(first_point, U_soil_point) <= get_distance_2D(first_point, D_soil_point):
-            first_edge_name = f"{edge_position}_edge_U"
-            last_edge_name = f"{edge_position}_edge_D"
-        else:
-            first_edge_name = f"{edge_position}_edge_D"
-            last_edge_name = f"{edge_position}_edge_U"
-        distances = [0.0]
-        for point, next_point in zip(top_points, top_points[1:]):
-            distances.append(distances[-1] + get_distance_2D(point, next_point))
-        first_z = get_nearest_bottom_z(first_edge_name, top_points[0])
-        last_z = get_nearest_bottom_z(last_edge_name, top_points[-1])
-        if abs(distances[-1] - distances[0]) < DISTANCE_TOL:
-            return [
-                Point3D(top_point.x, top_point.y, first_z)
-                for top_point in top_points
-            ]
-        return [
-            Point3D(
-                top_point.x,
-                top_point.y,
-                interpolate_value_by_distance(
-                    [distances[0], distances[-1]],
-                    [first_z, last_z],
-                    distance,
-                ),
-            )
-            for top_point, distance in zip(top_points, distances)
-        ]
 
     UD_edge_items = []
     if make_start_edge:
@@ -1280,10 +1255,10 @@ def get_world_embankment_points(
                 f"top={len(top_points)}, bottom={len(bottom_points)}"
             )
         result[edge_name]["closure_points"] = {
-            "bottom": get_bottom_points_from_side_edge_heights(
-                top_points=top_points,
-                edge_position=edge_position,
-            )
+            "bottom": [
+                Point3D(top_point.x, top_point.y, bottom_point.z)
+                for top_point, bottom_point in zip(top_points, bottom_points)
+            ]
         }
         result[edge_name]["trim_points"] = [
             abut_points[edge_position]["U"]["parapet"],
