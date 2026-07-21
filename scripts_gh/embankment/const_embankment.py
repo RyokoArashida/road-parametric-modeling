@@ -557,24 +557,6 @@ def split_embankment_boundary_curve_by_abut_points(
             )
             if get_average_distance(sample_points, start_edge_points) > end_limit_distance + DISTANCE_TOL:
                 skip_reason = "outside_end_limit"
-        if (
-            skip_reason is None
-            and boundary_name in {"U_parallel", "D_parallel"}
-            and end_limit_points is not None
-            and not make_end_edge
-            and "end_limit" in split_matches
-            and not has_parallel_limit_pair(split_item, boundary_name, "end_limit")
-        ):
-            skip_reason = "parallel_missing_start_side_abut"
-        if (
-            skip_reason is None
-            and boundary_name in {"U_parallel", "D_parallel"}
-            and start_limit_points is not None
-            and not make_start_edge
-            and "start_limit" in split_matches
-            and not has_parallel_limit_pair(split_item, boundary_name, "start_limit")
-        ):
-            skip_reason = "parallel_missing_end_side_abut"
         EMBANKMENT_SPLIT_DEBUG.append(
             {
                 "context": context,
@@ -1514,28 +1496,18 @@ def get_world_embankment_points(
             "bottom": center_bottom_points,
         }
 
-    def get_nearest_parallel_lowest_toe_z(
-        parallel_result: dict,
-        point: Point3D,
-    ) -> float:
-        lowest_tier = max(key for key in parallel_result if isinstance(key, int))
-        return min(
-            parallel_result[lowest_tier]["toe"],
-            key=lambda toe_point: get_distance_2D(toe_point, point),
-        ).z
-
     edge_closure_items = []
     if make_start_edge:
         edge_closure_items.extend([
-            ("start_edge_U", abut_points["start"]["U"]["wing_soil"], U_parallel_result),
-            ("start_edge_D", abut_points["start"]["D"]["wing_soil"], D_parallel_result),
+            ("start_edge_U", abut_points["start"]["U"]["wing_soil"]),
+            ("start_edge_D", abut_points["start"]["D"]["wing_soil"]),
         ])
     if make_end_edge:
         edge_closure_items.extend([
-            ("end_edge_U", abut_points["end"]["U"]["wing_soil"], U_parallel_result),
-            ("end_edge_D", abut_points["end"]["D"]["wing_soil"], D_parallel_result),
+            ("end_edge_U", abut_points["end"]["U"]["wing_soil"]),
+            ("end_edge_D", abut_points["end"]["D"]["wing_soil"]),
         ])
-    for edge_name, soil_point, parallel_result in edge_closure_items:
+    for edge_name, soil_point in edge_closure_items:
         point_count = len(result[edge_name][1]["shoulder"])
         lowest_tier = max(key for key in result[edge_name] if isinstance(key, int))
         bottom_points = result[edge_name][lowest_tier]["toe"]
@@ -1549,7 +1521,7 @@ def get_world_embankment_points(
                 Point3D(
                     soil_point.x,
                     soil_point.y,
-                    get_nearest_parallel_lowest_toe_z(parallel_result, bottom_point),
+                    bottom_point.z,
                 )
                 for bottom_point in bottom_points
             ]
