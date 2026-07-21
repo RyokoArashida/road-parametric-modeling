@@ -39,6 +39,8 @@ from my_project.utils.geometry_gh.road_surface import (
 )
 from my_project.utils.io import load_from_pickle, save_json_and_pickle
 
+PAVEMENT_EDGE_EXTENSION_RATIO = 0.2
+
 
 def get_slope_value(slope) -> float:
     return float(slope.value if hasattr(slope, "value") else slope)
@@ -102,10 +104,30 @@ def orient_edge_point_lists_by_nearest_ends(
     return U_points, D_points
 
 
+def extend_point_list_ends(points: list) -> list:
+    if len(points) < 2:
+        raise ValueError(f"Need at least 2 points to extend pavement edge curve, got {len(points)}")
+    start_point = const_point_obj(points[0])
+    start_next_point = const_point_obj(points[1])
+    end_prev_point = const_point_obj(points[-2])
+    end_point = const_point_obj(points[-1])
+    start_vector = start_point - start_next_point
+    end_vector = end_point - end_prev_point
+    if not start_vector.Unitize() or not end_vector.Unitize():
+        raise ValueError("Pavement edge curve has duplicated end points.")
+    start_extension = start_point.DistanceTo(start_next_point) * PAVEMENT_EDGE_EXTENSION_RATIO
+    end_extension = end_point.DistanceTo(end_prev_point) * PAVEMENT_EDGE_EXTENSION_RATIO
+    extended_start = start_point + start_vector * start_extension
+    extended_end = end_point + end_vector * end_extension
+    return [extended_start] + points[1:-1] + [extended_end]
+
+
 def get_paired_edge_points(U_curve, D_curve) -> list[tuple[object, object]]:
     U_points = get_curve_polyline_points(U_curve)
     D_points = get_curve_polyline_points(D_curve)
     U_points, D_points = orient_edge_point_lists_by_nearest_ends(U_points, D_points)
+    U_points = extend_point_list_ends(U_points)
+    D_points = extend_point_list_ends(D_points)
     U_curve_2D = const_polycurve_obj(U_points)
     D_curve_2D = const_polycurve_obj(D_points)
     U_length = U_curve_2D.GetLength()
