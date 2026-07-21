@@ -870,7 +870,9 @@ def get_world_embankment_points(
             if row["tier"] == 1 and row["kind"] == "shoulder":
                 continue
             points = list(row["points"])
-            parallel_points = parallel_result[row["tier"]][row["kind"]]
+            parallel_points = parallel_result.get(row["tier"], {}).get(row["kind"])
+            if parallel_points is None:
+                continue
             for i, point in enumerate(points):
                 for parallel_point in parallel_points:
                     if get_distance_2D(point, parallel_point) < DISTANCE_TOL:
@@ -899,7 +901,6 @@ def get_world_embankment_points(
             }
         )
 
-    parallel_center_bottom_points = {}
     for parallel_name, parallel_result in {
         "U_parallel": U_parallel_result,
         "D_parallel": D_parallel_result,
@@ -939,30 +940,35 @@ def get_world_embankment_points(
             "top": center_top_points,
             "bottom": center_bottom_points,
         }
-        parallel_center_bottom_points[parallel_name] = center_bottom_points
 
     edge_closure_items = []
     if make_start_edge:
         edge_closure_items.extend([
-            ("start_edge_U", "U_parallel", abut_points["start"]["U"]["wing_soil"], 0),
-            ("start_edge_D", "D_parallel", abut_points["start"]["D"]["wing_soil"], 0),
+            ("start_edge_U", abut_points["start"]["U"]["wing_soil"]),
+            ("start_edge_D", abut_points["start"]["D"]["wing_soil"]),
         ])
     if make_end_edge:
         edge_closure_items.extend([
-            ("end_edge_U", "U_parallel", abut_points["end"]["U"]["wing_soil"], -1),
-            ("end_edge_D", "D_parallel", abut_points["end"]["D"]["wing_soil"], -1),
+            ("end_edge_U", abut_points["end"]["U"]["wing_soil"]),
+            ("end_edge_D", abut_points["end"]["D"]["wing_soil"]),
         ])
-    for edge_name, parallel_name, soil_point, endpoint_index in edge_closure_items:
+    for edge_name, soil_point in edge_closure_items:
         point_count = len(result[edge_name][1]["shoulder"])
-        bottom_z = parallel_center_bottom_points[parallel_name][endpoint_index].z
+        lowest_tier = max(key for key in result[edge_name] if isinstance(key, int))
+        bottom_points = result[edge_name][lowest_tier]["toe"]
+        if point_count != len(bottom_points):
+            raise ValueError(
+                f"{edge_name} closure point count mismatch: "
+                f"top={point_count}, bottom={len(bottom_points)}"
+            )
         result[edge_name]["closure_points"] = {
             "bottom": [
                 Point3D(
                     soil_point.x,
                     soil_point.y,
-                    bottom_z,
+                    bottom_point.z,
                 )
-                for _ in range(point_count)
+                for bottom_point in bottom_points
             ]
         }
 
