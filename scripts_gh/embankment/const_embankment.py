@@ -222,6 +222,69 @@ def split_embankment_boundary_curve_by_abut_points(
     make_end_edge: bool = True,
 ) -> dict[str, rg.Curve]:
     curve = const_curve_obj(curve)
+
+    def get_sample_points(target_curve: rg.Curve) -> list[Point3D]:
+        points = get_curve_polyline_points(target_curve)
+        if len(points) >= 2:
+            return points
+        target_curve = const_curve_obj(target_curve)
+        samples = []
+        domain = target_curve.Domain
+        for ratio in [0.25, 0.5, 0.75]:
+            t = domain.T0 + (domain.T1 - domain.T0) * ratio
+            samples.append(point3d_from_rg(target_curve.PointAt(t)))
+        return samples
+
+    def get_average_distance(points: list[Point3D], line_points: tuple[Point3D, Point3D]) -> float:
+        return sum(get_xy_distance_to_segment(point, line_points) for point in points) / len(points)
+
+    def classify_curve_by_nearest_line(
+        target_curve: rg.Curve,
+        line_points_by_name: dict[str, tuple[Point3D, Point3D]],
+    ) -> str:
+        sample_points = get_sample_points(target_curve)
+        distances = {
+            name: get_average_distance(sample_points, line_points)
+            for name, line_points in line_points_by_name.items()
+        }
+        return min(distances, key=distances.get)
+
+    def add_result(key: str, target_curve: rg.Curve):
+        if key in result:
+            raise ValueError(f"Multiple curves classified as {key}: {context}")
+        result[key] = target_curve
+
+    def split_edge_curve(
+        edge_curve: rg.Curve,
+        *,
+        prefix: str,
+        U_abut_points: tuple[Point3D, Point3D],
+        D_abut_points: tuple[Point3D, Point3D],
+    ):
+        try:
+            edge_items = split_curve_by_lines_and_match_endpoints(
+                curve=edge_curve,
+                split_line_points=[
+                    U_abut_points,
+                    D_abut_points,
+                ],
+                target_line_points={},
+                expected_count=3,
+            )
+            add_result(f"{prefix}_U", edge_items[0]["curve"])
+            add_result(f"{prefix}_UD", edge_items[1]["curve"])
+            add_result(f"{prefix}_D", edge_items[2]["curve"])
+            return
+        except ValueError:
+            edge_part = classify_curve_by_nearest_line(
+                edge_curve,
+                {
+                    "U": U_abut_points,
+                    "D": D_abut_points,
+                },
+            )
+            add_result(f"{prefix}_{edge_part}", edge_curve)
+
     split_items = split_open_embankment_boundary_curve_by_lines(
         curve=curve,
         split_line_points=[start_edge_points, end_edge_points],
@@ -235,61 +298,43 @@ def split_embankment_boundary_curve_by_abut_points(
     for split_item in split_items:
         start = split_item["start"]
         end = split_item["end"]
-        if not split_item["start_matches"] or not split_item["end_matches"]:
-            continue
-        start_on_start_edge = "start_edge" in split_item["start_matches"]
-        end_on_start_edge = "start_edge" in split_item["end_matches"]
-        start_on_end_edge = "end_edge" in split_item["start_matches"]
-        end_on_end_edge = "end_edge" in split_item["end_matches"]
         oriented_curve = split_item["curve"]
+        boundary_name = classify_curve_by_nearest_line(
+            oriented_curve,
+            {
+                "start_edge": start_edge_points,
+                "end_edge": end_edge_points,
+                "U_parallel": U_parallel_points,
+                "D_parallel": D_parallel_points,
+            },
+        )
 
-        if start_on_start_edge and end_on_start_edge:
+        if boundary_name == "start_edge":
             if not make_start_edge:
                 continue
             if get_distance_2D(end, start_U_abut_points[0]) < get_distance_2D(start, start_U_abut_points[0]):
                 oriented_curve.Reverse()
-            edge_items = split_curve_by_lines_and_match_endpoints(
-                curve=oriented_curve,
-                split_line_points=[
-                    start_U_abut_points,
-                    start_D_abut_points,
-                ],
-                target_line_points={},
-                expected_count=3,
+            split_edge_curve(
+                oriented_curve,
+                prefix="start_edge",
+                U_abut_points=start_U_abut_points,
+                D_abut_points=start_D_abut_points,
             )
-            result["start_edge_U"] = edge_items[0]["curve"]
-            result["start_edge_UD"] = edge_items[1]["curve"]
-            result["start_edge_D"] = edge_items[2]["curve"]
-        elif start_on_end_edge and end_on_end_edge:
+        elif boundary_name == "end_edge":
             if not make_end_edge:
                 continue
             if get_distance_2D(end, end_U_abut_points[0]) < get_distance_2D(start, end_U_abut_points[0]):
                 oriented_curve.Reverse()
-            edge_items = split_curve_by_lines_and_match_endpoints(
-                curve=oriented_curve,
-                split_line_points=[
-                    end_U_abut_points,
-                    end_D_abut_points,
-                ],
-                target_line_points={},
-                expected_count=3,
+            split_edge_curve(
+                oriented_curve,
+                prefix="end_edge",
+                U_abut_points=end_U_abut_points,
+                D_abut_points=end_D_abut_points,
             )
-            result["end_edge_U"] = edge_items[0]["curve"]
-            result["end_edge_UD"] = edge_items[1]["curve"]
-            result["end_edge_D"] = edge_items[2]["curve"]
-        elif (
-            (start_on_start_edge and end_on_end_edge)
-            or (start_on_end_edge and end_on_start_edge)
-        ):
-            split_points = get_curve_polyline_points(oriented_curve)
-            if len(split_points) < 2:
-                split_points = [start, end]
-            U_distance = sum(get_xy_distance_to_segment(point, U_parallel_points) for point in split_points) / len(split_points)
-            D_distance = sum(get_xy_distance_to_segment(point, D_parallel_points) for point in split_points) / len(split_points)
-            key = "U_parallel" if U_distance <= D_distance else "D_parallel"
+        elif boundary_name in {"U_parallel", "D_parallel"}:
             if get_xy_distance_to_segment(end, start_edge_points) < get_xy_distance_to_segment(start, start_edge_points):
                 oriented_curve.Reverse()
-            result[key] = oriented_curve
+            add_result(boundary_name, oriented_curve)
         else:
             def line_distances(point: Point3D) -> dict[str, float]:
                 return {
@@ -305,6 +350,7 @@ def split_embankment_boundary_curve_by_abut_points(
 
             raise ValueError(
                 f"[FAILED EMBANKMENT SPLIT] {context}: "
+                f"boundary_name={boundary_name}, "
                 f"start={start}, end={end}, "
                 f"start_matches={sorted(split_item['start_matches'])}, "
                 f"end_matches={sorted(split_item['end_matches'])}, "
