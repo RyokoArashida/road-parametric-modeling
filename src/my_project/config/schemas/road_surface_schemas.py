@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional, Union
 
-from my_project.config.util_schemas import Frame2D, Point3D, Point2D
+from my_project.config.util_schemas import Frame2D, MonoSlope, Point3D, Point2D
 
 
 @dataclass(frozen=True)
@@ -20,6 +20,19 @@ class ZInfo:
     z: float
     pre_slope: float # 前の点からの縦断勾配。
     post_slope: float # 次の点への縦断勾配。
+
+
+@dataclass(frozen=True)
+class SlopeInfo:
+    STA: float
+    slope: MonoSlope
+
+
+@dataclass(frozen=True)
+class EmbankmentPaveInfo:
+    slope_infos: list[SlopeInfo]
+    width: float
+
 
 @dataclass(frozen=True)
 class RoadSurfaceInfo:
