@@ -138,49 +138,56 @@ def split_open_embankment_boundary_curve_by_lines(
                 split_params.append(t)
 
     split_params = sorted(split_params)
-    if not split_params:
-        raise ValueError("No split points found for embankment boundary curve")
 
     split_curve_items = []
     domain = curve.Domain
-    if curve.IsClosed:
-        trim_ranges = [
-            (t0, split_params[(i + 1) % len(split_params)])
-            for i, t0 in enumerate(split_params)
-        ]
-    else:
-        params = [domain.T0] + split_params + [domain.T1]
-        params = sorted({
-            param
-            for param in params
-            if domain.T0 - DISTANCE_TOL <= param <= domain.T1 + DISTANCE_TOL
-        })
-        trim_ranges = [
-            (t0, t1)
-            for t0, t1 in zip(params, params[1:])
-            if abs(t1 - t0) > DISTANCE_TOL
-        ]
-    for t0, t1 in trim_ranges:
-        if curve.IsClosed and t0 > t1:
-            part1 = curve.Trim(t0, domain.T1)
-            part2 = curve.Trim(domain.T0, t1)
-            if part1 is not None and part2 is not None:
-                split_curve = rg.PolyCurve()
-                split_curve.Append(part1)
-                split_curve.Append(part2)
-            else:
-                split_curve = None
-        else:
-            split_curve = curve.Trim(t0, t1)
-        if split_curve is None:
-            raise ValueError(f"Failed to trim embankment curve between parameters: {t0}, {t1}")
+    if not split_params:
         split_curve_items.append(
             {
-                "curve": split_curve,
-                "start": point3d_from_rg(split_curve.PointAtStart),
-                "end": point3d_from_rg(split_curve.PointAtEnd),
+                "curve": curve.DuplicateCurve(),
+                "start": point3d_from_rg(curve.PointAtStart),
+                "end": point3d_from_rg(curve.PointAtEnd),
             }
         )
+    else:
+        if curve.IsClosed:
+            trim_ranges = [
+                (t0, split_params[(i + 1) % len(split_params)])
+                for i, t0 in enumerate(split_params)
+            ]
+        else:
+            params = [domain.T0] + split_params + [domain.T1]
+            params = sorted({
+                param
+                for param in params
+                if domain.T0 - DISTANCE_TOL <= param <= domain.T1 + DISTANCE_TOL
+            })
+            trim_ranges = [
+                (t0, t1)
+                for t0, t1 in zip(params, params[1:])
+                if abs(t1 - t0) > DISTANCE_TOL
+            ]
+        for t0, t1 in trim_ranges:
+            if curve.IsClosed and t0 > t1:
+                part1 = curve.Trim(t0, domain.T1)
+                part2 = curve.Trim(domain.T0, t1)
+                if part1 is not None and part2 is not None:
+                    split_curve = rg.PolyCurve()
+                    split_curve.Append(part1)
+                    split_curve.Append(part2)
+                else:
+                    split_curve = None
+            else:
+                split_curve = curve.Trim(t0, t1)
+            if split_curve is None:
+                raise ValueError(f"Failed to trim embankment curve between parameters: {t0}, {t1}")
+            split_curve_items.append(
+                {
+                    "curve": split_curve,
+                    "start": point3d_from_rg(split_curve.PointAtStart),
+                    "end": point3d_from_rg(split_curve.PointAtEnd),
+                }
+            )
 
     items = []
     for split_curve_item in split_curve_items:
