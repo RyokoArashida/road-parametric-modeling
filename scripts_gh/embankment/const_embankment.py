@@ -1215,8 +1215,23 @@ def get_world_embankment_points(
     def resolve_slope(slope_or_func, tier: int) -> float:
         return slope_or_func(tier) if callable(slope_or_func) else slope_or_func
 
+    def get_cumulative_2D_distances(points: list[Point3D]) -> list[float]:
+        if not points:
+            return []
+        distances = [0.0]
+        for previous_point, point in zip(points, points[1:]):
+            distances.append(
+                distances[-1] + get_distance_2D(previous_point, point)
+            )
+        return distances
+
     def get_cross_section_slope(name_df, start_slope, end_slope):
-        tier1_toe_distances = name_df[(name_df["tier"] == 1) & (name_df["kind"] == "toe")]["2Ddistances"].iloc[0]
+        tier1_toe_row = name_df[
+            (name_df["tier"] == 1) & (name_df["kind"] == "toe")
+        ].iloc[0]
+        tier1_toe_distances = get_cumulative_2D_distances(
+            list(tier1_toe_row["2Dpoints"])
+        )
         point_count = len(tier1_toe_distances)
         max_tier = int(name_df["tier"].max())
         all_distance = tier1_toe_distances[-1]
@@ -1243,7 +1258,23 @@ def get_world_embankment_points(
         def get_section_slope(section_index: int, tier: int) -> float:
             if not slopes:
                 raise ValueError("No embankment slopes were calculated")
-            slope_row = slopes[min(section_index, len(slopes) - 1)]
+            if section_index >= len(slopes):
+                counts = [
+                    {
+                        "name": row["name"],
+                        "tier": row["tier"],
+                        "kind": row["kind"],
+                        "point_count": len(row["points"]),
+                    }
+                    for _, row in name_df.iterrows()
+                ]
+                raise ValueError(
+                    "Embankment section point count mismatch. "
+                    f"section={section_index}, slope_count={len(slopes)}, "
+                    f"tier1_shoulder_count={len(tier1_shoulder_points)}, "
+                    f"counts={counts}"
+                )
+            slope_row = slopes[section_index]
             if tier - 1 >= len(slope_row):
                 raise ValueError(
                     f"Missing embankment slope: section={section_index}, tier={tier}"
