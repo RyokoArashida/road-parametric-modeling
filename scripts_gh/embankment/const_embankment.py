@@ -440,6 +440,7 @@ def split_embankment_boundary_curve_by_abut_points(
     )
 
     result = {}
+    result_candidates = {}
     for split_item in split_items:
         start = split_item["start"]
         end = split_item["end"]
@@ -523,7 +524,7 @@ def split_embankment_boundary_curve_by_abut_points(
         elif boundary_name in {"U_parallel", "D_parallel"}:
             if get_xy_distance_to_segment(end, start_edge_points) < get_xy_distance_to_segment(start, start_edge_points):
                 oriented_curve.Reverse()
-            add_result(boundary_name, oriented_curve)
+            result_candidates.setdefault(boundary_name, []).append(oriented_curve)
         else:
             def line_distances(point: Point3D) -> dict[str, float]:
                 return {
@@ -553,6 +554,24 @@ def split_embankment_boundary_curve_by_abut_points(
                 f"end_D_abut_points={end_D_abut_points}"
             )
 
+    for key, curves in result_candidates.items():
+        if len(curves) == 1:
+            add_result(key, curves[0])
+            continue
+        if key == "U_parallel":
+            reference_points = U_parallel_points
+        elif key == "D_parallel":
+            reference_points = D_parallel_points
+        else:
+            reference_points = start_edge_points
+        target_curve = min(
+            curves,
+            key=lambda target_curve: get_average_distance(
+                get_sample_points(target_curve),
+                reference_points,
+            ),
+        )
+        add_result(key, target_curve)
     if not result:
         raise ValueError(f"No embankment boundary curves were classified: {context}")
     return result
