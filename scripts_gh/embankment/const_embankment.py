@@ -122,6 +122,7 @@ def split_embankment_boundary_curve_by_abut_points(
             "end_edge": end_edge_points,
         },
         expected_count=4,
+        include_open_curve_ends_as_split_points=True,
     )
 
     result = {}

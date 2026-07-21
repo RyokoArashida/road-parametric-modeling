@@ -76,6 +76,7 @@ def split_curve_by_lines_and_match_endpoints(
     target_line_points: dict[str, tuple[Point3D, Point3D]],
     expected_count: int,
     cutter_length: float = DEFAULT_GEOMETRY_EXTENT,
+    include_open_curve_ends_as_split_points: bool = False,
 ) -> list[dict]:
     curve = const_curve_obj(curve)
     curve_on_reference_z = curve.DuplicateCurve()
@@ -104,6 +105,14 @@ def split_curve_by_lines_and_match_endpoints(
             if not ok:
                 raise ValueError(f"Failed to get curve parameter at split point: {point}")
             if all(abs(t - existing) > DISTANCE_TOL for existing in split_params):
+                split_params.append(t)
+    if include_open_curve_ends_as_split_points and not curve.IsClosed:
+        for t in [curve.Domain.T0, curve.Domain.T1]:
+            point = point3d_from_rg(curve.PointAt(t))
+            if any(
+                get_xy_distance_to_segment(point, points) <= DISTANCE_TOL
+                for points in extended_target_line_points.values()
+            ) and all(abs(t - existing) > DISTANCE_TOL for existing in split_params):
                 split_params.append(t)
     split_params = sorted(split_params)
     expected_split_point_count = expected_count if curve.IsClosed else expected_count - 1
@@ -135,16 +144,37 @@ def split_curve_by_lines_and_match_endpoints(
                 }
             )
     else:
-        split_curves = curve.Split(split_params)
-        if split_curves:
-            split_curve_items = [
-                {
-                    "curve": split_curve,
-                    "start": point3d_from_rg(split_curve.PointAtStart),
-                    "end": point3d_from_rg(split_curve.PointAtEnd),
-                }
-                for split_curve in split_curves
-            ]
+        if include_open_curve_ends_as_split_points:
+            params = [curve.Domain.T0] + split_params + [curve.Domain.T1]
+            params = sorted({
+                param
+                for param in params
+                if curve.Domain.T0 - DISTANCE_TOL <= param <= curve.Domain.T1 + DISTANCE_TOL
+            })
+            for t0, t1 in zip(params, params[1:]):
+                if abs(t1 - t0) <= DISTANCE_TOL:
+                    continue
+                split_curve = curve.Trim(t0, t1)
+                if split_curve is None:
+                    raise ValueError(f"Failed to trim open curve between parameters: {t0}, {t1}")
+                split_curve_items.append(
+                    {
+                        "curve": split_curve,
+                        "start": point3d_from_rg(split_curve.PointAtStart),
+                        "end": point3d_from_rg(split_curve.PointAtEnd),
+                    }
+                )
+        else:
+            split_curves = curve.Split(split_params)
+            if split_curves:
+                split_curve_items = [
+                    {
+                        "curve": split_curve,
+                        "start": point3d_from_rg(split_curve.PointAtStart),
+                        "end": point3d_from_rg(split_curve.PointAtEnd),
+                    }
+                    for split_curve in split_curves
+                ]
     if not split_curve_items or len(split_curve_items) != expected_count:
         raise ValueError(f"Expected {expected_count} split curves, got {len(split_curve_items)}")
     items = []
