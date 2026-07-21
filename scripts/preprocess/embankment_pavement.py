@@ -212,8 +212,12 @@ def get_key(name: str, num: int) -> tuple[str, int]:
 def get_edge_info_dict(edge_df: pd.DataFrame) -> dict[tuple[str, int], tuple[EdgeSideInfo, EdgeSideInfo]]:
     edge_info_dict = {}
     for _, row in edge_df.iterrows():
-        name = row["全体_全体_名称"]
-        num = int(row["全体_全体_番号"])
+        name = clean_optional_str(row["全体_全体_名称"])
+        num = clean_optional_int(row["全体_全体_番号"])
+        if name is None and num is None:
+            continue
+        if name is None or num is None:
+            raise ValueError(f"Incomplete edge info target: {row.to_dict()}")
         edge_info_dict[get_key(name, num)] = (
             get_edge_side(row, "起点側"),
             get_edge_side(row, "終点側"),
@@ -329,6 +333,8 @@ def main(initial_or_final: str) -> None:
             cross_slope_info_dict=cross_slope_info_dict,
         )
         for _, row in embankment_target_df.iterrows()
+        if clean_optional_str(row["全体_名称"]) is not None
+        and clean_optional_int(row["全体_番号"]) is not None
     ]
 
     save_json_and_pickle(
