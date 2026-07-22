@@ -200,6 +200,38 @@ def split_open_embankment_boundary_curve_by_lines(
             if all(abs(t - existing) > DISTANCE_TOL for existing in split_params):
                 split_params.append(t)
 
+        extended_line = const_extended_line_from_two_points(
+            *line_points,
+            length=cutter_length,
+        )
+        extended_line_points = (
+            point3d_from_rg(extended_line.PointAtStart),
+            point3d_from_rg(extended_line.PointAtEnd),
+        )
+        polyline_points = get_curve_polyline_points(curve)
+        on_line_groups = []
+        current_group = []
+        for point in polyline_points:
+            if get_xy_distance_to_segment(point, extended_line_points) <= DISTANCE_TOL:
+                current_group.append(point)
+            elif current_group:
+                on_line_groups.append(current_group)
+                current_group = []
+        if current_group:
+            on_line_groups.append(current_group)
+        for group in on_line_groups:
+            for point in [group[0], group[-1]]:
+                ok, t = curve_on_reference_z.ClosestPoint(const_point_obj(point))
+                if not ok:
+                    raise ValueError(
+                        f"Failed to get curve parameter at on-line point: {point}"
+                    )
+                if all(
+                    abs(t - existing) > DISTANCE_TOL
+                    for existing in split_params
+                ):
+                    split_params.append(t)
+
     split_params = sorted(split_params)
 
     split_curve_items = []
@@ -1999,6 +2031,13 @@ def get_brep_from_points(point_dict) -> dict[str, rg.Brep]:
         for section in [segment[0], segment[-1]]:
             cap_points = [section["bottom"]]
             for layer in section["layers"]:
+                if (
+                    const_point_obj(layer["shoulder"]).DistanceTo(
+                        const_point_obj(layer["toe"])
+                    )
+                    <= DISTANCE_TOL
+                ):
+                    continue
                 cap_points.extend([layer["shoulder"], layer["toe"]])
             breps.extend(get_cap_breps(cap_points))
         joined = rg.Brep.JoinBreps(breps, DISTANCE_TOL)
