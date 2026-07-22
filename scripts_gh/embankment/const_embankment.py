@@ -2120,6 +2120,29 @@ def main(initial_or_final: str, debug: bool = False):
     for unique_key, indiv_dict in world_embankment_points_dict.items():
         embankment_brep_dict[unique_key] = get_brep_from_points(indiv_dict)
     bake_keys, bake_objs = get_keys_and_values_for_bake(embankment_brep_dict)
+    brep_debug = {}
+    for unique_key, brep_items in embankment_brep_dict.items():
+        brep_debug[unique_key] = {}
+        for key, brep in brep_items.items():
+            bbox = brep.GetBoundingBox(True)
+            brep_debug[unique_key][key] = {
+                "is_solid": brep.IsSolid,
+                "face_count": brep.Faces.Count,
+                "edge_count": brep.Edges.Count,
+                "bbox_min": point3d_from_rg(bbox.Min),
+                "bbox_max": point3d_from_rg(bbox.Max),
+            }
+    brep_debug["bake_output"] = {
+        "key_count": len(bake_keys),
+        "object_count": len(bake_objs),
+        "keys": bake_keys,
+    }
+    save_json_and_pickle(
+        data=brep_debug,
+        folder_path=DIR,
+        name=f"{Filenames.EMBANKMENT}_brep_debug",
+    )
+    print(f"Embankment bake keys: {bake_keys}")
     if debug:
         bake_keys2, bake_objs2 = get_keys_and_values_for_bake(embankment_brep_dict)
         if len(bake_objs) == 0:
