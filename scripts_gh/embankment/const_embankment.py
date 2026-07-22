@@ -1340,6 +1340,32 @@ def get_world_embankment_points(
 
     def get_points_with_name_df(name_df, start_slope, end_slope):
         slopes = get_cross_section_slope(name_df, start_slope, end_slope)
+        EMBANKMENT_SPLIT_DEBUG.append(
+            {
+                "context": (
+                    f"{pavement_info.name}_{pavement_info.num}/"
+                    f"height/{name_df['name'].iloc[0]}"
+                ),
+                "debug_type": "height",
+                "slopes": [
+                    {
+                        "tier": tier,
+                        "count": len(tier_slopes),
+                        "min": min(tier_slopes),
+                        "max": max(tier_slopes),
+                    }
+                    for tier, tier_slopes in enumerate(slopes, start=1)
+                ],
+                "fixed_height_counts": [
+                    {
+                        "tier": row["tier"],
+                        "kind": row["kind"],
+                        "count": len(fixed_height_indices[idx]),
+                    }
+                    for idx, row in name_df.iterrows()
+                ],
+            }
+        )
         name_df_z = get_cross_section_height_with_slope(name_df, slopes)
         name_points_dict = {}
         for _, row in name_df_z.iterrows():
@@ -1899,14 +1925,21 @@ def get_brep_from_points(point_dict) -> dict[str, rg.Brep]:
                         soil_mid_point.y,
                         STANDARD_BASE_Z,
                     )
-                    brep = split_brep_by_vertical_srf_from_two_points_keep_near_point(
-                        target_brep=brep,
-                        cutter_points=[trim_points[0], trim_points[3]],
-                        keep_point=keep_point,
-                        cut_point=cut_point,
-                        cap=True,
-                        tol=DISTANCE_TOL,
-                    )
+                    try:
+                        brep = split_brep_by_vertical_srf_from_two_points_keep_near_point(
+                            target_brep=brep,
+                            cutter_points=[trim_points[0], trim_points[3]],
+                            keep_point=keep_point,
+                            cut_point=cut_point,
+                            cap=True,
+                            tol=DISTANCE_TOL,
+                        )
+                    except ValueError as exc:
+                        raise ValueError(
+                            "Failed to trim UD embankment brep. "
+                            f"name={name}, segment={segment_index}, "
+                            f"brep={brep_index}: {exc}"
+                        ) from exc
                     if not brep.IsSolid:
                         raise ValueError(f"Trimmed UD embankment brep is not solid ({name})")
                 key_parts = [name]
