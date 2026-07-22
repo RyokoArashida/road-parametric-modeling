@@ -1540,7 +1540,19 @@ def get_world_embankment_points(
             for index, source in fixed_height_sources[tier1_toe_idx].items()
             if source == "parallel"
         ]
-        if len(parallel_indices) == 1:
+        if parallel_indices:
+            boundary_points = [
+                tier1_toe_row["points"][index]
+                for index in parallel_indices
+            ]
+            if any(
+                get_distance_2D(boundary_points[0], point) > DISTANCE_TOL
+                for point in boundary_points[1:]
+            ):
+                raise ValueError(
+                    "Multiple distinct parallel boundaries found for embankment edge: "
+                    f"name={name_df['name'].iloc[0]}, indices={parallel_indices}"
+                )
             boundary_index = parallel_indices[0]
             shoulder_point = tier1_shoulder_row["points"][boundary_index]
             toe_point = tier1_toe_row["points"][boundary_index]
