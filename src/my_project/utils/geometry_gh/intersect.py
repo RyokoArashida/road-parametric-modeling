@@ -574,17 +574,22 @@ def split_brep_by_vertical_srf_from_two_points_keep_near_point(
         raise ValueError("分割後のBrepのうち、keep_point側の部分が見つかりませんでした")
     kept_brep = max(candidates, key=lambda item: item[0])[1]
     if cap and not kept_brep.IsSolid:
-        capped = kept_brep.CapPlanarHoles(tol)
+        attempted_tolerances = []
+        capped = None
+        for cap_tol in [tol, tol * 10, tol * 100]:
+            if cap_tol in attempted_tolerances:
+                continue
+            attempted_tolerances.append(cap_tol)
+            cap_candidate = kept_brep.CapPlanarHoles(cap_tol)
+            if cap_candidate is not None and cap_candidate.IsSolid:
+                capped = cap_candidate
+                break
         if capped is None:
             naked_edges = list(kept_brep.DuplicateNakedEdgeCurves(True, True))
             joined_edges = None
             cap_breps = None
             solid_breps = []
-            attempted_tolerances = []
-            for join_tol in [tol, tol * 10, tol * 100]:
-                if join_tol in attempted_tolerances:
-                    continue
-                attempted_tolerances.append(join_tol)
+            for join_tol in attempted_tolerances:
                 joined_edges = rg.Curve.JoinCurves(naked_edges, join_tol)
                 if not joined_edges:
                     continue
