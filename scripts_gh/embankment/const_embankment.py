@@ -200,42 +200,6 @@ def split_open_embankment_boundary_curve_by_lines(
             if all(abs(t - existing) > DISTANCE_TOL for existing in split_params):
                 split_params.append(t)
 
-        extended_line = const_extended_line_from_two_points(
-            *line_points,
-            length=cutter_length,
-        )
-        split_line_on_reference_z = rg.LineCurve(
-            rg.Point3d(
-                extended_line.PointAtStart.X,
-                extended_line.PointAtStart.Y,
-                STANDARD_BASE_Z,
-            ),
-            rg.Point3d(
-                extended_line.PointAtEnd.X,
-                extended_line.PointAtEnd.Y,
-                STANDARD_BASE_Z,
-            ),
-        )
-        curve_events = rg.Intersect.Intersection.CurveCurve(
-            curve_on_reference_z,
-            split_line_on_reference_z,
-            DISTANCE_TOL,
-            DISTANCE_TOL,
-        )
-        for event in curve_events:
-            if event.IsPoint:
-                event_params = [event.ParameterA]
-            elif event.IsOverlap:
-                event_params = [event.OverlapA.T0, event.OverlapA.T1]
-            else:
-                continue
-            for t in event_params:
-                if all(
-                    abs(t - existing) > DISTANCE_TOL
-                    for existing in split_params
-                ):
-                    split_params.append(t)
-
     split_params = sorted(split_params)
 
     split_curve_items = []
@@ -932,6 +896,93 @@ def get_world_embankment_points(
             start_limit_points=start_limit_points,
             end_limit_points=end_limit_points,
         )
+
+    extended_start_edge = const_extended_line_from_two_points(
+        *start_edge_points,
+        length=DEFAULT_GEOMETRY_EXTENT,
+    )
+    extended_start_edge_points = (
+        point3d_from_rg(extended_start_edge.PointAtStart),
+        point3d_from_rg(extended_start_edge.PointAtEnd),
+    )
+
+    def get_matching_parallel_curve(
+        source_curve: rg.Curve,
+        reference_curve: rg.Curve,
+    ) -> rg.Curve:
+        reference_points = get_curve_polyline_points(reference_curve)
+        source_points = get_curve_polyline_points(source_curve)
+        if len(reference_points) < 2 or len(source_points) < 3:
+            raise ValueError("Need polyline points to match embankment parallel curves")
+        boundary_index = min(
+            [0, len(reference_points) - 1],
+            key=lambda index: get_xy_distance_to_segment(
+                reference_points[index],
+                extended_start_edge_points,
+            ),
+        )
+        boundary_point = reference_points[boundary_index]
+        far_point = reference_points[-1 - boundary_index]
+        split_index = min(
+            range(len(source_points)),
+            key=lambda index: get_distance_2D(
+                source_points[index],
+                boundary_point,
+            ),
+        )
+        candidate_paths = [
+            source_points[: split_index + 1],
+            source_points[split_index:],
+        ]
+        candidate_paths = [path for path in candidate_paths if len(path) >= 2]
+        if not candidate_paths:
+            raise ValueError("Failed to split matching embankment parallel curve")
+        target_points = min(
+            candidate_paths,
+            key=lambda path: min(
+                get_distance_2D(path[0], far_point),
+                get_distance_2D(path[-1], far_point),
+            ),
+        )
+        if get_distance_2D(target_points[-1], far_point) < get_distance_2D(
+            target_points[0],
+            far_point,
+        ):
+            target_points = list(reversed(target_points))
+        return const_polycurve_obj(target_points)
+
+    for tier, tier_curves in crv_dict.items():
+        shoulder_curves = tier_curves.get("shoulder", {})
+        toe_curves = tier_curves.get("toe", {})
+        for parallel_name in ["U_parallel", "D_parallel"]:
+            if parallel_name in shoulder_curves and parallel_name not in toe_curves:
+                toe_curves[parallel_name] = get_matching_parallel_curve(
+                    curves[(tier, "toe")],
+                    shoulder_curves[parallel_name],
+                )
+                EMBANKMENT_SPLIT_DEBUG.append(
+                    {
+                        "context": (
+                            f"{pavement_info.name}_{pavement_info.num}/"
+                            f"paired_parallel/{parallel_name}/tier={tier}/kind=toe"
+                        ),
+                        "debug_type": "paired_parallel",
+                    }
+                )
+            elif parallel_name in toe_curves and parallel_name not in shoulder_curves:
+                shoulder_curves[parallel_name] = get_matching_parallel_curve(
+                    curves[(tier, "shoulder")],
+                    toe_curves[parallel_name],
+                )
+                EMBANKMENT_SPLIT_DEBUG.append(
+                    {
+                        "context": (
+                            f"{pavement_info.name}_{pavement_info.num}/"
+                            f"paired_parallel/{parallel_name}/tier={tier}/kind=shoulder"
+                        ),
+                        "debug_type": "paired_parallel",
+                    }
+                )
     
     tier_1_shoulder_U_crv = const_polycurve_obj([const_point_obj(p) for p in pavement_bottom_points_dict["U_points"]])
     tier_1_shoulder_D_crv = const_polycurve_obj([const_point_obj(p) for p in pavement_bottom_points_dict["D_points"]])
@@ -1467,6 +1518,60 @@ def get_world_embankment_points(
 
     def get_points_with_name_df(name_df, start_slope, end_slope):
         slopes = get_cross_section_slope(name_df, start_slope, end_slope)
+        tier1_shoulder_row = name_df[
+            (name_df["tier"] == 1) & (name_df["kind"] == "shoulder")
+        ].iloc[0]
+        tier1_toe_row = name_df[
+            (name_df["tier"] == 1) & (name_df["kind"] == "toe")
+        ].iloc[0]
+        tier1_toe_idx = tier1_toe_row.name
+        parallel_indices = [
+            index
+            for index, source in fixed_height_sources[tier1_toe_idx].items()
+            if source == "parallel"
+        ]
+        if len(parallel_indices) == 1:
+            boundary_index = parallel_indices[0]
+            shoulder_point = tier1_shoulder_row["points"][boundary_index]
+            toe_point = tier1_toe_row["points"][boundary_index]
+            height_difference = shoulder_point.z - toe_point.z
+            if height_difference > DISTANCE_TOL:
+                effective_boundary_slope = (
+                    get_distance_2D(shoulder_point, toe_point)
+                    / height_difference
+                )
+                toe_distances = get_cumulative_2D_distances(
+                    list(tier1_toe_row["2Dpoints"])
+                )
+                boundary_distance = toe_distances[boundary_index]
+                total_distance = toe_distances[-1]
+                if boundary_distance >= total_distance / 2:
+                    start_value = slopes[0][0]
+                    slopes[0] = [
+                        (
+                            effective_boundary_slope
+                            if distance >= boundary_distance
+                            else start_value
+                            + (effective_boundary_slope - start_value)
+                            * distance
+                            / boundary_distance
+                        )
+                        for distance in toe_distances
+                    ]
+                else:
+                    end_value = slopes[0][-1]
+                    remaining_distance = total_distance - boundary_distance
+                    slopes[0] = [
+                        (
+                            effective_boundary_slope
+                            if distance <= boundary_distance
+                            else effective_boundary_slope
+                            + (end_value - effective_boundary_slope)
+                            * (distance - boundary_distance)
+                            / remaining_distance
+                        )
+                        for distance in toe_distances
+                    ]
         height_calculations = []
         EMBANKMENT_SPLIT_DEBUG.append(
             {
@@ -1783,6 +1888,8 @@ def get_world_embankment_points(
             & set(key for key in parallel_result if isinstance(key, int))
         ):
             for kind in ["shoulder", "toe"]:
+                if tier == 1 and kind == "shoulder":
+                    continue
                 edge_points = edge_result[tier].get(kind)
                 parallel_points = parallel_result[tier].get(kind)
                 if (
