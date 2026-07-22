@@ -2126,9 +2126,13 @@ def main(initial_or_final: str, debug: bool = False):
         for key, brep in brep_items.items():
             bbox = brep.GetBoundingBox(True)
             brep_debug[unique_key][key] = {
+                "is_valid": brep.IsValid,
                 "is_solid": brep.IsSolid,
                 "face_count": brep.Faces.Count,
                 "edge_count": brep.Edges.Count,
+                "naked_edge_count": len(
+                    brep.DuplicateNakedEdgeCurves(True, True)
+                ),
                 "bbox_min": point3d_from_rg(bbox.Min),
                 "bbox_max": point3d_from_rg(bbox.Max),
             }
