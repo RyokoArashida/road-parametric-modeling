@@ -1151,6 +1151,68 @@ def get_world_embankment_points(
         crv_df.at[idx, "points"] = [item[1] for item in sorted_items]
         crv_df.at[idx, "2Dpoints"] = [item[2] for item in sorted_items]
 
+    for name in crv_df["name"].unique():
+        name_df = crv_df[crv_df["name"] == name]
+        for tier in sorted(int(value) for value in name_df["tier"].unique() if int(value) > 1):
+            shoulder_rows = name_df[
+                (name_df["tier"] == tier) & (name_df["kind"] == "shoulder")
+            ]
+            toe_rows = name_df[
+                (name_df["tier"] == tier) & (name_df["kind"] == "toe")
+            ]
+            if len(shoulder_rows) != 1 or len(toe_rows) != 1:
+                continue
+            shoulder_idx = shoulder_rows.index[0]
+            toe_idx = toe_rows.index[0]
+            shoulder_points = list(crv_df.at[shoulder_idx, "2Dpoints"])
+            toe_points = list(crv_df.at[toe_idx, "2Dpoints"])
+            common_count = min(len(shoulder_points), len(toe_points))
+            trim_count = None
+            stalled_kind = None
+            for i in range(1, common_count):
+                shoulder_stalled = (
+                    get_distance_2D(shoulder_points[i], shoulder_points[i - 1])
+                    <= DISTANCE_TOL
+                    and all(
+                        get_distance_2D(point, shoulder_points[i]) <= DISTANCE_TOL
+                        for point in shoulder_points[i + 1 :]
+                    )
+                )
+                toe_stalled = (
+                    get_distance_2D(toe_points[i], toe_points[i - 1])
+                    <= DISTANCE_TOL
+                    and all(
+                        get_distance_2D(point, toe_points[i]) <= DISTANCE_TOL
+                        for point in toe_points[i + 1 :]
+                    )
+                )
+                if shoulder_stalled != toe_stalled:
+                    trim_count = i
+                    stalled_kind = "shoulder" if shoulder_stalled else "toe"
+                    break
+            if trim_count is None:
+                continue
+            for idx in [shoulder_idx, toe_idx]:
+                for column in [
+                    "points",
+                    "2Dpoints",
+                    "2Ddistances",
+                    "center_match_points",
+                ]:
+                    crv_df.at[idx, column] = list(crv_df.at[idx, column])[:trim_count]
+            EMBANKMENT_SPLIT_DEBUG.append(
+                {
+                    "context": (
+                        f"{pavement_info.name}_{pavement_info.num}/"
+                        f"alignment_trim/{name}/tier={tier}"
+                    ),
+                    "debug_type": "alignment_trim",
+                    "stalled_kind": stalled_kind,
+                    "original_count": common_count,
+                    "trimmed_count": trim_count,
+                }
+            )
+
     fixed_height_sources = {
         idx: (
             {i: "tier1_shoulder" for i in range(len(row["points"]))}

@@ -577,28 +577,36 @@ def split_brep_by_vertical_srf_from_two_points_keep_near_point(
         capped = kept_brep.CapPlanarHoles(tol)
         if capped is None:
             naked_edges = list(kept_brep.DuplicateNakedEdgeCurves(True, True))
-            joined_edges = rg.Curve.JoinCurves(naked_edges, tol)
-            cap_breps = (
-                rg.Brep.CreatePlanarBreps(joined_edges, tol)
-                if joined_edges
-                else None
-            )
-            joined_breps = (
-                rg.Brep.JoinBreps([kept_brep] + list(cap_breps), tol)
-                if cap_breps
-                else None
-            )
-            solid_breps = (
-                [brep for brep in joined_breps if brep.IsSolid]
-                if joined_breps
-                else []
-            )
+            joined_edges = None
+            cap_breps = None
+            solid_breps = []
+            attempted_tolerances = []
+            for join_tol in [tol, tol * 10, tol * 100]:
+                if join_tol in attempted_tolerances:
+                    continue
+                attempted_tolerances.append(join_tol)
+                joined_edges = rg.Curve.JoinCurves(naked_edges, join_tol)
+                if not joined_edges:
+                    continue
+                cap_breps = rg.Brep.CreatePlanarBreps(joined_edges, join_tol)
+                if not cap_breps:
+                    continue
+                joined_breps = rg.Brep.JoinBreps(
+                    [kept_brep] + list(cap_breps),
+                    join_tol,
+                )
+                if not joined_breps:
+                    continue
+                solid_breps = [brep for brep in joined_breps if brep.IsSolid]
+                if solid_breps:
+                    break
             if not solid_breps:
                 raise ValueError(
                     "Failed to cap brep after split. "
                     f"naked_edge_count={len(naked_edges)}, "
                     f"joined_edge_count={0 if not joined_edges else len(joined_edges)}, "
-                    f"cap_count={0 if not cap_breps else len(cap_breps)}"
+                    f"cap_count={0 if not cap_breps else len(cap_breps)}, "
+                    f"attempted_tolerances={attempted_tolerances}"
                 )
             capped = solid_breps[0]
         kept_brep = capped
