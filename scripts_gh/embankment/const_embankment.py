@@ -1530,18 +1530,44 @@ def get_world_embankment_points(
             }
         )
 
+    def get_lowest_toe_points_by_section(
+        name_result: dict,
+        point_count: int,
+        context: str,
+    ) -> list[Point3D]:
+        tier_numbers = sorted(
+            (key for key in name_result if isinstance(key, int)),
+            reverse=True,
+        )
+        lowest_toe_points = []
+        for section_index in range(point_count):
+            for tier in tier_numbers:
+                tier_result = name_result[tier]
+                shoulder_points = tier_result.get("shoulder", [])
+                toe_points = tier_result.get("toe", [])
+                if (
+                    section_index < len(shoulder_points)
+                    and section_index < len(toe_points)
+                ):
+                    lowest_toe_points.append(toe_points[section_index])
+                    break
+            else:
+                raise ValueError(
+                    "No complete embankment tier at section. "
+                    f"context={context}, section={section_index}"
+                )
+        return lowest_toe_points
+
     for parallel_name, parallel_result in {
         "U_parallel": U_parallel_result,
         "D_parallel": D_parallel_result,
     }.items():
-        lowest_tier = max(parallel_result)
         top_points = parallel_result[1]["shoulder"]
-        lowest_toe_points = parallel_result[lowest_tier]["toe"]
-        if len(top_points) != len(lowest_toe_points):
-            raise ValueError(
-                f"{parallel_name} closure point count mismatch: "
-                f"top={len(top_points)}, bottom={len(lowest_toe_points)}"
-            )
+        lowest_toe_points = get_lowest_toe_points_by_section(
+            parallel_result,
+            len(top_points),
+            parallel_name,
+        )
 
         center_top_points = []
         for top_point in top_points:
@@ -1574,9 +1600,14 @@ def get_world_embankment_points(
         parallel_result: dict,
         point: Point3D,
     ) -> float:
-        lowest_tier = max(key for key in parallel_result if isinstance(key, int))
+        point_count = len(parallel_result[1]["shoulder"])
+        lowest_toe_points = get_lowest_toe_points_by_section(
+            parallel_result,
+            point_count,
+            "parallel closure height",
+        )
         return min(
-            parallel_result[lowest_tier]["toe"],
+            lowest_toe_points,
             key=lambda toe_point: get_distance_2D(toe_point, point),
         ).z
 
@@ -1593,13 +1624,11 @@ def get_world_embankment_points(
         ])
     for edge_name, soil_point, parallel_result in edge_closure_items:
         point_count = len(result[edge_name][1]["shoulder"])
-        lowest_tier = max(key for key in result[edge_name] if isinstance(key, int))
-        bottom_points = result[edge_name][lowest_tier]["toe"]
-        if point_count != len(bottom_points):
-            raise ValueError(
-                f"{edge_name} closure point count mismatch: "
-                f"top={point_count}, bottom={len(bottom_points)}"
-            )
+        bottom_points = get_lowest_toe_points_by_section(
+            result[edge_name],
+            point_count,
+            edge_name,
+        )
         result[edge_name]["closure_points"] = {
             "bottom": [
                 Point3D(
@@ -1617,14 +1646,12 @@ def get_world_embankment_points(
     if make_end_edge:
         UD_edge_items.append(("end_edge_UD", "end"))
     for edge_name, edge_position in UD_edge_items:
-        lowest_tier = max(result[edge_name])
         top_points = result[edge_name][1]["shoulder"]
-        bottom_points = result[edge_name][lowest_tier]["toe"]
-        if len(top_points) != len(bottom_points):
-            raise ValueError(
-                f"{edge_name} closure point count mismatch: "
-                f"top={len(top_points)}, bottom={len(bottom_points)}"
-            )
+        bottom_points = get_lowest_toe_points_by_section(
+            result[edge_name],
+            len(top_points),
+            edge_name,
+        )
         result[edge_name]["closure_points"] = {
             "bottom": [
                 Point3D(top_point.x, top_point.y, bottom_point.z)
