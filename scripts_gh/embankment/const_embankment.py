@@ -204,28 +204,32 @@ def split_open_embankment_boundary_curve_by_lines(
             *line_points,
             length=cutter_length,
         )
-        extended_line_points = (
-            point3d_from_rg(extended_line.PointAtStart),
-            point3d_from_rg(extended_line.PointAtEnd),
+        split_line_on_reference_z = rg.LineCurve(
+            rg.Point3d(
+                extended_line.PointAtStart.X,
+                extended_line.PointAtStart.Y,
+                STANDARD_BASE_Z,
+            ),
+            rg.Point3d(
+                extended_line.PointAtEnd.X,
+                extended_line.PointAtEnd.Y,
+                STANDARD_BASE_Z,
+            ),
         )
-        polyline_points = get_curve_polyline_points(curve)
-        on_line_groups = []
-        current_group = []
-        for point in polyline_points:
-            if get_xy_distance_to_segment(point, extended_line_points) <= DISTANCE_TOL:
-                current_group.append(point)
-            elif current_group:
-                on_line_groups.append(current_group)
-                current_group = []
-        if current_group:
-            on_line_groups.append(current_group)
-        for group in on_line_groups:
-            for point in [group[0], group[-1]]:
-                ok, t = curve_on_reference_z.ClosestPoint(const_point_obj(point))
-                if not ok:
-                    raise ValueError(
-                        f"Failed to get curve parameter at on-line point: {point}"
-                    )
+        curve_events = rg.Intersect.Intersection.CurveCurve(
+            curve_on_reference_z,
+            split_line_on_reference_z,
+            DISTANCE_TOL,
+            DISTANCE_TOL,
+        )
+        for event in curve_events:
+            if event.IsPoint:
+                event_params = [event.ParameterA]
+            elif event.IsOverlap:
+                event_params = [event.OverlapA.T0, event.OverlapA.T1]
+            else:
+                continue
+            for t in event_params:
                 if all(
                     abs(t - existing) > DISTANCE_TOL
                     for existing in split_params
@@ -1747,6 +1751,48 @@ def get_world_embankment_points(
                     line_start.y + distance_ratio * dy,
                     point.z,
                 )
+
+    edge_parallel_results = []
+    if make_start_edge:
+        edge_parallel_results.extend([
+            ("start_edge_U", U_parallel_result),
+            ("start_edge_D", D_parallel_result),
+        ])
+    if make_end_edge:
+        edge_parallel_results.extend([
+            ("end_edge_U", U_parallel_result),
+            ("end_edge_D", D_parallel_result),
+        ])
+    for edge_name, parallel_result in edge_parallel_results:
+        edge_result = result[edge_name]
+        edge_reference_points = edge_result[1]["toe"]
+        parallel_reference_points = parallel_result[1]["toe"]
+        edge_index, parallel_index = min(
+            (
+                (edge_index, parallel_index)
+                for edge_index in range(len(edge_reference_points))
+                for parallel_index in range(len(parallel_reference_points))
+            ),
+            key=lambda indices: get_distance_2D(
+                edge_reference_points[indices[0]],
+                parallel_reference_points[indices[1]],
+            ),
+        )
+        for tier in sorted(
+            set(key for key in edge_result if isinstance(key, int))
+            & set(key for key in parallel_result if isinstance(key, int))
+        ):
+            for kind in ["shoulder", "toe"]:
+                edge_points = edge_result[tier].get(kind)
+                parallel_points = parallel_result[tier].get(kind)
+                if (
+                    edge_points is None
+                    or parallel_points is None
+                    or edge_index >= len(edge_points)
+                    or parallel_index >= len(parallel_points)
+                ):
+                    continue
+                edge_points[edge_index] = parallel_points[parallel_index]
 
     return result
 
