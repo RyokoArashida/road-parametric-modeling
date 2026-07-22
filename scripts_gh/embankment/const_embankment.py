@@ -1317,27 +1317,10 @@ def get_world_embankment_points(
                     continue
                 shoulder_point = shoulder_points[i]
                 toe_point = toe_points[i]
-                if (
-                    i > 0
-                    and get_distance_2D(shoulder_point, shoulder_points[i - 1])
-                    <= DISTANCE_TOL
-                    and get_distance_2D(toe_point, toe_points[i - 1])
-                    > DISTANCE_TOL
-                ):
-                    toe_point = Point3D(
-                        shoulder_point.x,
-                        shoulder_point.y,
-                        shoulder_point.z,
-                    )
-                if get_distance_2D(previous_point, shoulder_point) <= DISTANCE_TOL:
-                    shoulder_z = previous_z
-                elif i in fixed_height_indices[shoulder_idx]:
+                if i in fixed_height_indices[shoulder_idx]:
                     shoulder_z = shoulder_point.z
                 else:
-                    shoulder_z = previous_z - (
-                        get_distance_2D(previous_point, shoulder_point)
-                        / get_section_slope(i, tier)
-                    )
+                    shoulder_z = previous_z
                 if get_distance_2D(shoulder_point, toe_point) <= DISTANCE_TOL:
                     toe_z = shoulder_z
                 elif i in fixed_height_indices[toe_idx]:
