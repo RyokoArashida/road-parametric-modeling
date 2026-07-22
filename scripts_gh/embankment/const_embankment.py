@@ -39,7 +39,6 @@ from my_project.utils.geometry_gh.const import (
     const_planer_srf_obj_from_points,
     const_polycurve_obj,
     const_brep_from_two_closed_point_lists,
-    join_breps_or_raise,
 )
 from my_project.utils.geometry_gh.document import get_named_curves_on_layer
 from my_project.utils.geometry_gh.intersect import (
@@ -405,10 +404,6 @@ def split_embankment_boundary_curve_by_abut_points(
                 target_line_points={},
                 expected_count=3,
             )
-            add_result(f"{prefix}_U", edge_items[0]["curve"])
-            add_result(f"{prefix}_UD", edge_items[1]["curve"])
-            add_result(f"{prefix}_D", edge_items[2]["curve"])
-            return
         except ValueError:
             edge_part = classify_curve_by_nearest_line(
                 edge_curve,
@@ -418,6 +413,10 @@ def split_embankment_boundary_curve_by_abut_points(
                 },
             )
             add_result(f"{prefix}_{edge_part}", edge_curve)
+            return
+        add_result(f"{prefix}_U", edge_items[0]["curve"])
+        add_result(f"{prefix}_UD", edge_items[1]["curve"])
+        add_result(f"{prefix}_D", edge_items[2]["curve"])
 
     split_line_points = []
     target_line_points = {}
@@ -2041,7 +2040,7 @@ def get_brep_from_points(point_dict) -> dict[str, rg.Brep]:
                 raise ValueError(f"Failed to create section cap breps. points={unique_points}")
             return breps
 
-    def get_face_breps(points, *, fan_from_first: bool = False):
+    def get_face_breps(points):
         unique_points = []
         for point in points:
             if all(
@@ -2060,7 +2059,7 @@ def get_brep_from_points(point_dict) -> dict[str, rg.Brep]:
                 DISTANCE_TOL,
             )
             return [] if brep is None else [brep]
-        if len(point_objs) == 4 and not fan_from_first:
+        if len(point_objs) == 4:
             brep = rg.Brep.CreateFromCornerPoints(
                 point_objs[0],
                 point_objs[1],
@@ -2070,11 +2069,10 @@ def get_brep_from_points(point_dict) -> dict[str, rg.Brep]:
             )
             if brep is not None:
                 return [brep]
-        if not fan_from_first:
-            try:
-                return [const_planer_srf_obj_from_points(unique_points)]
-            except ValueError:
-                pass
+        try:
+            return [const_planer_srf_obj_from_points(unique_points)]
+        except ValueError:
+            pass
         breps = []
         anchor = point_objs[0]
         for point1, point2 in zip(point_objs[1:-1], point_objs[2:]):
