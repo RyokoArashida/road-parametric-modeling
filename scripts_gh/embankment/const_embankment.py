@@ -1834,59 +1834,6 @@ def get_brep_from_points(point_dict) -> dict[str, rg.Brep]:
                 raise ValueError(f"Failed to create section cap breps. points={unique_points}")
             return breps
 
-    def get_face_breps(points, *, fan_from_first: bool = False):
-        unique_points = []
-        for point in points:
-            if all(
-                const_point_obj(point).DistanceTo(const_point_obj(existing)) > DISTANCE_TOL
-                for existing in unique_points
-            ):
-                unique_points.append(point)
-        if len(unique_points) < 3:
-            return []
-        point_objs = [const_point_obj(point) for point in unique_points]
-        if len(point_objs) == 3:
-            brep = rg.Brep.CreateFromCornerPoints(
-                point_objs[0],
-                point_objs[1],
-                point_objs[2],
-                DISTANCE_TOL,
-            )
-            return [] if brep is None else [brep]
-        if len(point_objs) == 4 and not fan_from_first:
-            brep = rg.Brep.CreateFromCornerPoints(
-                point_objs[0],
-                point_objs[1],
-                point_objs[2],
-                point_objs[3],
-                DISTANCE_TOL,
-            )
-            if brep is not None:
-                return [brep]
-        if not fan_from_first:
-            try:
-                return [const_planer_srf_obj_from_points(unique_points)]
-            except ValueError:
-                pass
-        breps = []
-        anchor = point_objs[0]
-        for point1, point2 in zip(point_objs[1:-1], point_objs[2:]):
-            if (
-                anchor.DistanceTo(point1) <= DISTANCE_TOL
-                or anchor.DistanceTo(point2) <= DISTANCE_TOL
-                or point1.DistanceTo(point2) <= DISTANCE_TOL
-            ):
-                continue
-            brep = rg.Brep.CreateFromCornerPoints(
-                anchor,
-                point1,
-                point2,
-                DISTANCE_TOL,
-            )
-            if brep is not None:
-                breps.append(brep)
-        return breps
-
     def get_segment_brep(name, segment, *, require_solid: bool):
         breps = []
         section_points = [section["points"] for section in segment]
@@ -1949,61 +1896,17 @@ def get_brep_from_points(point_dict) -> dict[str, rg.Brep]:
         return sections
 
     def get_edge_segment_brep(name, segment):
-        breps = []
-        for section, next_section in zip(segment, segment[1:]):
-            layers = section["layers"]
-            next_layers = next_section["layers"]
-            for tier_index, layer in enumerate(layers):
-                next_layer = next_layers[tier_index]
-                breps.extend(get_face_breps([
-                    layer["shoulder"],
-                    next_layer["shoulder"],
-                    next_layer["toe"],
-                    layer["toe"],
-                ]))
-                if tier_index + 1 < len(layers):
-                    lower_layer = layers[tier_index + 1]
-                    next_lower_layer = next_layers[tier_index + 1]
-                    breps.extend(get_face_breps([
-                        layer["toe"],
-                        next_layer["toe"],
-                        next_lower_layer["shoulder"],
-                        lower_layer["shoulder"],
-                    ]))
-            breps.extend(get_face_breps([
-                layers[-1]["toe"],
-                next_layers[-1]["toe"],
-                next_section["bottom"],
-                section["bottom"],
-            ]))
-        for section in [segment[0], segment[-1]]:
-            cap_points = [section["bottom"]]
+        closed_sections = []
+        for section in segment:
+            points = [section["bottom"]]
             for layer in section["layers"]:
-                cap_points.extend([layer["shoulder"], layer["toe"]])
-            breps.extend(get_face_breps(
-                cap_points,
-                fan_from_first=True,
-            ))
-        joined = rg.Brep.JoinBreps(breps, DISTANCE_TOL)
-        if not joined:
-            raise ValueError(f"Failed to join edge breps ({name})")
-        solid_breps = []
-        for brep_index, brep in enumerate(joined, start=1):
-            if not brep.IsSolid:
-                capped = brep.CapPlanarHoles(DISTANCE_TOL)
-                if capped is None or not capped.IsSolid:
-                    naked_edge_count = len(
-                        brep.DuplicateNakedEdgeCurves(True, True)
-                    )
-                    raise ValueError(
-                        "Failed to cap edge brep. "
-                        f"name={name}, brep={brep_index}, "
-                        f"naked_edge_count={naked_edge_count}, "
-                        f"tol={DISTANCE_TOL}"
-                    )
-                brep = capped
-            solid_breps.append(brep)
-        return solid_breps
+                points.extend([layer["shoulder"], layer["toe"]])
+            closed_sections.append({"points": points})
+        return get_segment_brep(
+            name,
+            closed_sections,
+            require_solid=True,
+        )
 
     parallel_names = ["U_parallel", "D_parallel"]
     edge_names = []
