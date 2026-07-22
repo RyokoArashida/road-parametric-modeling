@@ -1987,7 +1987,10 @@ def get_brep_from_points(point_dict) -> dict[str, rg.Brep]:
         joined = rg.Brep.JoinBreps(breps, DISTANCE_TOL)
         if not joined:
             raise ValueError(f"Failed to join edge breps ({name})")
-        return list(joined)
+        joined_breps = list(joined)
+        if any(not brep.IsValid for brep in joined_breps):
+            return breps
+        return joined_breps
 
     parallel_names = ["U_parallel", "D_parallel"]
     edge_names = []
