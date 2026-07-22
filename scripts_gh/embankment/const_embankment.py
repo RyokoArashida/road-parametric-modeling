@@ -944,10 +944,15 @@ def get_world_embankment_points(
                 get_distance_2D(path[-1], far_point),
             ),
         )
-        if get_distance_2D(target_points[-1], far_point) < get_distance_2D(
-            target_points[0],
-            far_point,
-        ):
+        same_direction_distance = (
+            get_distance_2D(target_points[0], reference_points[0])
+            + get_distance_2D(target_points[-1], reference_points[-1])
+        )
+        reverse_direction_distance = (
+            get_distance_2D(target_points[0], reference_points[-1])
+            + get_distance_2D(target_points[-1], reference_points[0])
+        )
+        if reverse_direction_distance < same_direction_distance:
             target_points = list(reversed(target_points))
         return const_polycurve_obj(target_points)
 
