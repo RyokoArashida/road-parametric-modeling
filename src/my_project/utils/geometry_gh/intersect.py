@@ -49,6 +49,7 @@ def get_intersections_with_vertical_plane(
     plane_points: tuple[Point3D, Point3D],
     z: float = STANDARD_BASE_Z,
     cutter_length: float = DEFAULT_GEOMETRY_EXTENT,
+    preserve_curve_z: bool = False,
 ) -> list[Point3D]:
     curve = const_curve_obj(curve)
     reference_z = STANDARD_BASE_Z if curve_points_are_on_z(curve, 0) else z
@@ -67,6 +68,16 @@ def get_intersections_with_vertical_plane(
     )
     if not intersection_events or len(intersection_events[2]) == 0:
         return []
+    if preserve_curve_z:
+        result = []
+        for point in intersection_events[2]:
+            ok, parameter = curve_on_reference_z.ClosestPoint(point)
+            if not ok:
+                raise ValueError(
+                    f"Failed to restore curve Z at intersection point: {point}"
+                )
+            result.append(point3d_from_rg(curve.PointAt(parameter)))
+        return result
     return [point3d_from_rg(point, z=reference_z) for point in intersection_events[2]]
 
 
@@ -574,46 +585,13 @@ def split_brep_by_vertical_srf_from_two_points_keep_near_point(
         raise ValueError("分割後のBrepのうち、keep_point側の部分が見つかりませんでした")
     kept_brep = max(candidates, key=lambda item: item[0])[1]
     if cap and not kept_brep.IsSolid:
-        attempted_tolerances = []
-        capped = None
-        for cap_tol in [tol, tol * 10, tol * 100]:
-            if cap_tol in attempted_tolerances:
-                continue
-            attempted_tolerances.append(cap_tol)
-            cap_candidate = kept_brep.CapPlanarHoles(cap_tol)
-            if cap_candidate is not None and cap_candidate.IsSolid:
-                capped = cap_candidate
-                break
+        capped = kept_brep.CapPlanarHoles(tol)
         if capped is None:
             naked_edges = list(kept_brep.DuplicateNakedEdgeCurves(True, True))
-            joined_edges = None
-            cap_breps = None
-            solid_breps = []
-            for join_tol in attempted_tolerances:
-                joined_edges = rg.Curve.JoinCurves(naked_edges, join_tol)
-                if not joined_edges:
-                    continue
-                cap_breps = rg.Brep.CreatePlanarBreps(joined_edges, join_tol)
-                if not cap_breps:
-                    continue
-                joined_breps = rg.Brep.JoinBreps(
-                    [kept_brep] + list(cap_breps),
-                    join_tol,
-                )
-                if not joined_breps:
-                    continue
-                solid_breps = [brep for brep in joined_breps if brep.IsSolid]
-                if solid_breps:
-                    break
-            if not solid_breps:
-                raise ValueError(
-                    "Failed to cap brep after split. "
-                    f"naked_edge_count={len(naked_edges)}, "
-                    f"joined_edge_count={0 if not joined_edges else len(joined_edges)}, "
-                    f"cap_count={0 if not cap_breps else len(cap_breps)}, "
-                    f"attempted_tolerances={attempted_tolerances}"
-                )
-            capped = solid_breps[0]
+            raise ValueError(
+                "Failed to cap brep after split. "
+                f"naked_edge_count={len(naked_edges)}, tol={tol}"
+            )
         kept_brep = capped
     return kept_brep
 

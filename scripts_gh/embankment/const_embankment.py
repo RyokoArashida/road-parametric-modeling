@@ -1263,7 +1263,11 @@ def get_world_embankment_points(
         target_tier, target_position = emb_location
         for wall_info in wall_info_list:
             for points in [start_edge_points, end_edge_points, U_parallel_points, D_parallel_points, start_U_abut_points, start_D_abut_points, end_U_abut_points, end_D_abut_points]:
-                intersection_points = get_intersections_with_vertical_plane(wall_info["polyline"], points)
+                intersection_points = get_intersections_with_vertical_plane(
+                    wall_info["polyline"],
+                    points,
+                    preserve_curve_z=True,
+                )
                 if intersection_points:
                     for intersection_point in intersection_points:
                         wall_info["points"].append(intersection_point)
