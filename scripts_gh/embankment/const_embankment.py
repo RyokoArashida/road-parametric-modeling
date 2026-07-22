@@ -952,6 +952,11 @@ def get_world_embankment_points(
         return const_polycurve_obj(target_points)
 
     for tier, tier_curves in crv_dict.items():
+        if (
+            (tier, "shoulder") not in curves
+            or (tier, "toe") not in curves
+        ):
+            continue
         shoulder_curves = tier_curves.get("shoulder", {})
         toe_curves = tier_curves.get("toe", {})
         for parallel_name in ["U_parallel", "D_parallel"]:
