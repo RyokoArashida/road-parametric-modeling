@@ -1151,11 +1151,11 @@ def get_world_embankment_points(
         crv_df.at[idx, "points"] = [item[1] for item in sorted_items]
         crv_df.at[idx, "2Dpoints"] = [item[2] for item in sorted_items]
 
-    fixed_height_indices = {
+    fixed_height_sources = {
         idx: (
-            set(range(len(row["points"])))
+            {i: "tier1_shoulder" for i in range(len(row["points"]))}
             if row["tier"] == 1 and row["kind"] == "shoulder"
-            else set()
+            else {}
         )
         for idx, row in crv_df.iterrows()
     }
@@ -1218,7 +1218,7 @@ def get_world_embankment_points(
                 for wall_point in wall_height_points:
                     if get_distance_2D(point, wall_point) < DISTANCE_TOL:
                         points[i] = Point3D(point.x, point.y, wall_point.z)
-                        fixed_height_indices[idx].add(i)
+                        fixed_height_sources[idx][i] = "wall"
                         break
             crv_df.at[idx, "points"] = points
 
@@ -1262,7 +1262,7 @@ def get_world_embankment_points(
             for tier in range(1, max_tier + 1)
         ]
 
-    def get_cross_section_height_with_slope(name_df, slopes):
+    def get_cross_section_height_with_slope(name_df, slopes, height_calculations):
         name_df = name_df.copy()
         tier1_shoulder_points = name_df[(name_df["tier"] == 1) & (name_df["kind"] == "shoulder")]["points"].iloc[0]
         def get_section_slope(section_index: int, tier: int) -> float:
@@ -1315,21 +1315,46 @@ def get_world_embankment_points(
                     or i >= len(toe_points)
                 ):
                     continue
+                previous_input_point = previous_point
                 shoulder_point = shoulder_points[i]
                 toe_point = toe_points[i]
-                if i in fixed_height_indices[shoulder_idx]:
+                shoulder_source = fixed_height_sources[shoulder_idx].get(i)
+                if shoulder_source is not None:
                     shoulder_z = shoulder_point.z
                 else:
+                    shoulder_source = "previous_tier_toe"
                     shoulder_z = previous_z
-                if get_distance_2D(shoulder_point, toe_point) <= DISTANCE_TOL:
+                toe_distance_2D = get_distance_2D(shoulder_point, toe_point)
+                section_slope = None
+                if toe_distance_2D <= DISTANCE_TOL:
+                    toe_source = "same_xy_as_shoulder"
                     toe_z = shoulder_z
-                elif i in fixed_height_indices[toe_idx]:
+                elif i in fixed_height_sources[toe_idx]:
+                    toe_source = fixed_height_sources[toe_idx][i]
                     toe_z = toe_point.z
                 else:
-                    toe_z = shoulder_z - (
-                        get_distance_2D(shoulder_point, toe_point)
-                        / get_section_slope(i, tier)
-                    )
+                    toe_source = "slope"
+                    section_slope = get_section_slope(i, tier)
+                    toe_z = shoulder_z - toe_distance_2D / section_slope
+                height_calculations.append(
+                    {
+                        "section": i,
+                        "tier": tier,
+                        "previous_tier_toe": previous_input_point,
+                        "previous_to_shoulder_distance_2D": get_distance_2D(
+                            previous_input_point,
+                            shoulder_point,
+                        ),
+                        "shoulder_input": shoulder_point,
+                        "shoulder_height_source": shoulder_source,
+                        "shoulder_z": shoulder_z,
+                        "toe_input": toe_point,
+                        "toe_height_source": toe_source,
+                        "slope": section_slope,
+                        "shoulder_to_toe_distance_2D": toe_distance_2D,
+                        "toe_z": toe_z,
+                    }
+                )
                 shoulder_points[i] = Point3D(shoulder_point.x, shoulder_point.y, shoulder_z)
                 toe_points[i] = Point3D(toe_point.x, toe_point.y, toe_z)
                 name_df.at[shoulder_idx, "points"] = shoulder_points
@@ -1340,6 +1365,7 @@ def get_world_embankment_points(
 
     def get_points_with_name_df(name_df, start_slope, end_slope):
         slopes = get_cross_section_slope(name_df, start_slope, end_slope)
+        height_calculations = []
         EMBANKMENT_SPLIT_DEBUG.append(
             {
                 "context": (
@@ -1360,13 +1386,18 @@ def get_world_embankment_points(
                     {
                         "tier": row["tier"],
                         "kind": row["kind"],
-                        "count": len(fixed_height_indices[idx]),
+                        "count": len(fixed_height_sources[idx]),
                     }
                     for idx, row in name_df.iterrows()
                 ],
+                "height_calculations": height_calculations,
             }
         )
-        name_df_z = get_cross_section_height_with_slope(name_df, slopes)
+        name_df_z = get_cross_section_height_with_slope(
+            name_df,
+            slopes,
+            height_calculations,
+        )
         name_points_dict = {}
         for _, row in name_df_z.iterrows():
             tier = row["tier"]
@@ -1412,7 +1443,7 @@ def get_world_embankment_points(
                 for parallel_point in parallel_points:
                     if get_distance_2D(point, parallel_point) < DISTANCE_TOL:
                         points[i] = Point3D(point.x, point.y, parallel_point.z)
-                        fixed_height_indices[idx].add(i)
+                        fixed_height_sources[idx][i] = "parallel"
                         break
             crv_df.at[idx, "points"] = points
 
