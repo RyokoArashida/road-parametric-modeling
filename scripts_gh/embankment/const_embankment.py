@@ -1948,6 +1948,26 @@ def get_brep_from_points(point_dict) -> dict[str, rg.Brep]:
                 sections.append(None)
         return sections
 
+    def edge_segment_has_length(segment):
+        for section, next_section in zip(segment, segment[1:]):
+            points = [section["bottom"]]
+            next_points = [next_section["bottom"]]
+            for layer, next_layer in zip(
+                section["layers"],
+                next_section["layers"],
+            ):
+                points.extend([layer["shoulder"], layer["toe"]])
+                next_points.extend(
+                    [next_layer["shoulder"], next_layer["toe"]]
+                )
+            if any(
+                const_point_obj(point).DistanceTo(const_point_obj(next_point))
+                > DISTANCE_TOL
+                for point, next_point in zip(points, next_points)
+            ):
+                return True
+        return False
+
     def get_edge_segment_brep(name, segment):
         breps = []
         for section, next_section in zip(segment, segment[1:]):
@@ -1980,10 +2000,7 @@ def get_brep_from_points(point_dict) -> dict[str, rg.Brep]:
             cap_points = [section["bottom"]]
             for layer in section["layers"]:
                 cap_points.extend([layer["shoulder"], layer["toe"]])
-            breps.extend(get_face_breps(
-                cap_points,
-                fan_from_first=True,
-            ))
+            breps.extend(get_cap_breps(cap_points))
         joined = rg.Brep.JoinBreps(breps, DISTANCE_TOL)
         if not joined:
             raise ValueError(f"Failed to join edge breps ({name})")
@@ -2008,7 +2025,11 @@ def get_brep_from_points(point_dict) -> dict[str, rg.Brep]:
     for name in edge_names:
         name_dict = point_dict[name]
         sections = get_edge_sections(name_dict)
-        segments = get_same_signature_segments(sections)
+        segments = [
+            segment
+            for segment in get_same_signature_segments(sections)
+            if edge_segment_has_length(segment)
+        ]
         for segment_index, segment in enumerate(segments, start=1):
             segment_breps = get_edge_segment_brep(name, segment)
             for brep_index, brep in enumerate(segment_breps, start=1):
