@@ -1987,7 +1987,23 @@ def get_brep_from_points(point_dict) -> dict[str, rg.Brep]:
         joined = rg.Brep.JoinBreps(breps, DISTANCE_TOL)
         if not joined:
             raise ValueError(f"Failed to join edge breps ({name})")
-        return list(joined)
+        solid_breps = []
+        for brep_index, brep in enumerate(joined, start=1):
+            if not brep.IsSolid:
+                capped = brep.CapPlanarHoles(DISTANCE_TOL)
+                if capped is None or not capped.IsSolid:
+                    naked_edge_count = len(
+                        brep.DuplicateNakedEdgeCurves(True, True)
+                    )
+                    raise ValueError(
+                        "Failed to cap edge brep. "
+                        f"name={name}, brep={brep_index}, "
+                        f"naked_edge_count={naked_edge_count}, "
+                        f"tol={DISTANCE_TOL}"
+                    )
+                brep = capped
+            solid_breps.append(brep)
+        return solid_breps
 
     parallel_names = ["U_parallel", "D_parallel"]
     edge_names = []
