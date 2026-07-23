@@ -225,6 +225,95 @@ def get_center_line_point_at_distance(
     return const_3Dpoint(center_point)
 
 
+def get_center_line_point_and_normal_at_distance(
+    center_line_item: dict,
+    target_distance: float,
+) -> tuple[Point3D, rg.Vector3d]:
+    curve = center_line_item["curve_z0"]
+    curve_length = curve.GetLength()
+    if target_distance < -DISTANCE_TOL or target_distance > curve_length + DISTANCE_TOL:
+        raise ValueError(
+            f"Target side road STA {target_distance} is out of center line length: "
+            f"0 to {curve_length}"
+        )
+    ok, parameter = curve.LengthParameter(
+        min(max(target_distance, 0.0), curve_length)
+    )
+    if not ok:
+        raise ValueError(
+            f"Failed to get center line point and normal by distance: {target_distance}"
+        )
+    point = curve.PointAt(parameter)
+    tangent = curve.TangentAt(parameter)
+    normal = rg.Vector3d(-tangent.Y, tangent.X, 0.0)
+    if not normal.Unitize():
+        raise ValueError(
+            f"Failed to get side road center line normal: {target_distance}"
+        )
+    return Point3D(x=point.X, y=point.Y, z=0.0), normal
+
+
+def orient_side_normals(
+    up_normal: rg.Vector3d,
+    down_normal: rg.Vector3d,
+    up_point: Point3D,
+    down_point: Point3D,
+) -> tuple[rg.Vector3d, rg.Vector3d]:
+    up_to_down = rg.Vector3d(
+        down_point.x - up_point.x,
+        down_point.y - up_point.y,
+        0.0,
+    )
+    if not up_to_down.Unitize():
+        raise ValueError("Side road CL points have the same XY coordinates.")
+    up_dot = up_normal.X * up_to_down.X + up_normal.Y * up_to_down.Y
+    down_dot = down_normal.X * up_to_down.X + down_normal.Y * up_to_down.Y
+    if up_dot < 0:
+        up_normal.Reverse()
+    if down_dot < 0:
+        down_normal.Reverse()
+    return up_normal, down_normal
+
+
+def project_items_to_side_road_planes(
+    items: list[dict],
+    up_point: Point3D,
+    down_point: Point3D,
+    up_normal: rg.Vector3d,
+    down_normal: rg.Vector3d,
+) -> list[dict]:
+    projected_items = []
+    for item in items:
+        side = str(item["side"])
+        if "左" in side or "上り" in side:
+            reference_point = up_point
+            normal = up_normal
+        elif "右" in side or "下り" in side:
+            reference_point = down_point
+            normal = down_normal
+        else:
+            raise ValueError(
+                f'Cannot select side road CL for point: {item["key"]}; side={side}'
+            )
+        point = item["point"]
+        offset = (
+            (point.x - reference_point.x) * normal.X
+            + (point.y - reference_point.y) * normal.Y
+        )
+        projected_items.append(
+            {
+                **item,
+                "offset_from_side_CL": offset,
+                "point": Point3D(
+                    x=reference_point.x + normal.X * offset,
+                    y=reference_point.y + normal.Y * offset,
+                    z=point.z,
+                ),
+            }
+        )
+    return projected_items
+
+
 def get_side_road_point_with_height(
     center_line_item: dict,
     target_distance: float,
@@ -358,6 +447,27 @@ def get_main_intersection_from_side_STAs(
         up_side_point,
         down_side_point,
     )
+    _, up_normal = get_center_line_point_and_normal_at_distance(
+        center_line_items[up_side_name],
+        up_side_STA,
+    )
+    _, down_normal = get_center_line_point_and_normal_at_distance(
+        center_line_items[down_side_name],
+        down_side_STA,
+    )
+    up_normal, down_normal = orient_side_normals(
+        up_normal,
+        down_normal,
+        up_side_point,
+        down_side_point,
+    )
+    section_items = project_items_to_side_road_planes(
+        section_items,
+        up_side_point,
+        down_side_point,
+        up_normal,
+        down_normal,
+    )
 
     return {
         "center_name": center_name,
@@ -370,6 +480,16 @@ def get_main_intersection_from_side_STAs(
         "center_distance": center_distance,
         "up_side_point": up_side_point,
         "down_side_point": down_side_point,
+        "up_side_normal": Point3D(
+            x=up_normal.X,
+            y=up_normal.Y,
+            z=0.0,
+        ),
+        "down_side_normal": Point3D(
+            x=down_normal.X,
+            y=down_normal.Y,
+            z=0.0,
+        ),
         "section_items": section_items,
     }
 
@@ -428,6 +548,8 @@ def const_indiv_section(
         "down_side_STA": result["down_side_STA"],
         "up_side_point": result["up_side_point"],
         "down_side_point": result["down_side_point"],
+        "up_side_normal": result["up_side_normal"],
+        "down_side_normal": result["down_side_normal"],
     }
 
 
@@ -473,11 +595,11 @@ def get_interpolation_targets(
             end_section["down_side_STA"],
             ratio,
         )
-        up_point_2D = get_center_line_point_at_distance(
+        up_point_2D, up_normal = get_center_line_point_and_normal_at_distance(
             up_side_center_line_item,
             up_side_STA,
         )
-        down_point_2D = get_center_line_point_at_distance(
+        down_point_2D, down_normal = get_center_line_point_and_normal_at_distance(
             down_side_center_line_item,
             down_side_STA,
         )
@@ -499,6 +621,12 @@ def get_interpolation_targets(
                 ratio,
             ),
         )
+        up_normal, down_normal = orient_side_normals(
+            up_normal,
+            down_normal,
+            up_point,
+            down_point,
+        )
         return {
             "STA": interpolate_value(
                 start_section["STA"], end_section["STA"], ratio
@@ -513,6 +641,16 @@ def get_interpolation_targets(
             "down_side_STA": down_side_STA,
             "up_side_point": up_point,
             "down_side_point": down_point,
+            "up_side_normal": Point3D(
+                x=up_normal.X,
+                y=up_normal.Y,
+                z=0.0,
+            ),
+            "down_side_normal": Point3D(
+                x=down_normal.X,
+                y=down_normal.Y,
+                z=0.0,
+            ),
         }
 
     if division_count < 2:

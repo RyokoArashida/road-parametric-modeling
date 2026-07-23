@@ -1,7 +1,5 @@
 # ruff: noqa: E402
 
-import Rhino.Geometry as rg
-
 from my_project.config.locale_compat import normalize_lc_time
 
 normalize_lc_time()
@@ -17,64 +15,37 @@ def interpolate_sections(source_data: dict) -> list[dict]:
     def interpolate_value(start: float, end: float, ratio: float) -> float:
         return start + (end - start) * ratio
 
-    def get_horizontal_direction(section: dict) -> rg.Vector3d:
-        up_point = section["up_side_point"]
-        down_point = section["down_side_point"]
-        direction = rg.Vector3d(
-            down_point.x - up_point.x,
-            down_point.y - up_point.y,
-            0.0,
-        )
-        if not direction.Unitize():
-            raise ValueError(
-                f'Side road CL points coincide: {section["label"]}'
-            )
-        return direction
-
-    def get_side_reference_point(item: dict, section: dict) -> Point3D:
+    def get_side_plane(item: dict, section: dict) -> tuple[Point3D, Point3D]:
         side = str(item["side"])
         if "左" in side or "上り" in side:
-            return section["up_side_point"]
+            return section["up_side_point"], section["up_side_normal"]
         if "右" in side or "下り" in side:
-            return section["down_side_point"]
+            return section["down_side_point"], section["down_side_normal"]
         raise ValueError(
             f'Cannot select side road CL for point: {item["key"]}; side={side}'
         )
 
-    def get_signed_offset(item: dict, section: dict, direction: rg.Vector3d) -> float:
+    def get_signed_offset(item: dict, section: dict) -> float:
         point = item["point"]
-        reference_point = get_side_reference_point(item, section)
+        reference_point, normal = get_side_plane(item, section)
         delta_x = point.x - reference_point.x
         delta_y = point.y - reference_point.y
-        distance = (delta_x**2 + delta_y**2) ** 0.5
-        direction_dot = delta_x * direction.X + delta_y * direction.Y
-        return -distance if direction_dot < 0 else distance
+        return delta_x * normal.x + delta_y * normal.y
 
     def interpolate_target(target: dict, source_sections: dict[str, dict]) -> dict:
         start_section = source_sections[target["start_label"]]
         end_section = source_sections[target["end_label"]]
         ratio = target["ratio"]
-        target_direction = get_horizontal_direction(target)
-        start_direction = get_horizontal_direction(start_section)
-        end_direction = get_horizontal_direction(end_section)
         end_items = {item["key"]: item for item in end_section["items"]}
         items = []
         for start_item in start_section["items"]:
             end_item = end_items.get(start_item["key"])
             if end_item is None:
                 continue
-            start_offset = get_signed_offset(
-                start_item,
-                start_section,
-                start_direction,
-            )
-            end_offset = get_signed_offset(
-                end_item,
-                end_section,
-                end_direction,
-            )
+            start_offset = get_signed_offset(start_item, start_section)
+            end_offset = get_signed_offset(end_item, end_section)
             offset = interpolate_value(start_offset, end_offset, ratio)
-            reference_point = get_side_reference_point(start_item, target)
+            reference_point, normal = get_side_plane(start_item, target)
             items.append(
                 {
                     "name": start_item["name"],
@@ -88,8 +59,8 @@ def interpolate_sections(source_data: dict) -> list[dict]:
                     ),
                     "offset_from_side_CL": offset,
                     "point": Point3D(
-                        x=reference_point.x + target_direction.X * offset,
-                        y=reference_point.y + target_direction.Y * offset,
+                        x=reference_point.x + normal.x * offset,
+                        y=reference_point.y + normal.y * offset,
                         z=interpolate_value(
                             start_item["point"].z,
                             end_item["point"].z,
