@@ -441,14 +441,42 @@ def get_interpolation_targets(
     def interpolate_value(start: float, end: float, ratio: float) -> float:
         return start + (end - start) * ratio
 
-    def get_center_point_at_distance(distance: float) -> Point3D:
+    def get_center_sample_at_distance(distance: float) -> tuple[Point3D, float]:
         ok, parameter = center_curve.LengthParameter(distance)
         if not ok:
             raise ValueError(
                 f"Failed to get main center line point at distance: {distance}"
             )
         point = center_curve.PointAt(parameter)
-        return Point3D(x=point.X, y=point.Y, z=0.0)
+        return Point3D(x=point.X, y=point.Y, z=0.0), parameter
+
+    def get_side_intersection(
+        center_point: Point3D,
+        center_parameter: float,
+        side_center_line_item: dict,
+    ) -> Point3D:
+        tangent = center_curve.TangentAt(center_parameter)
+        cross_direction = rg.Vector3d(-tangent.Y, tangent.X, 0.0)
+        if not cross_direction.Unitize():
+            raise ValueError(
+                f"Failed to get main center line normal at: {center_parameter}"
+            )
+        cross_line_points = [
+            Point3D(
+                x=center_point.x - cross_direction.X,
+                y=center_point.y - cross_direction.Y,
+                z=0.0,
+            ),
+            Point3D(
+                x=center_point.x + cross_direction.X,
+                y=center_point.y + cross_direction.Y,
+                z=0.0,
+            ),
+        ]
+        return get_intersect_point_on_crv_and_points_in_the_same_plane(
+            side_center_line_item["curve_z0"],
+            cross_line_points,
+        )
 
     def make_target(
         start_section: dict,
@@ -458,20 +486,26 @@ def get_interpolation_targets(
         start_distance = start_section["center_distance"]
         end_distance = end_section["center_distance"]
         ratio = (center_distance - start_distance) / (end_distance - start_distance)
-        center_point = get_center_point_at_distance(center_distance)
-        up_side_STA = interpolate_value(
-            start_section["up_side_STA"], end_section["up_side_STA"], ratio
+        center_point, center_parameter = get_center_sample_at_distance(
+            center_distance
         )
-        down_side_STA = interpolate_value(
-            start_section["down_side_STA"], end_section["down_side_STA"], ratio
-        )
-        up_point_2D = get_center_line_point_at_distance(
+        up_point_2D = get_side_intersection(
+            center_point,
+            center_parameter,
             up_side_center_line_item,
-            up_side_STA,
         )
-        down_point_2D = get_center_line_point_at_distance(
+        down_point_2D = get_side_intersection(
+            center_point,
+            center_parameter,
             down_side_center_line_item,
-            down_side_STA,
+        )
+        up_side_STA = get_curve_distance(
+            up_side_center_line_item["curve_z0"],
+            up_point_2D,
+        )
+        down_side_STA = get_curve_distance(
+            down_side_center_line_item["curve_z0"],
+            down_point_2D,
         )
         up_point = Point3D(
             x=up_point_2D.x,
@@ -525,9 +559,17 @@ def get_interpolation_targets(
             continue
         target_distance = start_distance + interval
         while target_distance < end_distance - DISTANCE_TOL:
-            targets.append(
-                make_target(start_section, end_section, target_distance)
-            )
+            try:
+                targets.append(
+                    make_target(start_section, end_section, target_distance)
+                )
+            except ValueError as exc:
+                if "交差が見つかりません" not in str(exc) and "交点が見つかりません" not in str(exc):
+                    raise
+                print(
+                    "Skip under bridge interpolation target without side road "
+                    f"intersection: {target_distance}; {exc}"
+                )
             target_distance += interval
     return targets
 

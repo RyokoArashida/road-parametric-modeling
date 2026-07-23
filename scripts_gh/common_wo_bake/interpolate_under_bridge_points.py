@@ -34,10 +34,11 @@ def interpolate_sections(source_data: dict) -> list[dict]:
     def get_signed_offset(item: dict, section: dict, direction: rg.Vector3d) -> float:
         point = item["point"]
         center_point = section["center_point"]
-        return (
-            (point.x - center_point.x) * direction.X
-            + (point.y - center_point.y) * direction.Y
-        )
+        delta_x = point.x - center_point.x
+        delta_y = point.y - center_point.y
+        distance = (delta_x**2 + delta_y**2) ** 0.5
+        direction_dot = delta_x * direction.X + delta_y * direction.Y
+        return -distance if direction_dot < 0 else distance
 
     def interpolate_target(target: dict, source_sections: dict[str, dict]) -> dict:
         start_section = source_sections[target["start_label"]]
