@@ -14,7 +14,11 @@ from my_project.config.paths import get_input_output_dirs, get_output_dir
 from my_project.config.util_schemas import Point3D
 from my_project.utils.bake import get_keys_and_values_for_bake
 from my_project.utils.coordinates import get_STA_from_STA_info
+from my_project.utils.geometry_gh.attributes import get_curve_distance
 from my_project.utils.geometry_gh.const import const_3Dpoint, const_polycurve_obj
+from my_project.utils.geometry_gh.intersect import (
+    get_intersect_point_on_crv_and_points_in_the_same_plane,
+)
 from my_project.utils.geometry_gh.road_surface import get_indiv_center_line_points
 from my_project.utils.io import load_from_pickle, read_file_to_df, save_json_and_pickle
 
@@ -30,6 +34,7 @@ SIDE_COL = "側"
 POINT_NAME_COL = "点名"
 POINT_TYPE_COL = "種別"
 POINT_NO_COL = "点番号"
+SECTION_INTERVAL = 1000.0
 
 
 def get_available_center_names(road_center_infos: dict) -> list[str]:
@@ -92,11 +97,15 @@ def make_center_line_item(road_center_info) -> dict:
         road_center_info=road_center_info,
     )
     curve = const_polycurve_obj([const_3Dpoint(point) for point in points])
+    curve_z0 = const_polycurve_obj(
+        [rg.Point3d(point.x, point.y, 0.0) for point in points]
+    )
     return {
         "points": points,
         "left_vectors": left_vectors,
         "STAs": STAs,
         "curve": curve,
+        "curve_z0": curve_z0,
         "length": curve.GetLength(),
     }
 
@@ -328,6 +337,17 @@ def get_main_intersection_from_side_STAs(
         down_side_STA,
         down_side_row,
     )
+    center_point = get_intersect_point_on_crv_and_points_in_the_same_plane(
+        center_line_items[center_name]["curve_z0"],
+        [
+            Point3D(x=up_side_point.x, y=up_side_point.y, z=0.0),
+            Point3D(x=down_side_point.x, y=down_side_point.y, z=0.0),
+        ],
+    )
+    center_distance = get_curve_distance(
+        center_line_items[center_name]["curve_z0"],
+        center_point,
+    )
     section_items = transform_section_items_to_vertical_plane(
         group_df,
         up_side_row,
@@ -343,6 +363,8 @@ def get_main_intersection_from_side_STAs(
         "up_side_STA": up_side_STA,
         "down_side_STA": down_side_STA,
         "cross_section_line_points": (up_side_point, down_side_point),
+        "center_point": center_point,
+        "center_distance": center_distance,
         "up_side_point": up_side_point,
         "down_side_point": down_side_point,
         "section_items": section_items,
@@ -396,7 +418,114 @@ def const_indiv_section(
         ),
         "label": group_label,
         "items": result["section_items"],
+        "center_point": result["center_point"],
+        "center_distance": result["center_distance"],
+        "up_side_STA": result["up_side_STA"],
+        "down_side_STA": result["down_side_STA"],
+        "up_side_point": result["up_side_point"],
+        "down_side_point": result["down_side_point"],
     }
+
+
+def get_interpolation_targets(
+    sections: list[dict],
+    center_curve,
+    up_side_center_line_item: dict,
+    down_side_center_line_item: dict,
+    interval: float = SECTION_INTERVAL,
+) -> list[dict]:
+    def interpolate_value(start: float, end: float, ratio: float) -> float:
+        return start + (end - start) * ratio
+
+    def get_center_point_at_distance(distance: float) -> Point3D:
+        ok, parameter = center_curve.LengthParameter(distance)
+        if not ok:
+            raise ValueError(
+                f"Failed to get main center line point at distance: {distance}"
+            )
+        point = center_curve.PointAt(parameter)
+        return Point3D(x=point.X, y=point.Y, z=0.0)
+
+    def make_target(
+        start_section: dict,
+        end_section: dict,
+        center_distance: float,
+    ) -> dict:
+        start_distance = start_section["center_distance"]
+        end_distance = end_section["center_distance"]
+        ratio = (center_distance - start_distance) / (end_distance - start_distance)
+        center_point = get_center_point_at_distance(center_distance)
+        up_side_STA = interpolate_value(
+            start_section["up_side_STA"], end_section["up_side_STA"], ratio
+        )
+        down_side_STA = interpolate_value(
+            start_section["down_side_STA"], end_section["down_side_STA"], ratio
+        )
+        up_point_2D = get_center_line_point_at_distance(
+            up_side_center_line_item,
+            up_side_STA,
+        )
+        down_point_2D = get_center_line_point_at_distance(
+            down_side_center_line_item,
+            down_side_STA,
+        )
+        up_point = Point3D(
+            x=up_point_2D.x,
+            y=up_point_2D.y,
+            z=interpolate_value(
+                start_section["up_side_point"].z,
+                end_section["up_side_point"].z,
+                ratio,
+            ),
+        )
+        down_point = Point3D(
+            x=down_point_2D.x,
+            y=down_point_2D.y,
+            z=interpolate_value(
+                start_section["down_side_point"].z,
+                end_section["down_side_point"].z,
+                ratio,
+            ),
+        )
+        return {
+            "STA": interpolate_value(
+                start_section["STA"], end_section["STA"], ratio
+            ),
+            "label": f"interp_{center_distance:.3f}",
+            "start_label": start_section["label"],
+            "end_label": end_section["label"],
+            "ratio": ratio,
+            "center_point": center_point,
+            "center_distance": center_distance,
+            "up_side_STA": up_side_STA,
+            "down_side_STA": down_side_STA,
+            "up_side_point": up_point,
+            "down_side_point": down_point,
+        }
+
+    if interval <= DISTANCE_TOL:
+        raise ValueError(f"Section interpolation interval must be positive: {interval}")
+    if len(sections) < 2:
+        return []
+
+    sections = sorted(sections, key=lambda section: section["center_distance"])
+    targets = []
+    for start_section, end_section in zip(sections[:-1], sections[1:]):
+        start_distance = start_section["center_distance"]
+        end_distance = end_section["center_distance"]
+        if end_distance - start_distance <= DISTANCE_TOL:
+            print(
+                "Skip under bridge interpolation span with duplicate center distance: "
+                f'{start_section["label"]} -> {end_section["label"]}'
+            )
+            continue
+        target_distance = start_distance + interval
+        while target_distance < end_distance - DISTANCE_TOL:
+            targets.append(
+                make_target(start_section, end_section, target_distance)
+            )
+            target_distance += interval
+    return targets
 
 
 def main(
@@ -445,11 +574,16 @@ def main(
         if section is not None:
             sections.append(section)
 
-    sections = sorted(sections, key=lambda section: section["STA"])
+    sections = sorted(sections, key=lambda section: section["center_distance"])
+    interpolation_targets = get_interpolation_targets(
+        sections,
+        center_line_items[center_name]["curve_z0"],
+        center_line_items[up_side_name],
+        center_line_items[down_side_name],
+    )
     sections_dict = {
         section["label"]: {
-            "STA": section["STA"],
-            "items": section["items"],
+            key: value for key, value in section.items() if key != "label"
         }
         for section in sections
     }
@@ -466,24 +600,39 @@ def main(
         for item in section["items"]
     ]
     bake_keys, bake_objs = get_keys_and_values_for_bake(point_dict)
-
-    if debug:
-        return bake_keys, bake_objs, point_dict, points, crvs
-
+    center_point_dict = {
+        target["label"]: target["center_point"]
+        for target in interpolation_targets
+    }
+    bake_keys2, bake_objs2 = get_keys_and_values_for_bake(center_point_dict)
     result = {
         "sections": sections_dict,
         "points": point_dict,
+        "interpolation_targets": interpolation_targets,
     }
     save_json_and_pickle(
         data=result,
         folder_path=DIR,
-        name=f"{Filenames.ROAD}_{Filenames.CENTER}_{Filenames.POINTS}_under_bridge",
+        name=(
+            f"{Filenames.ROAD}_{Filenames.CENTER}_{Filenames.POINTS}"
+            "_under_bridge_source"
+        ),
     )
-    return bake_keys, bake_objs
+    if debug:
+        return (
+            bake_keys,
+            bake_objs,
+            bake_keys2,
+            bake_objs2,
+            point_dict,
+            points,
+            crvs,
+        )
+    return bake_keys, bake_objs, bake_keys2, bake_objs2
 
 
 if __name__ == "__main__":
-    bake_keys, bake_objs = main(
+    bake_keys, bake_objs, bake_keys2, bake_objs2 = main(
         globals().get("initial_or_final", "initial"),
         debug=False,
     )
