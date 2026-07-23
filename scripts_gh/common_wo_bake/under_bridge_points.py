@@ -604,14 +604,19 @@ def main(
         for item in section["items"]
     ]
     bake_keys, bake_objs = get_keys_and_values_for_bake(point_dict)
-    center_point_dict = {
-        target["label"]: target["center_point"]
-        for target in interpolation_targets
+    reference_point_dict = {
+        section["label"]: {
+            "本線CL": section["center_point"],
+            "側道上りCL": section["up_side_point"],
+            "側道下りCL": section["down_side_point"],
+        }
+        for section in [*sections, *interpolation_targets]
     }
-    bake_keys2, bake_objs2 = get_keys_and_values_for_bake(center_point_dict)
+    bake_keys2, bake_objs2 = get_keys_and_values_for_bake(reference_point_dict)
     result = {
         "sections": sections_dict,
         "points": point_dict,
+        "reference_points": reference_point_dict,
         "interpolation_targets": interpolation_targets,
     }
     save_json_and_pickle(
