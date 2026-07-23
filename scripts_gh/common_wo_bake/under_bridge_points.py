@@ -98,7 +98,10 @@ def make_center_line_item(road_center_info) -> dict:
     )
     curve = const_polycurve_obj([const_3Dpoint(point) for point in points])
     curve_z0 = const_polycurve_obj(
-        [rg.Point3d(point.x, point.y, 0.0) for point in points]
+        [
+            rg.Point3d(converted.x, converted.y, 0.0)
+            for converted in (const_3Dpoint(point) for point in points)
+        ]
     )
     return {
         "points": points,
