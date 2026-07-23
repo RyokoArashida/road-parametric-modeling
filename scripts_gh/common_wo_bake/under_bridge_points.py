@@ -402,6 +402,7 @@ def const_indiv_section(
     except ValueError as exc:
         if (
             "out of center line range" in str(exc)
+            or "out of center line length" in str(exc)
             or "do not intersect" in str(exc)
             or "交差が見つかりません" in str(exc)
             or "交点が見つかりません" in str(exc)
