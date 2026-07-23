@@ -34,7 +34,7 @@ SIDE_COL = "側"
 POINT_NAME_COL = "点名"
 POINT_TYPE_COL = "種別"
 POINT_NO_COL = "点番号"
-SECTION_INTERVAL = 1000.0
+SECTION_DIVISION_COUNT = 20
 
 
 def get_available_center_names(road_center_infos: dict) -> list[str]:
@@ -434,82 +434,54 @@ def const_indiv_section(
 def get_interpolation_targets(
     sections: list[dict],
     center_curve,
-    up_side_center_line_item: dict,
-    down_side_center_line_item: dict,
-    interval: float = SECTION_INTERVAL,
+    division_count: int = SECTION_DIVISION_COUNT,
 ) -> list[dict]:
     def interpolate_value(start: float, end: float, ratio: float) -> float:
         return start + (end - start) * ratio
 
-    def get_center_sample_at_distance(distance: float) -> tuple[Point3D, float]:
+    def get_center_point_at_distance(distance: float) -> Point3D:
         ok, parameter = center_curve.LengthParameter(distance)
         if not ok:
             raise ValueError(
                 f"Failed to get main center line point at distance: {distance}"
             )
         point = center_curve.PointAt(parameter)
-        return Point3D(x=point.X, y=point.Y, z=0.0), parameter
-
-    def get_side_intersection(
-        center_point: Point3D,
-        center_parameter: float,
-        side_center_line_item: dict,
-    ) -> Point3D:
-        tangent = center_curve.TangentAt(center_parameter)
-        cross_direction = rg.Vector3d(-tangent.Y, tangent.X, 0.0)
-        if not cross_direction.Unitize():
-            raise ValueError(
-                f"Failed to get main center line normal at: {center_parameter}"
-            )
-        cross_line_points = [
-            Point3D(
-                x=center_point.x - cross_direction.X,
-                y=center_point.y - cross_direction.Y,
-                z=0.0,
-            ),
-            Point3D(
-                x=center_point.x + cross_direction.X,
-                y=center_point.y + cross_direction.Y,
-                z=0.0,
-            ),
-        ]
-        return get_intersect_point_on_crv_and_points_in_the_same_plane(
-            side_center_line_item["curve_z0"],
-            cross_line_points,
-        )
+        return Point3D(x=point.X, y=point.Y, z=0.0)
 
     def make_target(
         start_section: dict,
         end_section: dict,
-        center_distance: float,
+        ratio: float,
     ) -> dict:
         start_distance = start_section["center_distance"]
         end_distance = end_section["center_distance"]
-        ratio = (center_distance - start_distance) / (end_distance - start_distance)
-        center_point, center_parameter = get_center_sample_at_distance(
-            center_distance
+        center_distance = interpolate_value(
+            start_distance,
+            end_distance,
+            ratio,
         )
-        up_point_2D = get_side_intersection(
-            center_point,
-            center_parameter,
-            up_side_center_line_item,
+        center_point = get_center_point_at_distance(center_distance)
+        up_side_STA = interpolate_value(
+            start_section["up_side_STA"],
+            end_section["up_side_STA"],
+            ratio,
         )
-        down_point_2D = get_side_intersection(
-            center_point,
-            center_parameter,
-            down_side_center_line_item,
-        )
-        up_side_STA = get_curve_distance(
-            up_side_center_line_item["curve_z0"],
-            up_point_2D,
-        )
-        down_side_STA = get_curve_distance(
-            down_side_center_line_item["curve_z0"],
-            down_point_2D,
+        down_side_STA = interpolate_value(
+            start_section["down_side_STA"],
+            end_section["down_side_STA"],
+            ratio,
         )
         up_point = Point3D(
-            x=up_point_2D.x,
-            y=up_point_2D.y,
+            x=interpolate_value(
+                start_section["up_side_point"].x,
+                end_section["up_side_point"].x,
+                ratio,
+            ),
+            y=interpolate_value(
+                start_section["up_side_point"].y,
+                end_section["up_side_point"].y,
+                ratio,
+            ),
             z=interpolate_value(
                 start_section["up_side_point"].z,
                 end_section["up_side_point"].z,
@@ -517,8 +489,16 @@ def get_interpolation_targets(
             ),
         )
         down_point = Point3D(
-            x=down_point_2D.x,
-            y=down_point_2D.y,
+            x=interpolate_value(
+                start_section["down_side_point"].x,
+                end_section["down_side_point"].x,
+                ratio,
+            ),
+            y=interpolate_value(
+                start_section["down_side_point"].y,
+                end_section["down_side_point"].y,
+                ratio,
+            ),
             z=interpolate_value(
                 start_section["down_side_point"].z,
                 end_section["down_side_point"].z,
@@ -541,8 +521,10 @@ def get_interpolation_targets(
             "down_side_point": down_point,
         }
 
-    if interval <= DISTANCE_TOL:
-        raise ValueError(f"Section interpolation interval must be positive: {interval}")
+    if division_count < 2:
+        raise ValueError(
+            f"Section interpolation division count must be at least 2: {division_count}"
+        )
     if len(sections) < 2:
         return []
 
@@ -557,20 +539,14 @@ def get_interpolation_targets(
                 f'{start_section["label"]} -> {end_section["label"]}'
             )
             continue
-        target_distance = start_distance + interval
-        while target_distance < end_distance - DISTANCE_TOL:
-            try:
-                targets.append(
-                    make_target(start_section, end_section, target_distance)
+        for division_index in range(1, division_count):
+            targets.append(
+                make_target(
+                    start_section,
+                    end_section,
+                    division_index / division_count,
                 )
-            except ValueError as exc:
-                if "交差が見つかりません" not in str(exc) and "交点が見つかりません" not in str(exc):
-                    raise
-                print(
-                    "Skip under bridge interpolation target without side road "
-                    f"intersection: {target_distance}; {exc}"
-                )
-            target_distance += interval
+            )
     return targets
 
 
@@ -624,8 +600,6 @@ def main(
     interpolation_targets = get_interpolation_targets(
         sections,
         center_line_items[center_name]["curve_z0"],
-        center_line_items[up_side_name],
-        center_line_items[down_side_name],
     )
     sections_dict = {
         section["label"]: {
