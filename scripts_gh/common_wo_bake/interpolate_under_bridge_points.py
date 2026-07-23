@@ -31,11 +31,21 @@ def interpolate_sections(source_data: dict) -> list[dict]:
             )
         return direction
 
+    def get_side_reference_point(item: dict, section: dict) -> Point3D:
+        side = str(item["side"])
+        if "左" in side or "上り" in side:
+            return section["up_side_point"]
+        if "右" in side or "下り" in side:
+            return section["down_side_point"]
+        raise ValueError(
+            f'Cannot select side road CL for point: {item["key"]}; side={side}'
+        )
+
     def get_signed_offset(item: dict, section: dict, direction: rg.Vector3d) -> float:
         point = item["point"]
-        center_point = section["center_point"]
-        delta_x = point.x - center_point.x
-        delta_y = point.y - center_point.y
+        reference_point = get_side_reference_point(item, section)
+        delta_x = point.x - reference_point.x
+        delta_y = point.y - reference_point.y
         distance = (delta_x**2 + delta_y**2) ** 0.5
         direction_dot = delta_x * direction.X + delta_y * direction.Y
         return -distance if direction_dot < 0 else distance
@@ -64,7 +74,7 @@ def interpolate_sections(source_data: dict) -> list[dict]:
                 end_direction,
             )
             offset = interpolate_value(start_offset, end_offset, ratio)
-            center_point = target["center_point"]
+            reference_point = get_side_reference_point(start_item, target)
             items.append(
                 {
                     "name": start_item["name"],
@@ -76,10 +86,10 @@ def interpolate_sections(source_data: dict) -> list[dict]:
                         end_item["source_x"],
                         ratio,
                     ),
-                    "offset_from_center": offset,
+                    "offset_from_side_CL": offset,
                     "point": Point3D(
-                        x=center_point.x + target_direction.X * offset,
-                        y=center_point.y + target_direction.Y * offset,
+                        x=reference_point.x + target_direction.X * offset,
+                        y=reference_point.y + target_direction.Y * offset,
                         z=interpolate_value(
                             start_item["point"].z,
                             end_item["point"].z,
@@ -90,10 +100,7 @@ def interpolate_sections(source_data: dict) -> list[dict]:
             )
         return {
             **target,
-            "items": sorted(
-                items,
-                key=lambda item: item["offset_from_center"],
-            ),
+            "items": items,
         }
 
     source_sections = {
