@@ -434,6 +434,8 @@ def const_indiv_section(
 def get_interpolation_targets(
     sections: list[dict],
     center_curve,
+    up_side_center_line_item: dict,
+    down_side_center_line_item: dict,
     division_count: int = SECTION_DIVISION_COUNT,
 ) -> list[dict]:
     def interpolate_value(start: float, end: float, ratio: float) -> float:
@@ -471,17 +473,17 @@ def get_interpolation_targets(
             end_section["down_side_STA"],
             ratio,
         )
+        up_point_2D = get_center_line_point_at_distance(
+            up_side_center_line_item,
+            up_side_STA,
+        )
+        down_point_2D = get_center_line_point_at_distance(
+            down_side_center_line_item,
+            down_side_STA,
+        )
         up_point = Point3D(
-            x=interpolate_value(
-                start_section["up_side_point"].x,
-                end_section["up_side_point"].x,
-                ratio,
-            ),
-            y=interpolate_value(
-                start_section["up_side_point"].y,
-                end_section["up_side_point"].y,
-                ratio,
-            ),
+            x=up_point_2D.x,
+            y=up_point_2D.y,
             z=interpolate_value(
                 start_section["up_side_point"].z,
                 end_section["up_side_point"].z,
@@ -489,16 +491,8 @@ def get_interpolation_targets(
             ),
         )
         down_point = Point3D(
-            x=interpolate_value(
-                start_section["down_side_point"].x,
-                end_section["down_side_point"].x,
-                ratio,
-            ),
-            y=interpolate_value(
-                start_section["down_side_point"].y,
-                end_section["down_side_point"].y,
-                ratio,
-            ),
+            x=down_point_2D.x,
+            y=down_point_2D.y,
             z=interpolate_value(
                 start_section["down_side_point"].z,
                 end_section["down_side_point"].z,
@@ -600,6 +594,8 @@ def main(
     interpolation_targets = get_interpolation_targets(
         sections,
         center_line_items[center_name]["curve_z0"],
+        center_line_items[up_side_name],
+        center_line_items[down_side_name],
     )
     sections_dict = {
         section["label"]: {
