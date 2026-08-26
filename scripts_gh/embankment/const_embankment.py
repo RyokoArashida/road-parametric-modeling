@@ -1339,6 +1339,8 @@ def get_world_embankment_points(
             points = wall_points[location]
             polyline = const_polycurve_obj(points)
             return {wall_info: {
+                "wall_key": wall_unique_key,
+                "location": location,
                 "points": points,
                 "polyline": polyline,
             }}
@@ -1367,55 +1369,106 @@ def get_world_embankment_points(
                         wall_info["points"].append(intersection_point)
 
         this_tier_position_df = crv_df[(crv_df["tier"] == target_tier) & (crv_df["kind"] == target_position)]
-        for idx, row in this_tier_position_df.iterrows():
-            points = list(row["points"])
-            for wall_info in wall_info_list:
-                matched_heights = {}
-                for i, point in enumerate(points):
-                    for wall_point in wall_info["points"]:
-                        if get_distance_2D(point, wall_point) < DISTANCE_TOL:
-                            matched_heights[i] = wall_point.z
-                            points[i] = Point3D(point.x, point.y, wall_point.z)
-                            fixed_height_sources[idx][i] = "wall"
-                            break
+        for wall_info in wall_info_list:
+            anchors_by_row = {
+                idx: []
+                for idx in this_tier_position_df.index
+            }
+            for wall_point in wall_info["points"]:
+                for idx, row in this_tier_position_df.iterrows():
+                    projected_point = get_closest_point_on_curve_2D(
+                        row["2Dcurve"],
+                        wall_point,
+                    )
+                    anchors_by_row[idx].append(
+                        {
+                            "distance": get_distance_2D(
+                                projected_point,
+                                wall_point,
+                            ),
+                            "curve_distance": get_curve_distance(
+                                row["2Dcurve"],
+                                projected_point,
+                            ),
+                            "z": wall_point.z,
+                        }
+                    )
 
-                matched_indices = sorted(matched_heights)
-                for start_index, end_index in zip(
-                    matched_indices,
-                    matched_indices[1:],
-                ):
-                    if end_index <= start_index + 1:
-                        continue
-                    span_distances = [0.0]
-                    for previous_point, point in zip(
-                        points[start_index:end_index],
-                        points[start_index + 1:end_index + 1],
+            for idx, row in this_tier_position_df.iterrows():
+                anchors = sorted(
+                    anchors_by_row[idx],
+                    key=lambda item: item["curve_distance"],
+                )
+                unique_anchors = []
+                for anchor in anchors:
+                    if (
+                        unique_anchors
+                        and abs(
+                            anchor["curve_distance"]
+                            - unique_anchors[-1]["curve_distance"]
+                        ) <= DISTANCE_TOL
                     ):
-                        span_distances.append(
-                            span_distances[-1]
-                            + get_distance_2D(previous_point, point)
-                        )
-                    span_length = span_distances[-1]
-                    if span_length <= DISTANCE_TOL:
-                        continue
-                    start_z = matched_heights[start_index]
-                    end_z = matched_heights[end_index]
-                    for offset, point_index in enumerate(
-                        range(start_index + 1, end_index),
-                        start=1,
+                        if anchor["distance"] < unique_anchors[-1]["distance"]:
+                            unique_anchors[-1] = anchor
+                    else:
+                        unique_anchors.append(anchor)
+                if len(unique_anchors) < 2:
+                    continue
+
+                anchor_distances = [
+                    anchor["curve_distance"]
+                    for anchor in unique_anchors
+                ]
+                anchor_zs = [anchor["z"] for anchor in unique_anchors]
+                EMBANKMENT_SPLIT_DEBUG.append(
+                    {
+                        "context": (
+                            f"{pavement_info.name}_{pavement_info.num}/"
+                            f"wall_height/{row['name']}/tier={target_tier}/"
+                            f"kind={target_position}"
+                        ),
+                        "debug_type": "wall_height",
+                        "wall_key": wall_info["wall_key"],
+                        "wall_location": wall_info["location"],
+                        "anchors": [
+                            {
+                                "curve_distance": anchor["curve_distance"],
+                                "projection_distance": anchor["distance"],
+                                "z": anchor["z"],
+                            }
+                            for anchor in unique_anchors
+                        ],
+                    }
+                )
+                points = list(row["points"])
+                for point_index, point_distance in enumerate(row["2Ddistances"]):
+                    if not (
+                        anchor_distances[0] - DISTANCE_TOL
+                        <= point_distance
+                        <= anchor_distances[-1] + DISTANCE_TOL
                     ):
-                        point = points[point_index]
-                        ratio = span_distances[offset] / span_length
-                        point_z = start_z + (end_z - start_z) * ratio
-                        points[point_index] = Point3D(
-                            point.x,
-                            point.y,
-                            point_z,
+                        continue
+                    point = points[point_index]
+                    point_z = interpolate_value_by_distance(
+                        anchor_distances,
+                        anchor_zs,
+                        point_distance,
+                    )
+                    points[point_index] = Point3D(
+                        point.x,
+                        point.y,
+                        point_z,
+                    )
+                    fixed_height_sources[idx][point_index] = (
+                        "wall"
+                        if any(
+                            abs(point_distance - anchor_distance)
+                            <= DISTANCE_TOL
+                            for anchor_distance in anchor_distances
                         )
-                        fixed_height_sources[idx][point_index] = (
-                            "wall_interpolated"
-                        )
-            crv_df.at[idx, "points"] = points
+                        else "wall_interpolated"
+                    )
+                crv_df.at[idx, "points"] = points
 
     def resolve_slope(slope_or_func, tier: int) -> float:
         return slope_or_func(tier) if callable(slope_or_func) else slope_or_func
