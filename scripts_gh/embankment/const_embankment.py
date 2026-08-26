@@ -1330,17 +1330,38 @@ def get_world_embankment_points(
                 return None
             target_tier = small_info.target_tier
             target_position = small_info.target_position
-            return (target_tier, target_position)
+            if small_info.target_type == "edge":
+                edge_name = small_info.target_edge_name
+                if edge_name is None:
+                    raise ValueError("Wall edge target name is required")
+                target_names = {
+                    f"{edge_name}_edge_U",
+                    f"{edge_name}_edge_UD",
+                    f"{edge_name}_edge_D",
+                }
+            elif small_info.target_type == "parallel":
+                if small_info.target_parallel_name is None:
+                    raise ValueError("Wall parallel target name is required")
+                target_names = {
+                    f"{small_info.target_parallel_name}_parallel"
+                }
+            else:
+                raise ValueError(
+                    f"Unknown wall target type: {small_info.target_type}"
+                )
+            return (target_tier, target_position), target_names
 
         def match_wall_info(small_info, location):
-            wall_info = get_wall_info(small_info)
-            if wall_info is None:
+            target_info = get_wall_info(small_info)
+            if target_info is None:
                 return {}
+            wall_info, target_names = target_info
             points = wall_points[location]
             polyline = const_polycurve_obj(points)
             return {wall_info: {
                 "wall_key": wall_unique_key,
                 "location": location,
+                "target_names": target_names,
                 "points": points,
                 "polyline": polyline,
             }}
@@ -1370,12 +1391,17 @@ def get_world_embankment_points(
 
         this_tier_position_df = crv_df[(crv_df["tier"] == target_tier) & (crv_df["kind"] == target_position)]
         for wall_info in wall_info_list:
+            target_rows_df = this_tier_position_df[
+                this_tier_position_df["name"].isin(
+                    wall_info["target_names"]
+                )
+            ]
             anchors_by_row = {
                 idx: []
-                for idx in this_tier_position_df.index
+                for idx in target_rows_df.index
             }
             for wall_point in wall_info["points"]:
-                for idx, row in this_tier_position_df.iterrows():
+                for idx, row in target_rows_df.iterrows():
                     projected_point = get_closest_point_on_curve_2D(
                         row["2Dcurve"],
                         wall_point,
@@ -1394,7 +1420,7 @@ def get_world_embankment_points(
                         }
                     )
 
-            for idx, row in this_tier_position_df.iterrows():
+            for idx, row in target_rows_df.iterrows():
                 anchors = sorted(
                     anchors_by_row[idx],
                     key=lambda item: item["curve_distance"],
