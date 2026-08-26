@@ -1367,19 +1367,54 @@ def get_world_embankment_points(
                         wall_info["points"].append(intersection_point)
 
         this_tier_position_df = crv_df[(crv_df["tier"] == target_tier) & (crv_df["kind"] == target_position)]
-        wall_height_points = [
-            wall_point
-            for wall_info in wall_info_list
-            for wall_point in wall_info["points"]
-        ]
         for idx, row in this_tier_position_df.iterrows():
-            points = row["points"]
-            for i, point in enumerate(points):
-                for wall_point in wall_height_points:
-                    if get_distance_2D(point, wall_point) < DISTANCE_TOL:
-                        points[i] = Point3D(point.x, point.y, wall_point.z)
-                        fixed_height_sources[idx][i] = "wall"
-                        break
+            points = list(row["points"])
+            for wall_info in wall_info_list:
+                matched_heights = {}
+                for i, point in enumerate(points):
+                    for wall_point in wall_info["points"]:
+                        if get_distance_2D(point, wall_point) < DISTANCE_TOL:
+                            matched_heights[i] = wall_point.z
+                            points[i] = Point3D(point.x, point.y, wall_point.z)
+                            fixed_height_sources[idx][i] = "wall"
+                            break
+
+                matched_indices = sorted(matched_heights)
+                for start_index, end_index in zip(
+                    matched_indices,
+                    matched_indices[1:],
+                ):
+                    if end_index <= start_index + 1:
+                        continue
+                    span_distances = [0.0]
+                    for previous_point, point in zip(
+                        points[start_index:end_index],
+                        points[start_index + 1:end_index + 1],
+                    ):
+                        span_distances.append(
+                            span_distances[-1]
+                            + get_distance_2D(previous_point, point)
+                        )
+                    span_length = span_distances[-1]
+                    if span_length <= DISTANCE_TOL:
+                        continue
+                    start_z = matched_heights[start_index]
+                    end_z = matched_heights[end_index]
+                    for offset, point_index in enumerate(
+                        range(start_index + 1, end_index),
+                        start=1,
+                    ):
+                        point = points[point_index]
+                        ratio = span_distances[offset] / span_length
+                        point_z = start_z + (end_z - start_z) * ratio
+                        points[point_index] = Point3D(
+                            point.x,
+                            point.y,
+                            point_z,
+                        )
+                        fixed_height_sources[idx][point_index] = (
+                            "wall_interpolated"
+                        )
             crv_df.at[idx, "points"] = points
 
     def resolve_slope(slope_or_func, tier: int) -> float:
