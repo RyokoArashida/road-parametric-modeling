@@ -224,31 +224,35 @@ def get_indiv_points(
     berm_gap_point_num = wall_info.berm_gap_point_num
     berm_polyline = const_polycurve_obj(berm_points2D)
     berm_points_distances = get_distance_along_crv(berm_polyline, berm_points2D)
-    match_berm_points2D = [berm_points2D[i] for i in range(len(berm_points2D)) if i not in berm_gap_point_num]
-    if len(match_berm_points2D) != len(top_original_point_idx):
+    berm_ref_point_idx = [
+        i
+        for i in range(len(berm_points2D))
+        if i not in berm_gap_point_num
+    ]
+    if len(berm_ref_point_idx) != len(top_original_point_idx):
         raise ValueError(
-            f"match_berm_points2Dとtop_original_point_idxの長さが一致しません。"
-            f"match_berm_points2D: {match_berm_points2D}, top_original_point_idx: {top_original_point_idx}"
+            f"berm_ref_point_idxとtop_original_point_idxの長さが一致しません。"
+            f"berm_ref_point_idx: {berm_ref_point_idx}, "
+            f"top_original_point_idx: {top_original_point_idx}"
         )
-    for i, berm_point_2D in enumerate(match_berm_points2D):
-        if berm_point_2D in match_berm_points2D:
-            idx = match_berm_points2D.index(berm_point_2D)
-            top_point3D = top_points3D[top_original_point_idx[idx]]
-            berm_point3D = Point3D(x=berm_point_2D.x, y=berm_point_2D.y, z=top_point3D.z)
-        else:
-            prev_ref_idx = max([j for j in range(len(match_berm_points2D)) if j < i])
-            next_ref_idx = min([j for j in range(len(match_berm_points2D)) if j > i])
-            prev_z = top_points3D[top_original_point_idx[prev_ref_idx]].Z
-            next_z= top_points3D[top_original_point_idx[next_ref_idx]].Z
-            prev_berm_idx = berm_points2D.index(match_berm_points2D[prev_ref_idx])
-            next_berm_idx = berm_points2D.index(match_berm_points2D[next_ref_idx])
-            prev_berm_distance = berm_points_distances[prev_berm_idx]
-            next_berm_distance = berm_points_distances[next_berm_idx]
-            this_berm_distance = berm_points_distances[i]
-            ratio = (this_berm_distance - prev_berm_distance) / (next_berm_distance - prev_berm_distance)
-            berm_z = prev_z + ratio * (next_z - prev_z)
-            berm_point3D = Point3D(x=berm_point_2D.x, y=berm_point_2D.y, z=berm_z)
-        berm_points3D.append(berm_point3D)
+    berm_ref_zs = [
+        top_points3D[top_point_idx].z
+        for top_point_idx in top_original_point_idx
+    ]
+    for i, berm_point_2D in enumerate(berm_points2D):
+        berm_z = get_z_from_ref_points(
+            point_idx=i,
+            ref_point_idx=berm_ref_point_idx,
+            distances=berm_points_distances,
+            ref_zs=berm_ref_zs,
+        )
+        berm_points3D.append(
+            Point3D(
+                x=berm_point_2D.x,
+                y=berm_point_2D.y,
+                z=berm_z,
+            )
+        )
     return top_points3D, bottom_points3D, embed_points3D, berm_points3D
 
 def get_indiv_wall(
